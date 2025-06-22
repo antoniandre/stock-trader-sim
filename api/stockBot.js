@@ -1,7 +1,11 @@
 import axios from 'axios'
 import dotenv from 'dotenv'
-import WebSocket from 'ws'
+import { createRequire } from 'module'
 import express from 'express'
+import { createServer } from 'http'
+
+const require = createRequire(import.meta.url)
+const WebSocket = require('ws')
 
 dotenv.config()
 
@@ -21,7 +25,7 @@ const HEADERS = {
 // ===== Config =====
 const watchlist = ['AAPL', 'MSFT', 'TSLA']
 const priceThreshold = 200 // Buy below this price
-const intervalMs = 60_000 // 1 minute
+const intervalMs = 1_000 // 1 second for demo
 
 // ===== Simulation state =====
 const isSim = SIMULATION === 'true'
@@ -34,11 +38,19 @@ const mockPrices = {
   TSLA: 245.80
 }
 
+// ===== WebSocket clients for real-time updates =====
+const wsClients = new Set()
+
 // ===== Helpers =====
 async function getPrice (symbol) {
   // Use mock data if no API credentials
   if (!ALPACA_KEY || ALPACA_KEY === 'your_key') {
-    return mockPrices[symbol] + (Math.random() - 0.5) * 10
+    // Add more realistic price movement with trends
+    const basePrice = mockPrices[symbol]
+    const timeVariation = Math.sin(Date.now() / 10000) * 0.02 // Slow trend
+    const randomVariation = (Math.random() - 0.5) * 0.01 // Small random movement
+    const newPrice = basePrice * (1 + timeVariation + randomVariation)
+    return Math.max(newPrice, basePrice * 0.95) // Don't go below 95% of base price
   }
 
   const url = `https://data.alpaca.markets/v2/stocks/${symbol}/quotes/latest`
@@ -58,6 +70,15 @@ async function recordSimTrade (symbol, qty, side, price) {
   if (side === 'buy') portfolio[symbol].qty += qty
   else if (side === 'sell') portfolio[symbol].qty -= qty
   portfolio[symbol].history.push({ side, qty, price, timestamp })
+
+  // Broadcast trade to all connected clients
+  const tradeData = { type: 'trade', side, symbol, qty, price, timestamp }
+  wsClients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(tradeData))
+    }
+  })
+
   return { simulated: true, side, symbol, qty, price, timestamp }
 }
 
@@ -80,7 +101,8 @@ async function placeOrder (symbol, qty, side) {
     const { data } = await axios.post(`${ALPACA_BASE_URL}/v2/orders`, order, { headers: HEADERS })
     console.log(`✅ ${side.toUpperCase()} ${qty} ${symbol} @ ${new Date().toLocaleTimeString()}`)
     return data
-  } catch (e) {
+  }
+  catch (e) {
     console.error(`❌ Order error for ${symbol}:`, e.response?.data || e.message)
   }
 }
@@ -91,7 +113,28 @@ async function pollPrices () {
     const price = await getPrice(symbol)
     if (!price) continue
     console.log(`📊 ${symbol}: $${price.toFixed(2)}`)
-    if (price < priceThreshold) await placeOrder(symbol, 1, 'buy')
+
+    // Broadcast price update to all connected clients
+    const priceData = { type: 'price', symbol, price, timestamp: new Date().toISOString() }
+    wsClients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(priceData))
+      }
+    })
+
+    // More frequent trading for demo - buy on price dips, sell on peaks
+    const currentPrice = price
+    const basePrice = mockPrices[symbol]
+    const priceRatio = currentPrice / basePrice
+
+    if (priceRatio < 0.98) {
+      // Buy when price is 2% below base
+      await placeOrder(symbol, 1, 'buy')
+    }
+    else if (priceRatio > 1.02 && portfolio[symbol]?.qty > 0) {
+      // Sell when price is 2% above base and we have shares
+      await placeOrder(symbol, 1, 'sell')
+    }
   }
 }
 
@@ -105,7 +148,7 @@ if (isSim || !ALPACA_KEY || ALPACA_KEY === 'your_key') {
 function connectStream () {
   // Skip WebSocket if no API credentials
   if (!ALPACA_KEY || ALPACA_KEY === 'your_key') {
-    console.log('⚠️ Skipping WebSocket connection - no API credentials')
+    console.log('⚠️ Skipping Alpaca WebSocket connection - no API credentials')
     return
   }
 
@@ -122,7 +165,8 @@ function connectStream () {
         const { S, ap } = m
         console.log(`⚡ Live Quote ${S}: $${ap}`)
         if (ap && ap < priceThreshold) await placeOrder(S, 1, 'buy')
-      } else if (m.T === 'success' && m.msg === 'authenticated') {
+      }
+      else if (m.T === 'success' && m.msg === 'authenticated') {
         ws.send(JSON.stringify({ action: 'subscribe', quotes: watchlist }))
       }
     }
@@ -163,10 +207,46 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', simulation: isSim, timestamp: new Date().toISOString() })
 })
 
+// ===== Create HTTP server and WebSocket server =====
+const server = createServer(app)
+
+// Mock WebSocket server for real-time updates
+const wss = new WebSocket.Server({ server })
+
+wss.on('connection', (ws) => {
+  console.log('🔌 New WebSocket client connected')
+  wsClients.add(ws)
+
+  // Send initial portfolio data
+  const stocks = Object.entries(portfolio).map(([symbol, val]) => {
+    const last = val.history.at(-1) || {}
+    return { symbol, price: last.price || 0, lastSide: last.side || 'buy' }
+  })
+  const history = []
+  for (const sym in portfolio) history.push(...portfolio[sym].history.map(h => ({ ...h, symbol: sym })))
+
+  ws.send(JSON.stringify({
+    type: 'init',
+    data: { stocks, history }
+  }))
+
+  ws.on('close', () => {
+    console.log('🔌 WebSocket client disconnected')
+    wsClients.delete(ws)
+  })
+
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error)
+    wsClients.delete(ws)
+  })
+})
+
 const PORT = process.env.PORT || 3000
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🌐 API running on port ${PORT}`)
+  console.log(`🔌 WebSocket server running on ws://localhost:${PORT}`)
   console.log(`🧪 Simulation mode: ${isSim}`)
+  console.log(`⚡ Demo mode: New data every ${intervalMs/1000} second`)
   if (!ALPACA_KEY || ALPACA_KEY === 'your_key') {
     console.log('⚠️ Using mock data - set ALPACA_KEY and ALPACA_SECRET for real data')
   }
