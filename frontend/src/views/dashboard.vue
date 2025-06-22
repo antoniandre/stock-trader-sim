@@ -21,7 +21,7 @@
       span.text-sm(:class="wsConnected ? 'text-green-700' : 'text-yellow-700'")
         | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
 
-    .grid.gap-4.mb-4(class="md:grid-cols-3")
+    .grid.gap-4.mb-6(class="md:grid-cols-3")
       ticker-card(
         v-for="stock in stocks"
         :key="stock.symbol"
@@ -29,13 +29,17 @@
         :price="stock.price"
         :lastSide="stock.lastSide"
       )
-    portfolio-chart(:history="history" :key="history.length")
+
+    .grid.gap-6(class="lg:grid-cols-2")
+      portfolio-chart(:history="history")
+      trade-history(:history="history")
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import TickerCard from '@/components/ticker-card.vue'
 import PortfolioChart from '@/components/portfolio-chart.vue'
+import TradeHistory from '@/components/trade-history.vue'
 import { fetchPortfolio } from '@/api'
 
 const stocks = ref([])
