@@ -1,0 +1,18 @@
+{
+  "name": "stock-trader-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node stockBot.js",
+    "dev": "nodemon stockBot.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.1",
+    "express": "^4.19.2",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
