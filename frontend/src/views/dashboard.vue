@@ -10,11 +10,12 @@
   //- Error State
   .bg-red-50.border.border-red-200.rounded-lg.p-4(v-else-if="error")
     p.text-red-800 {{ error }}
-    button.mt-2.text-red-600.hover:text-red-800.underline(@click="load") Try again
+    button.mt-2.text-red-600.underline(class="hover:text-red-800" @click="load")
+      | Try again
 
   //- Content
   div(v-else)
-    .grid.md:grid-cols-3.gap-4
+    .grid.gap-4(class="md:grid-cols-3")
       ticker-card(
         v-for="stock in stocks"
         :key="stock.symbol"
