@@ -1,23 +1,23 @@
 <template lang="pug">
-.bg-white.rounded-2xl.shadow-lg.p-6
-  h3.text-lg.font-bold.mb-4 Trade History
-  .overflow-y-auto(style="max-height: 24rem;")
+.bg-gray-800.rounded-lg.shadow-md.p-4.border.border-gray-700(class="sm:p-6")
+  h3.text-lg.font-bold.text-white.mb-4 Trade History
+  .overflow-y-auto.h-96
     ul.space-y-2(v-if="reversedHistory.length > 0")
-      li.grid.grid-cols-4.gap-4.p-2.rounded-lg.text-sm(
-        v-for="(trade, index) in reversedHistory"
+      li.grid.grid-cols-4.gap-2.p-2.rounded-md.text-sm.items-center(
+        v-for="trade in reversedHistory"
         :key="trade.timestamp + trade.symbol"
-        :class="trade.side === 'buy' ? 'bg-green-50' : 'bg-red-50'"
+        class="hover:bg-gray-700"
       )
         div
-          span.font-bold {{ trade.symbol }}
+          span.font-bold.text-white {{ trade.symbol }}
         div
-          span.font-semibold(:class="trade.side === 'buy' ? 'text-green-600' : 'text-red-600'")
+          span.font-semibold(:class="trade.side === 'buy' ? 'text-green-400' : 'text-red-400'")
             | {{ trade.side.toUpperCase() }}
-        div
+        div.text-gray-200
           span {{ trade.qty }} @ ${{ trade.price.toFixed(2) }}
-        div.text-right.text-gray-500
+        div.text-right.text-gray-400
           | {{ new Date(trade.timestamp).toLocaleTimeString() }}
-    .text-center.py-10.text-gray-500(v-else)
+    .flex.items-center.justify-center.h-full.text-gray-500(v-else)
       p No trades yet.
 </template>
 

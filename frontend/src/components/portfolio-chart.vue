@@ -1,7 +1,7 @@
 <template lang="pug">
-.bg-white.rounded-2xl.shadow-lg.p-6
-  h3.text-lg.font-bold.mb-4 Portfolio Performance
-  .h-64
+.bg-gray-800.rounded-lg.shadow-md.p-4.border.border-gray-700(class="sm:p-6")
+  h3.text-lg.font-bold.text-white.mb-4 Portfolio Performance
+  .h-96
     Line(ref="chartRef" :data="chartData" :options="chartOptions")
 </template>
 
@@ -42,16 +42,27 @@ const chartData = computed(() => {
     return totalValue.toFixed(2)
   })
 
+  // Create gradient
+  const chartEl = chartRef.value?.chart
+  let gradient = null
+  if (chartEl) {
+    const ctx = chartEl.ctx
+    gradient = ctx.createLinearGradient(0, 0, 0, 400)
+    gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)')
+    gradient.addColorStop(1, 'rgba(59, 130, 246, 0)')
+  }
+
   return {
     labels,
     datasets: [{
       label: 'Portfolio Value',
       data: dataPoints,
-      borderColor: 'rgb(59, 130, 246)',
-      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+      borderColor: '#3B82F6',
+      backgroundColor: gradient || 'rgba(59, 130, 246, 0.1)',
       borderWidth: 2,
       fill: 'start',
-      tension: 0.1
+      tension: 0.4,
+      pointRadius: 0
     }]
   }
 })
@@ -65,7 +76,21 @@ const chartOptions = {
   },
   scales: {
     y: {
-      beginAtZero: false
+      beginAtZero: false,
+      grid: {
+        color: 'rgba(255, 255, 255, 0.05)'
+      },
+      ticks: {
+        color: '#C9D1D9'
+      }
+    },
+    x: {
+      grid: {
+        display: false
+      },
+      ticks: {
+        color: '#C9D1D9'
+      }
     }
   }
 }

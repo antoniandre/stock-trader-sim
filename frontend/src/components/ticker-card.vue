@@ -1,18 +1,19 @@
 <template lang="pug">
-.bg-white.rounded-2xl.shadow-lg.p-4.flex.justify-between.items-center
+.bg-gray-800.rounded-lg.shadow-md.p-4.border.border-gray-700.flex.justify-between.items-center
   div
-    h2.text-lg.font-bold {{ symbol }}
-    p.text-gray-600.text-sm ${{ price.toFixed(2) }}
-  span.text-xs.px-2.py-1.rounded(:class="sideClass") {{ lastSide.toUpperCase() }}
+    span.text-xl.font-bold.text-white {{ symbol }}
+    p.text-gray-400.text-sm Stock
+  div.text-right
+    p.text-2xl.font-semibold.text-white ${{ price.toFixed(2) }}
+    span.px-2.py-1.rounded-full.text-xs.font-bold(
+      :class="lastSide === 'buy' ? 'text-green-300 bg-green-900 bg-opacity-50' : 'text-red-300 bg-red-900 bg-opacity-50'"
+    ) {{ lastSide.toUpperCase() }}
 </template>
 
 <script setup>
-import { computed } from 'vue'
-
-const props = defineProps(['symbol', 'price', 'lastSide'])
-const sideClass = computed(() =>
-  props.lastSide === 'buy'
-    ? 'text-green-600 bg-green-50'
-    : 'text-red-600 bg-red-50'
-)
+defineProps({
+  symbol: String,
+  price: Number,
+  lastSide: String
+})
 </script>
