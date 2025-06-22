@@ -3,9 +3,10 @@
   //- Logo
   .flex.items-center.justify-center.h-20.border-b.border-gray-700
     .flex.items-center
-      //- You can replace this with a proper logo SVG
-      .w-8.h-8.bg-purple-500.rounded-full.mr-3
-      span.text-2xl.font-bold.text-white CrypToc
+      //- Logo SVG
+      svg.w-8.h-8.text-purple-500.mr-3(xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2")
+        path(stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6")
+      span.text-2xl.font-bold.text-white Dashboard
 
   //- Navigation
   nav.flex-1.px-4.py-6.space-y-2

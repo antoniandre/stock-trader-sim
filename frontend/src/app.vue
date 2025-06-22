@@ -1,7 +1,10 @@
 <template lang="pug">
-dashboard
+.flex.h-screen
+  sidebar
+  main.flex-1.overflow-y-auto
+    router-view
 </template>
 
 <script setup>
-import Dashboard from './views/dashboard.vue'
+import Sidebar from '@/components/sidebar.vue'
 </script>
