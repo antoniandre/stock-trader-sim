@@ -27,14 +27,28 @@ const intervalMs = 60_000 // 1 minute
 const isSim = SIMULATION === 'true'
 const portfolio = {} // { symbol: { qty, history: [{ side, qty, price, timestamp }] } }
 
+// ===== Mock data for demo =====
+const mockPrices = {
+  AAPL: 175.50,
+  MSFT: 420.30,
+  TSLA: 245.80
+}
+
 // ===== Helpers =====
 async function getPrice (symbol) {
+  // Use mock data if no API credentials
+  if (!ALPACA_KEY || ALPACA_KEY === 'your_key') {
+    return mockPrices[symbol] + (Math.random() - 0.5) * 10
+  }
+
   const url = `https://data.alpaca.markets/v2/stocks/${symbol}/quotes/latest`
   try {
     const { data } = await axios.get(url, { headers: HEADERS })
     return data.quote?.ap
   } catch (e) {
     console.error(`❌ Error fetching ${symbol}:`, e.response?.data || e.message)
+    // Fallback to mock data
+    return mockPrices[symbol] + (Math.random() - 0.5) * 10
   }
 }
 
@@ -51,7 +65,7 @@ async function placeOrder (symbol, qty, side) {
   if (isSim) {
     const price = await getPrice(symbol)
     if (!price) return
-    console.log(`🧪 [SIM] ${side.toUpperCase()} ${qty} ${symbol} @ $${price}`)
+    console.log(`🧪 [SIM] ${side.toUpperCase()} ${qty} ${symbol} @ $${price.toFixed(2)}`)
     return recordSimTrade(symbol, qty, side, price)
   }
 
@@ -76,16 +90,25 @@ async function pollPrices () {
   for (const symbol of watchlist) {
     const price = await getPrice(symbol)
     if (!price) continue
-    console.log(`📊 ${symbol}: $${price}`)
+    console.log(`📊 ${symbol}: $${price.toFixed(2)}`)
     if (price < priceThreshold) await placeOrder(symbol, 1, 'buy')
   }
 }
 
-setInterval(pollPrices, intervalMs)
-pollPrices()
+// Only start polling if we have API credentials or in simulation mode
+if (isSim || !ALPACA_KEY || ALPACA_KEY === 'your_key') {
+  setInterval(pollPrices, intervalMs)
+  pollPrices()
+}
 
 // ===== WebSocket streaming =====
 function connectStream () {
+  // Skip WebSocket if no API credentials
+  if (!ALPACA_KEY || ALPACA_KEY === 'your_key') {
+    console.log('⚠️ Skipping WebSocket connection - no API credentials')
+    return
+  }
+
   const ws = new WebSocket(ALPACA_DATA_STREAM)
   ws.on('open', () => {
     console.log('📡 Connected to Alpaca stream')
@@ -118,6 +141,13 @@ connectStream()
 // ===== Express API for dashboard =====
 const app = express()
 
+// Add CORS headers
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*')
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept')
+  next()
+})
+
 app.get('/sim/portfolio', (req, res) => {
   const stocks = Object.entries(portfolio).map(([symbol, val]) => {
     const last = val.history.at(-1) || {}
@@ -128,5 +158,16 @@ app.get('/sim/portfolio', (req, res) => {
   res.json({ stocks, history })
 })
 
+// Add health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', simulation: isSim, timestamp: new Date().toISOString() })
+})
+
 const PORT = process.env.PORT || 3000
-app.listen(PORT, () => console.log(`🌐 API running on port ${PORT}`))
+app.listen(PORT, () => {
+  console.log(`🌐 API running on port ${PORT}`)
+  console.log(`🧪 Simulation mode: ${isSim}`)
+  if (!ALPACA_KEY || ALPACA_KEY === 'your_key') {
+    console.log('⚠️ Using mock data - set ALPACA_KEY and ALPACA_SECRET for real data')
+  }
+})
