@@ -1,26 +1,27 @@
 <template lang="pug">
-.p-6.space-y-6
-  h1.text-3xl.font-bold Simulated Trading Dashboard
-
-  //- Loading State
-  .text-center.py-8(v-if="loading")
-    .animate-spin.rounded-full.h-8.w-8.border-b-2.border-blue-600.mx-auto
-    p.mt-2.text-gray-600 Loading portfolio data...
-
-  //- Error State
-  .bg-red-50.border.border-red-200.rounded-lg.p-4(v-else-if="error")
-    p.text-red-800 {{ error }}
-    button.mt-2.text-red-600.underline(class="hover:text-red-800" @click="connectWebSocket")
-      | Try again
-
-  //- Content
-  div(v-else)
-    //- Connection Status
-    .flex.items-center.gap-2.mb-4
+.p-4.sm:p-6.lg:p-8
+  //- Header
+  .mb-8
+    h1.text-3xl.font-bold.text-white Simulated Trading Dashboard
+    .flex.items-center.gap-2.mt-2(v-if="!loading && !error")
       .w-3.h-3.rounded-full(:class="wsConnected ? 'bg-green-500' : 'bg-yellow-500'")
       span.text-sm(:class="wsConnected ? 'text-green-700' : 'text-yellow-700'")
         | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
 
+  //- Loading State
+  .text-center.py-8(v-if="loading")
+    .animate-spin.rounded-full.h-8.w-8.border-b-2.border-blue-400.mx-auto
+    p.mt-2.text-gray-400 Loading portfolio data...
+
+  //- Error State
+  .bg-red-900.bg-opacity-25.border.border-red-500.rounded-lg.p-4(v-else-if="error")
+    p.text-red-300 {{ error }}
+    button.mt-2.text-red-300.underline(class="hover:text-red-200" @click="connectWebSocket")
+      | Try again
+
+  //- Content
+  div(v-else)
+    //- Ticker Cards
     .grid.gap-4.mb-6(class="md:grid-cols-3")
       ticker-card(
         v-for="stock in stocks"
@@ -30,9 +31,12 @@
         :lastSide="stock.lastSide"
       )
 
-    .grid.gap-6(class="lg:grid-cols-2")
-      portfolio-chart(:history="history")
-      trade-history(:history="history")
+    //- Main Panels
+    .grid.gap-6(class="lg:grid-cols-5")
+      .lg:col-span-3
+        portfolio-chart(:history="history")
+      .lg:col-span-2
+        trade-history(:history="history")
 </template>
 
 <script setup>

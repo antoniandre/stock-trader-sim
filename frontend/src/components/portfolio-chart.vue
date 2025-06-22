@@ -1,8 +1,12 @@
 <template lang="pug">
-.bg-gray-800.rounded-lg.shadow-md.p-4.border.border-gray-700(class="sm:p-6")
-  h3.text-lg.font-bold.text-white.mb-4 Portfolio Performance
-  .h-96
-    Line(ref="chartRef" :data="chartData" :options="chartOptions")
+.relative.bg-gray-800.rounded-xl.shadow-lg.p-6.border.border-gray-700.overflow-hidden
+  //- Glow effect
+  .absolute.bottom-0.right-0.translate-x-1-4.translate-y-1-4.w-48.h-48.bg-blue-500.opacity-20.blur-3xl
+
+  .relative.z-10
+    h3.text-xl.font-bold.text-white.mb-4 Portfolio Performance
+    .h-96
+      Line(ref="chartRef" :data="chartData" :options="chartOptions")
 </template>
 
 <script setup>
