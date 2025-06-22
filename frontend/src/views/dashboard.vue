@@ -1,5 +1,5 @@
 <template lang="pug">
-.p-4.sm:p-6.lg:p-8
+.p-4(class="sm:p-6 lg:p-8")
   //- Header
   .mb-8
     h1.text-3xl.font-bold.text-white Simulated Trading Dashboard
@@ -33,9 +33,9 @@
 
     //- Main Panels
     .grid.gap-6(class="lg:grid-cols-5")
-      .lg:col-span-3
+      div(class="lg:col-span-3")
         portfolio-chart(:history="history")
-      .lg:col-span-2
+      div(class="lg:col-span-2")
         trade-history(:history="history")
 </template>
 
