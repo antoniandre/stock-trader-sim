@@ -1,190 +1,211 @@
-# 🚀 Stock Trader Simulation
+# Stock Trading Simulator
 
-A real-time stock trading simulation app with live market data integration and a beautiful Vue.js dashboard.
+A real-time stock trading application with live market data integration using Alpaca API and WebSocket streaming.
 
-## 📁 Project Structure
+## 🚀 Features
 
-```
-stock-trader-sim/
-├── api/                 # Node.js backend (trading bot + REST API)
-│   ├── stockBot.js     # Main trading logic with Alpaca integration
-│   ├── package.json    # Backend dependencies
-│   └── .env           # Environment configuration
-└── frontend/           # Vue 3 frontend dashboard
-    ├── src/
-    │   ├── views/Dashboard.vue
-    │   ├── components/TickerCard.vue
-    │   ├── components/PortfolioChart.vue
-    │   └── api/index.js
-    └── package.json    # Frontend dependencies
-```
+- **Real-time Market Data**: Live stock prices via Alpaca WebSocket streaming
+- **Trading Interface**: Buy/sell orders with portfolio tracking
+- **Simulation Mode**: Mock trading with realistic price movements
+- **Live Mode**: Real trading with Alpaca API integration
+- **WebSocket Updates**: Real-time frontend updates
+- **Clean Architecture**: Modular, scalable codebase
 
-## 🛠️ Prerequisites
+## 🏗️ Architecture
 
-- **Node.js** >= 18
-- **pnpm** package manager
-- **Alpaca API credentials** (optional - app works with mock data)
+### Backend (`api/`)
+- **Express.js** server with REST API endpoints
+- **WebSocket** server for real-time communication
+- **Alpaca API** integration for live trading
+- **State Management** with centralized data store
+- **Error Handling** with graceful fallbacks
 
-## 🚀 Quick Start
+### Frontend (`frontend/`)
+- **Vue 3** with Composition API
+- **Tailwind CSS** for styling
+- **WebSocket** client for real-time updates
+- **Responsive Design** with dark theme
 
-### 1. Install Dependencies
+## 📋 Prerequisites
+
+- Node.js 18+
+- pnpm (recommended) or npm
+- Alpaca API account (for live trading)
+
+## 🛠️ Setup
+
+### 1. Clone and Install
 
 ```bash
-# Backend
+git clone <repository-url>
+cd stock-trader-sim
+```
+
+### 2. Backend Setup
+
+```bash
 cd api
 pnpm install
+```
 
-# Frontend
-cd ../frontend
+Create `.env` file:
+```env
+# Alpaca API Configuration
+ALPACA_KEY=your_api_key_here
+ALPACA_SECRET=your_api_secret_here
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
+ALPACA_DATA_STREAM=wss://stream.data.alpaca.markets/v2/iex
+
+# Application Mode
+SIMULATION=false
+
+# Server Configuration (optional)
+PORT=3000
+```
+
+### 3. Frontend Setup
+
+```bash
+cd frontend
 pnpm install
 ```
 
-### 2. Configure Environment (Optional)
+### 4. Start Development
 
-For real market data, get free API credentials from [Alpaca Markets](https://alpaca.markets/):
-
+**Terminal 1 - Backend:**
 ```bash
-cd api
-cp .env.example .env
-# Edit .env with your Alpaca credentials
-```
-
-**Note:** The app works perfectly with mock data if you don't have API credentials!
-
-### 3. Start the Application
-
-```bash
-# Terminal 1: Start backend API
 cd api
 pnpm dev
+```
 
-# Terminal 2: Start frontend dashboard
+**Terminal 2 - Frontend:**
+```bash
 cd frontend
 pnpm dev
 ```
 
-### 4. Open the Dashboard
-
-Visit [http://localhost:5173](http://localhost:5173) to see your trading dashboard! 🎉
-
-## 🎯 Features
-
-### Backend (Node.js)
-- **Real-time stock data** from Alpaca Markets API
-- **Automated trading bot** with configurable strategies
-- **WebSocket streaming** for live price updates
-- **REST API** for dashboard integration
-- **Simulation mode** with mock data
-- **Portfolio tracking** and trade history
-
-### Frontend (Vue 3)
-- **Real-time dashboard** with live updates
-- **Stock ticker cards** showing current prices
-- **Interactive charts** using Chart.js
-- **Responsive design** with TailwindCSS
-- **Error handling** and loading states
-
 ## 🔧 Configuration
-
-### Trading Strategy
-
-Edit `api/stockBot.js` to customize your trading strategy:
-
-```javascript
-const watchlist = ['AAPL', 'MSFT', 'TSLA']  // Stocks to monitor
-const priceThreshold = 200                  // Buy below this price
-const intervalMs = 60_000                   // Check every minute
-```
 
 ### Environment Variables
 
-```bash
-# api/.env
-ALPACA_KEY=your_key                    # Alpaca API key
-ALPACA_SECRET=your_secret              # Alpaca API secret
-ALPACA_BASE_URL=https://paper-api.alpaca.markets
-ALPACA_DATA_STREAM=wss://stream.data.alpaca.markets/v2/iex
-SIMULATION=true                        # Enable simulation mode
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ALPACA_KEY` | Your Alpaca API key | Required |
+| `ALPACA_SECRET` | Your Alpaca API secret | Required |
+| `ALPACA_BASE_URL` | Alpaca trading API URL | `https://api.alpaca.markets` |
+| `ALPACA_DATA_STREAM` | Alpaca WebSocket URL | `wss://stream.data.alpaca.markets/v2/iex` |
+| `SIMULATION` | Enable simulation mode | `false` |
+| `PORT` | Server port | `3000` |
+
+### Trading Modes
+
+#### Simulation Mode (`SIMULATION=true`)
+- Uses mock data with realistic price movements
+- No real money involved
+- Perfect for testing and development
+- Runs every 5 seconds with demo trading logic
+
+#### Live Mode (`SIMULATION=false`)
+- Connects to Alpaca WebSocket for real-time data
+- Real trading capabilities
+- Requires valid Alpaca API credentials
+- Supports paper trading and live trading
+
+## 📡 API Endpoints
+
+### REST API
+- `GET /api/portfolio` - Get current portfolio and trade history
+- `GET /api/health` - Health check with connection status
+
+### WebSocket Events
+- `market-update` - Stock price updates
+- `trade` - Trade execution notifications
+- `price` - Individual price updates
+
+## 🏛️ Project Structure
+
+```
+stock-trader-sim/
+├── api/
+│   ├── stockBot.js          # Main server with WebSocket and API
+│   ├── package.json
+│   └── .env                 # Environment configuration
+├── frontend/
+│   ├── src/
+│   │   ├── views/
+│   │   │   └── dashboard.vue # Main trading interface
+│   │   ├── components/
+│   │   │   ├── ticker-card.vue
+│   │   │   ├── portfolio-chart.vue
+│   │   │   └── trade-history.vue
+│   │   └── api/
+│   │       └── index.js     # API client
+│   └── package.json
+└── README.md
 ```
 
-## 🐛 Troubleshooting
+## 🔄 Data Flow
 
-### Backend Issues
+1. **Market Data**: Alpaca WebSocket → Backend → Frontend
+2. **Trading**: Frontend → Backend → Alpaca API → Portfolio Update
+3. **Real-time Updates**: WebSocket broadcasts to all connected clients
 
-1. **Port 3000 already in use:**
-   ```bash
-   lsof -ti:3000 | xargs kill -9
-   ```
+## 🚨 Error Handling
 
-2. **API credentials not working:**
-   - The app automatically falls back to mock data
-   - Check your Alpaca API credentials
-   - Ensure you're using paper trading endpoints
+- **WebSocket Disconnection**: Automatic reconnection every 5 seconds
+- **API Failures**: Graceful fallback to mock data
+- **Rate Limiting**: Handled with exponential backoff
+- **Invalid Orders**: Proper error responses
 
-3. **WebSocket connection issues:**
-   - Normal if no API credentials are set
-   - Check network connectivity
-   - Verify Alpaca stream URL
+## 🔒 Security
 
-### Frontend Issues
+- Environment variables for sensitive data
+- CORS configuration for development
+- Input validation on all endpoints
+- No hardcoded credentials
 
-1. **Port 5173 already in use:**
-   ```bash
-   lsof -ti:5173 | xargs kill -9
-   ```
+## 🧪 Testing
 
-2. **Import errors:**
-   - Ensure all dependencies are installed: `pnpm install`
-   - Check that Vite config has proper path aliases
+### Simulation Mode
+Perfect for testing without real money:
+```bash
+# Set in .env
+SIMULATION=true
+```
 
-3. **Chart not displaying:**
-   - Verify Chart.js and vue-chartjs are installed
-   - Check browser console for errors
+### Live Mode Testing
+Use Alpaca's paper trading environment:
+```bash
+# Set in .env
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
+SIMULATION=false
+```
 
-## 📊 API Endpoints
+## 📈 Scaling Considerations
 
-- `GET /health` - Health check
-- `GET /sim/portfolio` - Portfolio data and trade history
+The current architecture supports scaling through:
 
-## 🎨 Customization
+- **Modular Design**: Easy to add new features
+- **State Management**: Centralized data store
+- **WebSocket Efficiency**: Real-time updates without polling
+- **Error Resilience**: Graceful degradation
+- **Configuration**: Environment-based settings
 
-### Adding New Stocks
+## 🤝 Contributing
 
-1. Update `watchlist` in `api/stockBot.js`
-2. Add mock prices in `mockPrices` object
-3. Restart the backend
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
-### Styling
+## 📄 License
 
-The frontend uses TailwindCSS. Customize styles in:
-- `frontend/src/index.css`
-- Component template classes
+This project is licensed under the MIT License.
 
-### Trading Logic
+## ⚠️ Disclaimer
 
-Modify the trading strategy in `api/stockBot.js`:
-- Change `priceThreshold` for different buy/sell triggers
-- Adjust `intervalMs` for different polling frequencies
-- Add new technical indicators
-
-## 🔒 Security Notes
-
-- Never commit your `.env` file with real API credentials
-- Use paper trading for testing
-- The app includes CORS headers for development
-
-## 🚀 Next Steps
-
-1. **Add more stocks** to your watchlist
-2. **Implement advanced trading strategies** (moving averages, RSI, etc.)
-3. **Add user authentication** and multiple portfolios
-4. **Create mobile app** using the same API
-5. **Add real-time notifications** for trades
-6. **Implement backtesting** for strategy validation
-
-## 📝 License
-
-MIT License - feel free to use this for learning and personal projects!
+This is a trading application for educational purposes. Always test thoroughly before using with real money. The authors are not responsible for any financial losses.
 
 ---
 
