@@ -29,6 +29,7 @@ const HEADERS = {
 const state = {
   portfolio: {}, // { symbol: { qty, history: [{ side, qty, price, timestamp }] } }
   stockPrices: {}, // { symbol: price }
+  allStocks: [], // Array of all tradable stocks
   wsClients: new Set(),
   alpacaWebSocket: null
 }
@@ -37,8 +38,27 @@ const state = {
 const mockPrices = {
   AAPL: 175.50,
   MSFT: 420.30,
-  TSLA: 245.80
+  TSLA: 245.80,
+  GOOGL: 2800.00,
+  AMZN: 3500.00,
+  META: 380.00,
+  NVDA: 950.00,
+  NFLX: 650.00,
+  AMD: 180.00,
+  INTC: 45.00,
+  ORCL: 140.00,
+  CRM: 250.00,
+  ADBE: 580.00,
+  PYPL: 220.00,
+  SQ: 180.00
 }
+
+// Popular stocks for simulation
+const popularStocks = [
+  'AAPL', 'MSFT', 'TSLA', 'GOOGL', 'AMZN', 'META', 'NVDA', 'NFLX',
+  'AMD', 'INTC', 'ORCL', 'CRM', 'ADBE', 'PYPL', 'SQ', 'UBER',
+  'LYFT', 'SPOT', 'ZM', 'SHOP', 'TWTR', 'SNAP', 'PINS', 'ROKU'
+]
 
 // ===== WebSocket Management =====
 function broadcast(data) {
@@ -46,6 +66,61 @@ function broadcast(data) {
   state.wsClients.forEach(client => {
     if (client.readyState === 1) client.send(message) // WebSocket.OPEN
   })
+}
+
+// ===== Stock Data Management =====
+async function getAllTradableStocks() {
+  if (state.allStocks.length > 0) {
+    return state.allStocks
+  }
+
+  if (isSim) {
+    // In simulation, use popular stocks
+    state.allStocks = popularStocks.map(symbol => ({
+      symbol,
+      name: symbol,
+      exchange: 'NASDAQ',
+      status: 'active',
+      tradable: true
+    }))
+    return state.allStocks
+  }
+
+  try {
+    console.log('📊 Fetching all tradable stocks from Alpaca...')
+    const url = `${ALPACA_TRADE_API_URL}/v2/assets?status=active&tradable=true&asset_class=us_equity`
+    const { data } = await axios.get(url, { headers: HEADERS })
+
+    // Filter to common stocks (exclude OTC, preferred shares, etc.)
+    state.allStocks = data
+      .filter(asset =>
+        asset.class === 'us_equity' &&
+        asset.exchange !== 'OTC' &&
+        asset.status === 'active' &&
+        asset.tradable
+      )
+      .map(asset => ({
+        symbol: asset.symbol,
+        name: asset.name,
+        exchange: asset.exchange,
+        status: asset.status,
+        tradable: asset.tradable
+      }))
+
+    console.log(`✅ Fetched ${state.allStocks.length} tradable stocks`)
+    return state.allStocks
+  } catch (error) {
+    console.error('❌ Error fetching tradable stocks:', error.message)
+    // Fallback to popular stocks
+    state.allStocks = popularStocks.map(symbol => ({
+      symbol,
+      name: symbol,
+      exchange: 'NASDAQ',
+      status: 'active',
+      tradable: true
+    }))
+    return state.allStocks
+  }
 }
 
 // ===== Alpaca WebSocket Streaming =====
@@ -74,9 +149,10 @@ function connectAlpacaWebSocket() {
         if (message.T === 'success' && message.msg === 'authenticated') {
           console.log('✅ Authenticated with Alpaca WebSocket')
 
+          // Subscribe to popular stocks
           const subscribeMessage = {
             action: 'subscribe',
-            trades: ['AAPL', 'MSFT', 'TSLA', 'GOOGL', 'AMZN', 'META', 'NVDA', 'NFLX']
+            trades: popularStocks
           }
           state.alpacaWebSocket.send(JSON.stringify(subscribeMessage))
         }
@@ -149,7 +225,6 @@ async function recordTrade(symbol, qty, side, price) {
   if (side === 'buy') state.portfolio[symbol].qty += qty
   else if (side === 'sell') state.portfolio[symbol].qty -= qty
 
-
   state.portfolio[symbol].history.push({ side, qty, price, timestamp })
 
   // Broadcast trade to frontend
@@ -195,15 +270,31 @@ async function placeOrder(symbol, qty, side) {
 
 // ===== Simulation Mode =====
 async function runSimulation() {
-  const symbols = ['AAPL', 'MSFT', 'TSLA']
+  // Update prices for all stocks in simulation
+  for (const stock of state.allStocks) {
+    const price = await getPrice(stock.symbol)
+    if (price > 0) {
+      state.stockPrices[stock.symbol] = price
+    }
+  }
 
-  for (const symbol of symbols) {
+  // Broadcast updated prices
+  const priceUpdates = Object.entries(state.stockPrices).map(([symbol, price]) => ({
+    symbol,
+    price,
+    lastSide: 'buy'
+  }))
+
+  broadcast({ type: 'market-update', data: priceUpdates })
+
+  // Simple trading logic for demo (only for a few stocks)
+  const demoStocks = ['AAPL', 'MSFT', 'TSLA']
+  for (const symbol of demoStocks) {
     const price = await getPrice(symbol)
     if (!price) continue
 
     console.log(`📊 ${symbol}: $${price.toFixed(2)}`)
 
-    // Simple trading logic for demo
     const basePrice = mockPrices[symbol]
     const priceRatio = price / basePrice
 
@@ -242,12 +333,28 @@ app.get('/api/portfolio', (req, res) => {
   res.json({ stocks, history })
 })
 
+app.get('/api/stocks', async (req, res) => {
+  try {
+    const stocks = await getAllTradableStocks()
+    const stocksWithPrices = stocks.map(stock => ({
+      ...stock,
+      price: state.stockPrices[stock.symbol] || 0,
+      lastSide: 'buy'
+    }))
+    res.json({ stocks: stocksWithPrices })
+  } catch (error) {
+    console.error('Error fetching stocks:', error)
+    res.status(500).json({ error: 'Failed to fetch stocks' })
+  }
+})
+
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     simulation: isSim,
     timestamp: new Date().toISOString(),
-    connectedClients: state.wsClients.size
+    connectedClients: state.wsClients.size,
+    totalStocks: state.allStocks.length
   })
 })
 
@@ -293,14 +400,17 @@ wss.on('connection', (ws) => {
 // ===== Startup =====
 const PORT = process.env.PORT || 3000
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`🌐 API running on port ${PORT}`)
   console.log(`🔌 WebSocket server running on ws://localhost:${PORT}`)
   console.log(`🧪 Simulation mode: ${isSim}`)
 
+  // Initialize stock data
+  await getAllTradableStocks()
+
   if (isSim) {
-    console.log('⚡ Demo mode: Running simulation every 5 seconds')
-    setInterval(runSimulation, 5000)
+    console.log('⚡ Demo mode: Running simulation every 1 second')
+    setInterval(runSimulation, 1000) // Update every 1 second
   } else {
     console.log('⚡ Live mode: Using Alpaca WebSocket streaming')
     connectAlpacaWebSocket()
