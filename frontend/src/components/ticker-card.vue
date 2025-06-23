@@ -6,9 +6,8 @@
   .relative.z-10
     .flex.justify-between.items-center
       span.text-2xl.font-bold.text-white {{ symbol }}
-      span.px-2.py-1.rounded-full.text-xs.font-bold(
-        :class="lastSide === 'buy' ? 'text-green-300 bg-green-900 bg-opacity-50' : 'text-red-300 bg-red-900 bg-opacity-50'"
-      ) {{ lastSide.toUpperCase() }}
+      span.px-2.py-1.rounded-full.text-xs.font-bold(class="lastSide === 'buy' ? 'text-green-300 bg-green-900 bg-opacity-50' : 'text-red-300 bg-red-900 bg-opacity-50'")
+        | {{ lastSide.toUpperCase() }}
 
     p.text-3xl.font-bold.text-white.mt-2 ${{ price.toFixed(2) }}
 

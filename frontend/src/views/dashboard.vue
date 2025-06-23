@@ -43,10 +43,10 @@
       div(class="lg:col-span-5")
         p.text-center.text-gray-500 To see a chart, please implement single-stock selection.
       //- Chart and trade history are hidden for now
-      //- .lg:col-span-3
-      //-   portfolio-chart(:history="history")
-      //- .lg:col-span-2
-      //-   trade-history(:history="history")
+      div(class="lg:col-span-3")
+        portfolio-chart(:history="history")
+      div(class="lg:col-span-2")
+        trade-history(:history="history")
 </template>
 
 <script setup>
@@ -66,9 +66,8 @@ let ws = null
 let pollInterval = null
 
 const filteredStocks = computed(() => {
-  if (!searchQuery.value) {
-    return stocks.value.slice(0, 100); // Show first 100 by default
-  }
+  if (!searchQuery.value) return stocks.value.slice(0, 100) // Show first 100 by default
+
   return stocks.value.filter(stock =>
     stock.symbol.toLowerCase().includes(searchQuery.value.toLowerCase())
   )
@@ -78,10 +77,11 @@ async function fetchPortfolioFallback() {
   try {
     console.log('📊 Fetching portfolio via REST API...')
     const data = await fetchPortfolio()
-    stocks.value = data.stocks
-    history.value = data.history
+    stocks.value = data.stocks || []
+    history.value = data.history || []
     loading.value = false
-  } catch (err) {
+  }
+  catch (err) {
     error.value = 'Failed to load portfolio data. Make sure the API server is running.'
     console.error('Error fetching portfolio:', err)
     loading.value = false
@@ -105,14 +105,21 @@ function connectWebSocket() {
     }
 
     ws.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      if (data.type === 'market-update') {
-        stocks.value = data.data
-      } else if (data.type === 'trade') {
-        history.value = [...history.value, { ...data, symbol: data.symbol }]
-      } else if (data.type === 'price') {
-        const stock = stocks.value.find(s => s.symbol === data.symbol)
-        if (stock) stock.price = data.price
+      try {
+        const data = JSON.parse(event.data)
+        if (data.type === 'market-update') {
+          stocks.value = data.data || []
+        }
+        else if (data.type === 'trade') {
+          history.value = [...history.value, { ...data, symbol: data.symbol }]
+        }
+        else if (data.type === 'price') {
+          const stock = stocks.value.find(s => s.symbol === data.symbol)
+          if (stock) stock.price = data.price
+        }
+      }
+      catch (err) {
+        console.error('Error parsing WebSocket message:', err)
       }
     }
 
@@ -131,7 +138,8 @@ function connectWebSocket() {
       console.log('🔌 WebSocket disconnected')
       wsConnected.value = false
     }
-  } catch (err) {
+  }
+  catch (err) {
     console.error('Failed to create WebSocket:', err)
     error.value = 'Could not connect to the server.'
     loading.value = false
@@ -143,11 +151,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (ws) {
-    ws.close()
-  }
-  if (pollInterval) {
-    clearInterval(pollInterval)
-  }
+  if (ws) ws.close()
+  if (pollInterval) clearInterval(pollInterval)
 })
 </script>
