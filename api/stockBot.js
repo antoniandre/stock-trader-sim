@@ -12,14 +12,14 @@ dotenv.config()
 const {
   ALPACA_KEY,
   ALPACA_SECRET,
-  APCA_API_BASE_URL: customBaseUrl,
+  ALPACA_BASE_URL,
   ALPACA_DATA_STREAM,
   SIMULATION
 } = process.env
 
 // Alpaca has different URLs for trading and for market data
-const ALPACA_TRADE_API_URL = process.env.APCA_API_BASE_URL || 'https://api.alpaca.markets'
-const ALPACA_DATA_API_URL = 'https://data.alpaca.markets' // Data API is always the same
+const ALPACA_TRADE_API_URL = ALPACA_BASE_URL || 'https://api.alpaca.markets'
+const ALPACA_DATA_STREAM_URL = ALPACA_DATA_STREAM || 'wss://stream.data.alpaca.markets/v2/iex'
 
 // Prioritize API keys over simulation flag. If keys exist, it's not a simulation.
 const isSim = !(ALPACA_KEY && ALPACA_KEY !== 'your_key')
@@ -37,6 +37,7 @@ const intervalMs = 1_000 // 1 second for demo
 // ===== Simulation state =====
 let allTradableAssets = [] // Cache for all assets
 const portfolio = {} // { symbol: { qty, history: [{ side, qty, price, timestamp }] } }
+const stockPrices = {} // { symbol: price }
 
 // ===== Mock data for demo =====
 const mockPrices = {
@@ -47,6 +48,7 @@ const mockPrices = {
 
 // ===== WebSocket clients for real-time updates =====
 const wsClients = new Set()
+let alpacaWebSocket = null
 
 function broadcast(data) {
   const message = JSON.stringify(data)
@@ -55,6 +57,75 @@ function broadcast(data) {
       client.send(message)
     }
   })
+}
+
+// ===== Alpaca WebSocket Streaming =====
+function connectAlpacaWebSocket() {
+  if (isSim) return // Only connect in live mode
+
+  try {
+    console.log('🔌 Connecting to Alpaca WebSocket stream...')
+    alpacaWebSocket = new WebSocket(ALPACA_DATA_STREAM_URL)
+
+    alpacaWebSocket.on('open', () => {
+      console.log('✅ Connected to Alpaca WebSocket stream')
+
+      // Subscribe to trade updates for all stocks
+      const authMessage = {
+        action: 'auth',
+        key: ALPACA_KEY,
+        secret: ALPACA_SECRET
+      }
+      alpacaWebSocket.send(JSON.stringify(authMessage))
+    })
+
+    alpacaWebSocket.on('message', (data) => {
+      console.log('🔔 Alpaca WS message:', data)
+      try {
+        const message = JSON.parse(data)
+
+        if (message.T === 'success' && message.msg === 'authenticated') {
+          console.log('✅ Authenticated with Alpaca WebSocket')
+
+          // Subscribe to trade updates for popular stocks
+          const subscribeMessage = {
+            action: 'subscribe',
+            trades: ['AAPL', 'MSFT', 'TSLA', 'GOOGL', 'AMZN', 'META', 'NVDA', 'NFLX']
+          }
+          alpacaWebSocket.send(JSON.stringify(subscribeMessage))
+        }
+
+        if (message.T === 'trade') {
+          // Update stock price
+          const symbol = message.S
+          const price = message.p
+          stockPrices[symbol] = price
+
+          // Broadcast price update to frontend
+          broadcast({
+            type: 'price',
+            symbol,
+            price,
+            timestamp: new Date().toISOString()
+          })
+        }
+      } catch (error) {
+        console.error('❌ Error parsing WebSocket message:', error)
+      }
+    })
+
+    alpacaWebSocket.on('error', (error) => {
+      console.error('❌ Alpaca WebSocket error:', error)
+    })
+
+    alpacaWebSocket.on('close', () => {
+      console.log('🔌 Alpaca WebSocket disconnected, reconnecting in 5 seconds...')
+      setTimeout(connectAlpacaWebSocket, 5000)
+    })
+
+  } catch (error) {
+    console.error('❌ Failed to connect to Alpaca WebSocket:', error)
+  }
 }
 
 // ===== Helpers =====
@@ -70,22 +141,22 @@ async function getAllTradableAssets() {
     console.log(`✅ Fetched ${allTradableAssets.length} tradable US equity assets.`)
     return allTradableAssets
   } catch (e) {
-    console.error(`❌ FATAL: Error fetching tradable assets from Alpaca. Please check your network connection and API keys.`, e.message);
-    return [];
+    console.error(`❌ FATAL: Error fetching tradable assets from Alpaca. Please check your network connection and API keys.`, e.message)
+    return []
   }
 }
 
 async function getLatestTradePrice(symbol) {
   if (!ALPACA_KEY || ALPACA_KEY === 'your_key') {
-    return mockPrices[symbol] || 0;
+    return mockPrices[symbol] || 0
   }
-  const url = `https://data.alpaca.markets/v2/stocks/${symbol}/trades/latest`;
+  const url = `https://data.alpaca.markets/v2/stocks/${symbol}/trades/latest`
   try {
-    const { data } = await axios.get(url, { headers: HEADERS });
-    return data.trade?.p || mockPrices[symbol] || 0;
+    const { data } = await axios.get(url, { headers: HEADERS })
+    return data.trade?.p || mockPrices[symbol] || 0
   } catch (e) {
-    console.error(`❌ Error fetching latest trade for ${symbol}:`, e.message);
-    return mockPrices[symbol] || 0; // Fallback to mock on error
+    console.error(`❌ Error fetching latest trade for ${symbol}:`, e.message)
+    return mockPrices[symbol] || 0 // Fallback to mock on error
   }
 }
 
@@ -100,6 +171,12 @@ async function getPrice (symbol) {
     return Math.max(newPrice, basePrice * 0.95) // Don't go below 95% of base price
   }
 
+  // Use cached price from WebSocket if available
+  if (stockPrices[symbol]) {
+    return stockPrices[symbol]
+  }
+
+  // Fallback to REST API
   const url = `https://data.alpaca.markets/v2/stocks/${symbol}/quotes/latest`
   try {
     const { data } = await axios.get(url, { headers: HEADERS })
@@ -154,7 +231,7 @@ async function placeOrder (symbol, qty, side) {
   }
 }
 
-// ===== Polling =====
+// ===== Polling (for simulation mode only) =====
 async function pollPrices () {
   for (const symbol of watchlist) {
     const price = await getPrice(symbol)
@@ -185,61 +262,6 @@ async function pollPrices () {
   }
 }
 
-async function pollAllStockPrices() {
-  if (isSim) return; // Only run in live mode
-
-  const symbols = await getAllTradableAssets();
-  if (symbols.length === 0) return;
-
-  const chunkSize = 200;
-  let allSnapshots = {};
-
-  for (let i = 0; i < symbols.length; i += chunkSize) {
-    const chunk = symbols.slice(i, i + chunkSize);
-    const url = `${ALPACA_DATA_API_URL}/v2/stocks/snapshots?symbols=${chunk.join(',')}`;
-    try {
-      const { data } = await axios.get(url, { headers: HEADERS });
-      // Merge chunk data into allSnapshots
-      Object.assign(allSnapshots, data);
-    } catch (e) {
-      console.error(`❌ Error fetching price snapshot from Alpaca for chunk starting with ${chunk[0]}.`, e.message)
-    }
-  }
-
-  // Transform the snapshot object into an array of stocks for the frontend
-  const stocksArray = Object.entries(allSnapshots)
-    .map(([symbol, snapshot]) => {
-      if (!snapshot || !snapshot.latestTrade) {
-        return null; // Skip stocks without a recent trade
-      }
-
-      const price = snapshot.latestTrade.p;
-      // Determine trend by comparing to yesterday's close or today's open
-      const lastKnownPrice = snapshot.prevDailyBar ? snapshot.prevDailyBar.c : (snapshot.dailyBar ? snapshot.dailyBar.o : price);
-
-      return {
-        symbol: symbol,
-        price: price,
-        lastSide: price >= lastKnownPrice ? 'buy' : 'sell', // 'buy' for up/stable, 'sell' for down
-      };
-    })
-    .filter(Boolean); // Filter out any null entries
-
-  console.log(`📊 Broadcasting update for ${stocksArray.length} stocks.`);
-  broadcast({ type: 'market-update', data: stocksArray });
-}
-
-setInterval(() => {
-  if (isSim) {
-    pollPrices();
-  } else {
-    pollAllStockPrices();
-  }
-}, isSim ? intervalMs : 5000);
-
-// ===== WebSocket streaming =====
-// The connectStream function is now replaced by the pollAllStockPrices logic.
-
 // ===== Express API for dashboard =====
 const app = express()
 
@@ -268,15 +290,33 @@ app.get('/health', (req, res) => {
 // ===== Create HTTP server and WebSocket server =====
 const server = createServer(app)
 
-// Mock WebSocket server for real-time updates
+// WebSocket server for frontend clients
 const wss = new WebSocket.Server({ server })
 
 wss.on('connection', async (ws) => {
   console.log('🔌 New WebSocket client connected')
   wsClients.add(ws)
 
-  // Initial market data is now sent by the first run of pollAllStockPrices()
-  // No initial message needed here.
+  // Send initial market data
+  if (isSim) {
+    // For simulation, send mock data
+    const mockStocks = watchlist.map(symbol => ({
+      symbol,
+      price: mockPrices[symbol] || 0,
+      lastSide: 'buy'
+    }))
+    broadcast({ type: 'market-update', data: mockStocks })
+  } else {
+    // For live mode, send current stock prices
+    const liveStocks = Object.entries(stockPrices).map(([symbol, price]) => ({
+      symbol,
+      price,
+      lastSide: 'buy'
+    }))
+    if (liveStocks.length > 0) {
+      broadcast({ type: 'market-update', data: liveStocks })
+    }
+  }
 
   ws.on('close', () => {
     console.log('🔌 WebSocket client disconnected')
@@ -294,11 +334,17 @@ server.listen(PORT, () => {
   console.log(`🌐 API running on port ${PORT}`)
   console.log(`🔌 WebSocket server running on ws://localhost:${PORT}`)
   console.log(`🧪 Simulation mode: ${isSim}`)
+
   if (isSim) {
     console.log(`⚡ Demo mode: New data every 1 second`)
+    // Start polling for simulation mode
+    setInterval(pollPrices, intervalMs)
   } else {
-    console.log('⚡ Live mode: Polling all market prices every 5 seconds.')
+    console.log('⚡ Live mode: Using Alpaca WebSocket streaming')
+    // Connect to Alpaca WebSocket for live mode
+    connectAlpacaWebSocket()
   }
+
   if (!ALPACA_KEY || ALPACA_KEY === 'your_key') {
     console.log('⚠️ Using mock data - set ALPACA_KEY and ALPACA_SECRET for real data')
   }
