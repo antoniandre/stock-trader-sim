@@ -167,6 +167,9 @@ function connectWebSocket() {
         const data = JSON.parse(event.data)
 
         if (data.type === 'market-update') {
+          // If stocks.value is empty, initialize it from the incoming data
+          if (!stocks.value.length && data.data?.length) stocks.value = data.data
+
           // Update stock prices
           const priceMap = {}
           data.data.forEach(stock => {
@@ -209,7 +212,8 @@ function connectWebSocket() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await fetchStocks()
   connectWebSocket()
 })
 
