@@ -18,7 +18,7 @@ const {
 const ALPACA_TRADE_API_URL = ALPACA_BASE_URL || 'https://api.alpaca.markets'
 const ALPACA_DATA_STREAM_URL = ALPACA_DATA_STREAM || 'wss://stream.data.alpaca.markets/v2/iex'
 
-const isSim = !ALPACA_KEY || SIMULATION === 'true'
+const isSim = !ALPACA_KEY || (SIMULATION === 'true')
 
 const HEADERS = {
   'APCA-API-KEY-ID': ALPACA_KEY,
