@@ -1,11 +1,13 @@
 <template lang="pug">
-.p-4(class="sm:p-6 lg:p-8")
-  h1.text-3xl.font-bold.text-white.mb-8 Portfolio
-  .grid.gap-6(class="lg:grid-cols-5")
-    div(class="lg:col-span-3")
-      portfolio-chart(:history="history")
-    div(class="lg:col-span-2")
-      trade-history(:history="history")
+.w-space-xl.dark--bg.w-min-h-screen
+  .title1 Portfolio
+  .w-flex.gap4
+    .xs12.sm8
+      w-card(w-shadow.bdrs2 w-bg="dark-2")
+        portfolio-chart(:history="history")
+    .xs12.sm4
+      w-card(w-shadow.bdrs2 w-bg="dark-2")
+        trade-history(:history="history")
 </template>
 
 <script setup>

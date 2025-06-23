@@ -1,7 +1,7 @@
 <template lang="pug">
-.flex.h-screen
-  sidebar
-  main.flex-1.overflow-y-auto
+.w-flex
+  sidebar.grow
+  main.ova.grow.pa4
     router-view
 </template>
 

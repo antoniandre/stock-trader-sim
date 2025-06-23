@@ -1,10 +1,10 @@
 <template lang="pug">
-.relative.bg-gray-800.rounded-xl.shadow-lg.p-6.border.border-gray-700.overflow-hidden
+.relative.grey8--bg.bdrs2.sh2.pa6.bd1.overflow-hidden
   //- Glow effect
-  .absolute.bottom-0.right-0.translate-x-1-4.translate-y-1-4.w-48.h-48.bg-blue-500.opacity-20.blur-3xl
+  .absolute.bottom-0.right-0.blue5--bg.op2.blur-3xl
 
   .relative.z-10
-    h3.text-xl.font-bold.text-white.mb-4 Portfolio Performance
+    h3.text-xl.text-bold.white.mb-4 Portfolio Performance
     .h-96
       Line(ref="chartRef" :data="chartData" :options="chartOptions")
 </template>

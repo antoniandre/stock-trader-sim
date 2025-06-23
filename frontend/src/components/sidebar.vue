@@ -1,37 +1,37 @@
 <template lang="pug">
-.w-64.bg-gray-900.border-r.border-gray-700.flex.flex-col
+.w-flex.column.grey-dark6--bg.no-shrink.no-grow.pa3(style="width: 250px")
   //- Logo
-  .flex.items-center.justify-center.h-20.border-b.border-gray-700
-    .flex.items-center
+  .w-flex.align-center.justify-center.no-grow
+    .w-flex.align-center
       //- Logo SVG
-      svg.w-8.h-8.text-purple-500.mr-3(xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2")
-        path(stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6")
-      span.text-2xl.font-bold.text-white Stock Trader
+      .w-icon.mr3.contrast-o05--bg.w-icon--xl
+        svg.purple(xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2")
+          path(stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6")
+      span.title2.text-bold.white Stock Trader
 
   //- Navigation
-  nav.flex-1.px-4.py-6.space-y-2
-    router-link.flex.items-center.px-4.py-2.rounded-lg.text-gray-200(to="/" class="hover:bg-gray-800" active-class="bg-gray-800")
+  nav.px4.py6.space-y-2.grow
+    router-link.w-flex.align-center.px4.py2.rounded-lg.text-grey-200(to="/" class="hover.grey8--bg" active-class="grey6--bg")
       //- Dashboard Icon
-      .w-6.h-6.mr-3
+      .w-icon.mr3
         svg(xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor")
           path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16")
-      span Dashboard
+      .title3 Dashboard
 
-    router-link.flex.items-center.px-4.py-2.rounded-lg.text-gray-400(to="/trading" class="hover:bg-gray-800 hover:text-white" active-class="bg-gray-800 text-white")
+    router-link.w-flex.align-center.px4.py2.rounded-lg.grey(to="/trading" class="hover.grey8--bg hover:white" active-class="grey6--bg white")
       //- Trading Icon
-      .w-6.h-6.mr-3
+      .w-icon.mr3
         svg(xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor")
           path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4")
-      span Trading
+      .title3 Trading
 
   //- User Profile
-  .px-4.py-4.border-t.border-gray-700
-    .flex.items-center
-      img.h-10.w-10.rounded-full.object-cover(src="https://i.pravatar.cc/100" alt="User Avatar")
-      .ml-3
-        p.text-sm.font-semibold.text-white User
-        p.text-xs.text-gray-400 user@example.com
-
+  .px4.py4.bd1
+    .w-flex.align-center
+      w-image.bdrsr(src="https://i.pravatar.cc/100" alt="User Avatar" width="40")
+      .ml3
+        p.text-bold.white User
+        p.size--sm.grey user@example.com
 </template>
 
 <script setup>

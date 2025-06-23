@@ -1,23 +1,22 @@
 <template lang="pug">
-.p-4(class="sm:p-6 lg:p-8")
-  //- Header
-  .mb-8
-    .flex.items-center.justify-between.gap-4.mt-4
-      h1.text-3xl.font-bold.text-white Stock Trading
+w-grid.gap-xl
+  .w-col-12
+    .w-flex.align-center.justify-between
+      .title1 Stock Trading
       //- Connection Status
-      .flex.items-center.gap-2
-        .w-3.h-3.rounded-full(:class="wsConnected ? 'bg-green-500' : 'bg-yellow-500'")
-        span.text-sm(:class="wsConnected ? 'text-green-700' : 'text-yellow-700'")
+      .w-flex.align-center.gap2.mla.no-grow
+        .w-icon.size--xs.success--bg(v-if="wsConnected")
+        .w-icon.size--xs.yellow--bg(v-else)
+        span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
           | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
-    //- Search Bar
-    .flex-1.mt-4
-      input.w-full.bg-gray-800.border.border-gray-700.rounded-lg.px-4.py-2.text-white(
+    .w-flex.w-mb-xl
+      input.w-input.dark2--bg.w-border.bdrs2.py4.light(
         type="text"
         placeholder="Search for a stock..."
         v-model="searchQuery")
 
     //- Ticker Cards
-    .grid.gap-4.mb-6(class="md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4")
+    w-grid.gap4(:columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }" )
       ticker-card(
         v-for="stock in filteredStocks.slice(0, 20)"
         :key="stock.symbol"
@@ -25,64 +24,58 @@
         :price="stock.price"
         :lastSide="stock.lastSide")
 
-  //- Loading State
-  .text-center.py-8(v-if="loading")
-    .animate-spin.rounded-full.h-8.w-8.border-b-2.border-blue-400.mx-auto
-    p.mt-2.text-gray-400 Loading stocks...
+    //- Loading State
+    .w-center.w-my-xxl(v-if="loading")
+      .w-loader.w-xxl
+      p.op5 Loading stocks...
 
-  //- Error State
-  .bg-red-900.bg-opacity-25.border.border-red-500.rounded-lg.p-4(v-else-if="error")
-    p.text-red-300 {{ error }}
-    button.mt-2.text-red-300.underline(class="hover:text-red-200" @click="connectWebSocket")
-      | Try again
+    //- Error State
+    w-alert.bdrs2(v-else-if="error")
+      p.error {{ error }}
+      w-button(@click="connectWebSocket") Try again
 
-  //- Content
-  div(v-else)
-    //- Stats
-    .grid.gap-4.mb-6(class="md:grid-cols-3")
-      .bg-gray-800.rounded-lg.p-4.border.border-gray-700
-        .text-sm.text-gray-400 Total Stocks
-        .text-2xl.font-bold.text-white {{ filteredStocks.length }}
-      .bg-gray-800.rounded-lg.p-4.border.border-gray-700
-        .text-sm.text-gray-400 Last Update
-        .text-lg.font-semibold.text-white {{ lastUpdate }}
+    //- Content
+    div(v-else)
+      //- Stats
+      w-grid.md-3.gap-lg.w-mb-xl
+        .w-card.dark2--bg.bdrs2
+          .sm.light Total Stocks
+          .w-title {{ filteredStocks.length }}
+        .w-card.dark2--bg.bdrs2
+          .sm.light Last Update
+          .lg.light {{ lastUpdate }}
 
-    //- Stocks Table
-    .bg-gray-800.rounded-xl.border.border-gray-700.overflow-hidden
-      .overflow-x-auto
-        table.w-full
-          thead.bg-gray-900
+      //- Stocks Table
+      .w-card.dark2--bg.bdrs2.ova
+        table.w-table
+          thead.dark3--bg
             tr
-              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-300.uppercase.tracking-wider Symbol
-              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-300.uppercase.tracking-wider Name
-              th.px-6.py-3.text-right.text-xs.font-medium.text-gray-300.uppercase.tracking-wider Price
-              th.px-6.py-3.text-center.text-xs.font-medium.text-gray-300.uppercase.tracking-wider Actions
-          tbody.divide-y.divide-gray-700
-            tr(v-for="stock in paginatedStocks" :key="stock.symbol" class="hover:bg-gray-700")
-              td.px-6.py-4.whitespace-nowrap
-                .flex.items-center
-                  span.text-sm.font-medium.text-white {{ stock.symbol }}
-                  span.ml-2.px-2.py-1.text-xs.rounded-full.bg-gray-600.text-gray-300 {{ stock.exchange }}
-              td.px-6.py-4.whitespace-nowrap
-                span.text-sm.text-gray-300 {{ stock.name }}
-              td.px-6.py-4.whitespace-nowrap.text-right
-                span.text-sm.font-medium.text-white ${{ stock.price.toFixed(2) }}
-              td.px-6.py-4.whitespace-nowrap.text-center
-                .flex.items-center.justify-center.gap-2
-                  button.px-3.py-1.text-xs.font-medium.rounded.bg-green-600.text-white(class="hover:bg-green-700" @click="placeOrder(stock.symbol, 1, 'buy')")
-                    | Buy
-                  button.px-3.py-1.text-xs.font-medium.rounded.bg-red-600.text-white(class="hover:bg-red-700" @click="placeOrder(stock.symbol, 1, 'sell')")
-                    | Sell
+              th.py4 Symbol
+              th.py4 Name
+              th.py4.right.xs.light Price
+              th.py4.center.xs.light Actions
+          tbody
+            tr(v-for="stock in paginatedStocks" :key="stock.symbol" class="w-hover-bg-dark-3")
+              td.py4
+                .w-flex.align-center
+                  span.sm.light {{ stock.symbol }}
+                  span.w-ml-md.w.pxmd.w.pyxs.xs.bdrs2.dark3--bg.light {{ stock.exchange }}
+              td.py4
+                span.sm.light {{ stock.name }}
+              td.py4.right
+                span.sm.light ${{ stock.price.toFixed(2) }}
+              td.py4.center
+                .w-flex.align-center.justify-center.gap-md
+                  w-button.success.w-btn-xs(@click="placeOrder(stock.symbol, 1, 'buy')") Buy
+                  w-button.error.w-btn-xs(@click="placeOrder(stock.symbol, 1, 'sell')") Sell
 
-    //- Pagination
-    .flex.items-center.justify-between.mt-6(v-if="totalPages > 1")
-      .flex.items-center.gap-2
-        button.px-3.py-1.text-sm.rounded.bg-gray-700.text-white(class="hover:bg-gray-600" :disabled="currentPage === 1" @click="currentPage--")
-          | Previous
-        span.text-sm.text-gray-400 Page {{ currentPage }} of {{ totalPages }}
-        button.px-3.py-1.text-sm.rounded.bg-gray-700.text-white(class="hover:bg-gray-600" :disabled="currentPage === totalPages" @click="currentPage++")
-          | Next
-      .text-sm.text-gray-400 Showing {{ startIndex + 1 }}-{{ endIndex }} of {{ filteredStocks.length }} stocks
+      //- Pagination
+      .w-flex.align-center.justify-between.w-mt-xl(v-if="totalPages > 1")
+        .w-flex.align-center.gap-md
+          w-button.dark.w-btn-xs(:disabled="currentPage === 1" @click="currentPage--") Previous
+          span.sm.light Page {{ currentPage }} of {{ totalPages }}
+          w-button.dark.w-btn-xs(:disabled="currentPage === totalPages" @click="currentPage++") Next
+        .sm.light Showing {{ startIndex + 1 }}-{{ endIndex }} of {{ filteredStocks.length }} stocks
 </template>
 
 <script setup>
