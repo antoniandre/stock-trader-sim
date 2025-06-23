@@ -2,20 +2,28 @@
 .p-4(class="sm:p-6 lg:p-8")
   //- Header
   .mb-8
-    h1.text-3xl.font-bold.text-white Trading Dashboard
-    .flex.items-center.gap-4.mt-4
-      //- Search Bar
-      .flex-1
-        input.w-full.bg-gray-800.border.border-gray-700.rounded-lg.px-4.py-2.text-white(
-          type="text"
-          placeholder="Search stocks..."
-          v-model="searchQuery"
-        )
+    .flex.items-center.justify-between.gap-4.mt-4
+      h1.text-3xl.font-bold.text-white Stock Trading
       //- Connection Status
       .flex.items-center.gap-2
-        .w-3.h-3.rounded-full(class="wsConnected ? 'bg-green-500' : 'bg-yellow-500'")
-        span.text-sm(class="wsConnected ? 'text-green-700' : 'text-yellow-700'")
+        .w-3.h-3.rounded-full(:class="wsConnected ? 'bg-green-500' : 'bg-yellow-500'")
+        span.text-sm(:class="wsConnected ? 'text-green-700' : 'text-yellow-700'")
           | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
+    //- Search Bar
+    .flex-1.mt-4
+      input.w-full.bg-gray-800.border.border-gray-700.rounded-lg.px-4.py-2.text-white(
+        type="text"
+        placeholder="Search for a stock..."
+        v-model="searchQuery")
+
+    //- Ticker Cards
+    .grid.gap-4.mb-6(class="md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4")
+      ticker-card(
+        v-for="stock in filteredStocks.slice(0, 20)"
+        :key="stock.symbol"
+        :symbol="stock.symbol"
+        :price="stock.price"
+        :lastSide="stock.lastSide")
 
   //- Loading State
   .text-center.py-8(v-if="loading")
@@ -38,10 +46,6 @@
       .bg-gray-800.rounded-lg.p-4.border.border-gray-700
         .text-sm.text-gray-400 Last Update
         .text-lg.font-semibold.text-white {{ lastUpdate }}
-      .bg-gray-800.rounded-lg.p-4.border.border-gray-700
-        .text-sm.text-gray-400 Connection
-        .text-lg.font-semibold(class="wsConnected ? 'text-green-400' : 'text-yellow-400'")
-          | {{ wsConnected ? 'WebSocket' : 'Polling' }}
 
     //- Stocks Table
     .bg-gray-800.rounded-xl.border.border-gray-700.overflow-hidden
@@ -84,6 +88,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { fetchAllStocks } from '@/api'
+import TickerCard from '@/components/ticker-card.vue'
 
 const stocks = ref([])
 const searchQuery = ref('')
