@@ -11,10 +11,7 @@ app.use(WaveUI, {
   theme: 'dark',
   colors: {
     dark: {
-      primary: 'purple',
-      secondary: 'grey',
-      success: 'green',
-      error: 'red',
+      primary: '#3d9ff5'
     }
   }
   // 'grey': {

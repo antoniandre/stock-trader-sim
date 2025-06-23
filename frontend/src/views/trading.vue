@@ -9,8 +9,9 @@ w-grid.gap-xl
         .w-icon.size--xs.yellow--bg(v-else)
         span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
           | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
-    .w-flex.w-mb-xl
-      input.w-input.dark2--bg.w-border.bdrs2.py4.light(
+
+    .w-flex.my4
+      w-input.w-input.dark2--bg.w-border.bdrs2.py4.light(
         type="text"
         placeholder="Search for a stock..."
         v-model="searchQuery")
@@ -37,16 +38,16 @@ w-grid.gap-xl
     //- Content
     div(v-else)
       //- Stats
-      w-grid.md-3.gap-lg.w-mb-xl
-        .w-card.dark2--bg.bdrs2
+      .w-flex.gap4.my4
+        .w-card.dark2--bg.bdrs2.pa4
           .sm.light Total Stocks
-          .w-title {{ filteredStocks.length }}
-        .w-card.dark2--bg.bdrs2
+          .title2 {{ filteredStocks.length }}
+        .w-card.dark2--bg.bdrs2.pa4
           .sm.light Last Update
           .lg.light {{ lastUpdate }}
 
       //- Stocks Table
-      .w-card.dark2--bg.bdrs2.ova
+      .w-card.dark2--bg.bdrs2.ova.pa4
         table.w-table
           thead.dark3--bg
             tr
@@ -66,15 +67,17 @@ w-grid.gap-xl
                 span.sm.light ${{ stock.price.toFixed(2) }}
               td.py4.center
                 .w-flex.align-center.justify-center.gap-md
-                  w-button.success.w-btn-xs(@click="placeOrder(stock.symbol, 1, 'buy')") Buy
-                  w-button.error.w-btn-xs(@click="placeOrder(stock.symbol, 1, 'sell')") Sell
+                  w-button(@click="placeOrder(stock.symbol, 1, 'buy')" color="success" text)
+                    strong.size--xs BUY
+                  w-button(@click="placeOrder(stock.symbol, 1, 'sell')" color="error" text)
+                    strong.size--xs SELL
 
       //- Pagination
       .w-flex.align-center.justify-between.w-mt-xl(v-if="totalPages > 1")
         .w-flex.align-center.gap-md
-          w-button.dark.w-btn-xs(:disabled="currentPage === 1" @click="currentPage--") Previous
+          w-button.dark(:disabled="currentPage === 1" @click="currentPage--") Previous
           span.sm.light Page {{ currentPage }} of {{ totalPages }}
-          w-button.dark.w-btn-xs(:disabled="currentPage === totalPages" @click="currentPage++") Next
+          w-button.dark(:disabled="currentPage === totalPages" @click="currentPage++") Next
         .sm.light Showing {{ startIndex + 1 }}-{{ endIndex }} of {{ filteredStocks.length }} stocks
 </template>
 

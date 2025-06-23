@@ -12,7 +12,7 @@
           :key="trade.timestamp + trade.symbol")
           div
             span.text-bold.white {{ trade.symbol }}
-            span.ml2.px2.py1.bdrsr.size--xs.text-bold(:class="trade.side === 'buy' ? 'text-success-300.success9--bg bg.op5' : 'text-error-300.error9--bg bg.op5'") {{ trade.side.toUpperCase() }}
+            span.ml2.px2.py1.bdrsr.size--xs.text-bold(:class="trade.side === 'buy' ? 'success--bg' : 'error--bg'") {{ trade.side.toUpperCase() }}
           .text-grey-200.text-right
             span {{ trade.qty }} @ ${{ trade.price.toFixed(2) }}
           .grey.text-right
