@@ -10,11 +10,12 @@ w-grid.gap-xl
         span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
           | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
 
-    .w-flex.my4
-      w-input.w-input.dark2--bg.w-border.bdrs2.py4.light(
-        type="text"
-        placeholder="Search for a stock..."
-        v-model="searchQuery")
+    w-input.w-input.light.my4.h-auto(
+      v-model="searchQuery"
+      outline
+      round
+      placeholder="Search for a stock..."
+      input-class="py4 px6")
 
     //- Ticker Cards
     w-grid.gap4(:columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }" )

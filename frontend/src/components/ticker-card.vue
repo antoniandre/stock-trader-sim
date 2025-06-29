@@ -21,5 +21,7 @@ defineProps({
 </script>
 
 <style lang="scss">
-.ticker-card {}
+.ticker-card {
+  background: radial-gradient(circle at 10% 10%, #00000036, #2c789a30, #ffffff08);
+}
 </style>
