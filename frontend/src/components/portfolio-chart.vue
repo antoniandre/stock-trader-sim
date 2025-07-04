@@ -24,16 +24,10 @@ const chartData = computed(() => {
   const portfolio = {} // Holds the current quantity of each stock
   const dataPoints = (props.history || []).map(trade => {
     // Initialize stock if it's the first time we see it
-    if (!portfolio[trade.symbol]) {
-      portfolio[trade.symbol] = { qty: 0, price: 0 }
-    }
+    if (!portfolio[trade.symbol]) portfolio[trade.symbol] = { qty: 0, price: 0 }
 
     // Update quantity based on the trade
-    if (trade.side === 'buy') {
-      portfolio[trade.symbol].qty += trade.qty
-    } else {
-      portfolio[trade.symbol].qty -= trade.qty
-    }
+    portfolio[trade.symbol].qty += (trade.side === 'buy' ? -1 : 1) * trade.qty
 
     // Update the latest price for this stock
     portfolio[trade.symbol].price = trade.price
@@ -81,29 +75,19 @@ const chartOptions = {
   scales: {
     y: {
       beginAtZero: false,
-      grid: {
-        color: 'rgba(255, 255, 255, 0.05)'
-      },
-      ticks: {
-        color: '#C9D1D9'
-      }
+      grid: { color: 'rgba(255, 255, 255, 0.05)' },
+      ticks: { color: '#C9D1D9' }
     },
     x: {
-      grid: {
-        display: false
-      },
-      ticks: {
-        color: '#C9D1D9'
-      }
+      grid: { display: false },
+      ticks: { color: '#C9D1D9' }
     }
   }
 }
 
 watch(() => props.history, (newHistory) => {
-  if (chartRef.value?.chart) {
-    // The 'quiet' mode prevents a jarring re-animation on every update
-    chartRef.value.chart.update('quiet')
-  }
+  // The 'quiet' mode prevents a jarring re-animation on every update
+  if (chartRef.value?.chart) chartRef.value.chart.update('quiet')
 }, { deep: true })
 
 </script>
