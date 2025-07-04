@@ -9,3 +9,10 @@ body {
     color: inherit;
   }
 }
+
+.gradient-card {
+  border: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 12%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--w-base-bg-color) 120%, transparent);
+  background: radial-gradient(circle at 10% 10%, #00000036, #2c789a30, #ffffff08);
+}
