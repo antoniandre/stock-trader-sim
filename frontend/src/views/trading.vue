@@ -67,7 +67,7 @@ w-grid.gap-xl
               td.py4.right
                 span.sm.light ${{ stock.price.toFixed(2) }}
               td.py4.center
-                .w-flex.align-center.justify-center.gap-md
+                .w-flex.align-center.justify-center.gap1
                   w-button(@click="placeOrder(stock.symbol, 1, 'buy')" color="success" text)
                     strong.size--xs BUY
                   w-button(@click="placeOrder(stock.symbol, 1, 'sell')" color="error" text)
@@ -179,6 +179,16 @@ function connectWebSocket() {
           }))
 
           lastUpdate.value = new Date().toLocaleTimeString()
+        }
+
+        if (data.type === 'trade') {
+          console.log('📈 New trade received in trading view:', data)
+          // You can add trade notifications or updates here
+        }
+
+        if (data.type === 'trading-history-update') {
+          console.log('📊 Trading history updated:', data.history.length, 'trades')
+          // You can update any trading-related UI here
         }
       }
       catch (err) {
