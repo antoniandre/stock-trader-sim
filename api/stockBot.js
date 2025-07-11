@@ -29,7 +29,10 @@ const state = {
   stockPrices: {}, // { symbol: price }
   allStocks: [], // Array of all tradable stocks
   wsClients: new Set(),
-  alpacaWebSocket: null
+  alpacaWebSocket: null,
+  accountActivities: [], // Real trading history from Alpaca
+  alpacaAccount: null, // Account information
+  sseClient: null // Server-Sent Events client for account updates
 }
 
 // ===== Mock Data =====
@@ -57,6 +60,172 @@ const popularStocks = [
   'AMD', 'INTC', 'ORCL', 'CRM', 'ADBE', 'PYPL', 'SQ', 'UBER',
   'LYFT', 'SPOT', 'ZM', 'SHOP', 'TWTR', 'SNAP', 'PINS', 'ROKU'
 ]
+
+// ===== Alpaca Account Data =====
+async function getAlpacaAccount() {
+  if (isSim) {
+    console.log('🧪 [SIM] Using mock account data')
+    return {
+      id: 'mock-account',
+      status: 'ACTIVE',
+      currency: 'USD',
+      cash: 100000,
+      portfolio_value: 100000,
+      buying_power: 100000
+    }
+  }
+
+  try {
+    const { data } = await axios.get(`${ALPACA_BASE_URL}/v2/account`, { headers: HEADERS })
+    state.alpacaAccount = data
+    return data
+  }
+  catch (error) {
+    console.error('❌ Error fetching Alpaca account:', error.message)
+    return null
+  }
+}
+
+async function getAlpacaAccountActivities(activityType = null, limit = 100) {
+  if (isSim) {
+    console.log('🧪 [SIM] Using mock trading history')
+    return []
+  }
+
+  try {
+    let url = `${ALPACA_BASE_URL}/v2/account/activities`
+    if (activityType) url += `/${activityType}`
+
+    const params = new URLSearchParams({
+      limit: limit.toString(),
+      direction: 'desc'
+    })
+
+    const { data } = await axios.get(`${url}?${params}`, { headers: HEADERS })
+    console.log(`✅ Successfully fetched ${data.length} account activities`)
+    state.accountActivities = data
+    return data
+  }
+  catch (error) {
+    console.error('❌ Error fetching account activities:', error.message)
+    return []
+  }
+}
+
+async function getAlpacaPortfolioHistory(period = '1D', timeframe = '1Min') {
+  if (isSim) {
+    console.log('🧪 [SIM] Using mock portfolio history')
+    return {
+      timestamp: [Date.now()],
+      equity: [100000],
+      profit_loss: [0],
+      profit_loss_pct: [0],
+      base_value: 100000,
+      timeframe: timeframe
+    }
+  }
+
+  try {
+    const params = new URLSearchParams({
+      period,
+      timeframe,
+      extended_hours: 'true'
+    })
+
+    const { data } = await axios.get(`${ALPACA_BASE_URL}/v2/account/portfolio/history?${params}`, { headers: HEADERS })
+    console.log('✅ Successfully fetched portfolio history')
+    return data
+  } catch (error) {
+    console.error('❌ Error fetching portfolio history:', error.message)
+    return null
+  }
+}
+
+async function getAlpacaTradingHistory(limit = 100) {
+  try {
+    const activities = await getAlpacaAccountActivities('FILL', parseInt(limit))
+
+    // Transform activities to match frontend expectations
+    const tradingHistory = activities.map(activity => ({
+      id: activity.id,
+      symbol: activity.symbol,
+      side: activity.side,
+      qty: parseFloat(activity.qty),
+      price: parseFloat(activity.price),
+      timestamp: activity.transaction_time,
+      type: activity.type,
+      order_id: activity.order_id
+    }))
+
+    return { success: true, history: tradingHistory }
+  }
+  catch (error) {
+    console.error('Error fetching trading history:', error)
+    return { success: false, message: 'Failed to fetch trading history.' }
+  }
+}
+// ===== Server-Sent Events for Account Updates =====
+async function connectAlpacaSSE() {
+  if (isSim) {
+    console.log('🧪 [SIM] SSE not available in simulation mode')
+    return
+  }
+
+  // Note: Using EventSource for SSE connection
+  // This requires installing 'eventsource' package
+  try {
+    const EventSource = (await import('eventsource')).default
+
+    const sseUrl = `${ALPACA_BASE_URL}/v2/events/trades`
+    const headers = {
+      'APCA-API-KEY-ID': ALPACA_KEY,
+      'APCA-API-SECRET-KEY': ALPACA_SECRET
+    }
+
+    console.log('🔌 Connecting to Alpaca SSE for account updates...')
+    state.sseClient = new EventSource(sseUrl, { headers })
+
+    state.sseClient.onopen = () => {
+      console.log('✅ Connected to Alpaca SSE stream')
+    }
+
+    state.sseClient.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        console.log('📊 Received account update:', data)
+
+        // Broadcast account updates to frontend
+        broadcast({
+          type: 'account-update',
+          data: data,
+          timestamp: new Date().toISOString()
+        })
+
+        // Refresh account activities when new trades occur
+        if (data.event_type === 'trade') {
+          getAlpacaAccountActivities()
+        }
+      } catch (error) {
+        console.error('❌ Error parsing SSE message:', error)
+      }
+    }
+
+    state.sseClient.onerror = (error) => {
+      console.error('❌ Alpaca SSE error:', error)
+      console.log('🔌 Reconnecting to SSE in 5 seconds...')
+      setTimeout(() => {
+        if (state.sseClient) {
+          state.sseClient.close()
+        }
+        connectAlpacaSSE()
+      }, 5000)
+    }
+
+  } catch (error) {
+    console.error('❌ Failed to connect to Alpaca SSE:', error)
+    console.log('ℹ️ Install eventsource package for SSE support: npm install eventsource')
+  }
+}
 
 // ===== WebSocket Management =====
 function broadcast(data) {
@@ -331,6 +500,47 @@ app.get('/api/portfolio', (req, res) => {
   res.json({ stocks, history })
 })
 
+// ===== Alpaca Account API Endpoints =====
+app.get('/api/account', async (req, res) => {
+  try {
+    const account = await getAlpacaAccount()
+    res.json(account)
+  } catch (error) {
+    console.error('Error fetching account:', error)
+    res.status(500).json({ error: 'Failed to fetch account data' })
+  }
+})
+
+app.get('/api/account/activities', async (req, res) => {
+  try {
+    const { activity_type, limit = 100 } = req.query
+    const activities = await getAlpacaAccountActivities(activity_type, parseInt(limit))
+    res.json(activities)
+  } catch (error) {
+    console.error('Error fetching account activities:', error)
+    res.status(500).json({ error: 'Failed to fetch account activities' })
+  }
+})
+
+app.get('/api/account/portfolio/history', async (req, res) => {
+  try {
+    const { period = '1D', timeframe = '1Min' } = req.query
+    const history = await getAlpacaPortfolioHistory(period, timeframe)
+    res.json(history)
+  } catch (error) {
+    console.error('Error fetching portfolio history:', error)
+    res.status(500).json({ error: 'Failed to fetch portfolio history' })
+  }
+})
+
+// Get trading history specifically (filtered activities)
+app.get('/api/trading-history', async (req, res) => {
+  const { limit = 100 } = req.query
+  const { success, history, message } = await getAlpacaTradingHistory(limit)
+  if (success) res.json(history)
+  else res.status(500).json({ error: 'Failed to fetch trading history.' })
+})
+
 app.get('/api/stocks', async (req, res) => {
   try {
     const stocks = await getAllTradableStocks()
@@ -352,7 +562,15 @@ app.get('/api/health', (req, res) => {
     simulation: isSim,
     timestamp: new Date().toISOString(),
     connectedClients: state.wsClients.size,
-    totalStocks: state.allStocks.length
+    totalStocks: state.allStocks.length,
+    alpacaConnections: {
+      websocket: state.alpacaWebSocket ? 'connected' : 'disconnected',
+      sse: state.sseClient ? 'connected' : 'disconnected'
+    },
+    accountData: {
+      hasAccount: !!state.alpacaAccount,
+      activitiesCount: state.accountActivities.length
+    }
   })
 })
 
@@ -409,9 +627,19 @@ server.listen(PORT, async () => {
   if (isSim) {
     console.log('⚡ Demo mode: Running simulation every 1 second')
     setInterval(runSimulation, 1000) // Update every 1 second
-  } else {
+  }
+  else {
     console.log('⚡ Live mode: Using Alpaca WebSocket streaming')
     connectAlpacaWebSocket()
+
+    // Initialize account data
+    console.log('📊 Initializing Alpaca account data...')
+    await getAlpacaAccount()
+    await getAlpacaAccountActivities()
+
+    // Connect to SSE for real-time account updates
+    console.log('🔌 Setting up SSE for account updates...')
+    connectAlpacaSSE()
   }
 
   if (!ALPACA_KEY) {
