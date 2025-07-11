@@ -1,12 +1,8 @@
 <template lang="pug">
-.relative.grey8--bg.bdrs2.sh2.pa6.bd1.overflow-hidden
-  //- Glow effect
-  .absolute.bottom-0.right-0.blue5--bg.op2.blur-3xl
-
-  .relative.z-10
-    h3.text-xl.text-bold.white.mb-4 Portfolio Performance
-    .h-96
-      Line(ref="chartRef" :data="chartData" :options="chartOptions")
+.glass-box.pa6.ovh
+  h2.title2.mb4 Portfolio Performance
+  .chart-wrap
+    Line(ref="chartRef" :data="chartData" :options="chartOptions")
 </template>
 
 <script setup>
@@ -89,6 +85,10 @@ watch(() => props.history, (newHistory) => {
   // The 'quiet' mode prevents a jarring re-animation on every update
   if (chartRef.value?.chart) chartRef.value.chart.update('quiet')
 }, { deep: true })
-
 </script>
 
+<style lang="scss">
+.chart-wrap {
+  height: 40vh;
+}
+</style>

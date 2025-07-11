@@ -1,3 +1,10 @@
+:root .w-app {
+  --w-base-bg-color: #0d1117;
+  --w-glass-bg-color: #f0f8ff05;
+
+  .glass--bg {background: var(--w-glass-bg-color);}
+}
+
 body {
   // @apply.grey9--bg text-grey-200 font-sans;
   background-image: radial-gradient(circle at top, #161B22, #0D1117);
@@ -11,8 +18,69 @@ body {
 }
 
 .gradient-card {
-  border: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 12%, transparent);
+  position: relative;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--w-base-bg-color) 100%, transparent);
   border-radius: 12px;
-  box-shadow: 0 0 12px color-mix(in srgb, var(--w-base-bg-color) 120%, transparent);
-  background: radial-gradient(circle at 10% 10%, #00000036, #2c789a30, #ffffff08);
+
+  &__wrap {
+    position: relative;
+    transition: 0.3s;
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--w-contrast-bg-color) 5%, transparent);
+    overflow: hidden;
+    padding: 1em;
+    z-index: 1;
+
+    &:before {
+      content: '';
+      position: absolute;
+      inset: 1px;
+      background: var(--w-base-bg-color) radial-gradient(circle at 90% 90%, #2c789a30, #ffffff08);
+      border-radius: inherit;
+      z-index: -1;
+    }
+
+    &:after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 100%;
+      z-index: -2;
+      transform: translate(-50%, -50%) rotate(0deg) scale(1.05);
+      aspect-ratio: 1;
+      border-radius: 100%;
+      background: conic-gradient(from 0deg, #333 20%, rgba(87, 143, 255, 0.7) 25%, hsl(220, 100%, 80%) 35%, rgba(87, 143, 255, 0.4666666667) 45%, #333 50%, #333 70%, rgba(0, 255, 195, 0.4666666667) 75%, hsl(166, 100%, 70%) 85%, rgba(0, 255, 195, 0.4666666667) 90%, #333 95%);
+      animation: rotate 8s linear infinite;
+      animation-play-state: paused;
+      opacity: 0;
+      transition: 0.3s;
+    }
+  }
+
+
+  &__wrap:hover {
+    transform: scale(1.025);
+
+    &:after {animation-play-state: running;opacity: 1;}
+  }
+
+  @keyframes rotate {
+    0% {
+      transform: translate(-50%, -50%) rotate(0deg) scale(1.05);
+    }
+    50% {
+      transform: translate(-50%, -50%) rotate(180deg) scale(1.05);
+    }
+    100% {
+      transform: translate(-50%, -50%) rotate(360deg) scale(1.05);
+    }
+  }
+}
+
+.glass-box {
+  border: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, var(--w-base-bg-color));
+  background: var(--w-glass-bg-color);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--w-base-bg-color) 100%, transparent);
+  border-radius: 12px;
 }

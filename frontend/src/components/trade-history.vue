@@ -1,8 +1,5 @@
 <template lang="pug">
-.relative.grey8--bg.rounded-xl.shadow-lg.pa6.bd1.ovh
-  //- Glow effect
-  .absolute.top-0.right-0.-translate-y-1-2.translate-x-1-2.w-32.h-32.blue-dark4--bg.op1.blur-3xl
-
+.glass-box.pa6.ovh
   //- Trading History
   .w-flex.column.gap4.mt6(v-if="history.length")
     h3.title2
@@ -28,12 +25,12 @@
               br
               | {{ new Date(item.timestamp).toLocaleTimeString() }}
 
-    .w-flex.justify-center.mt4(v-if="loadingHistory")
+    .w-flex.justify-center.mt4(v-if="loading")
       .w-loader.w-sm
       span.ml2.grey Loading more trades...
 
   //- No trading history message
-  .w-flex.gap4.mt6(v-if="!loadingHistory && !history.length")
+  .w-flex.gap4.mt6(v-if="!loading && !history.length")
     .xs12
         .pa6.text-center
           h3.text-xl.text-bold.white.mb-4 No Alpaca Trading History
@@ -42,14 +39,13 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 
 const props = defineProps({
-  history: {
-    type: Array,
-    required: true
-  }
+  history: { type: Array, required: true },
+  loading: { type: Boolean, default: false }
 })
+const fetchHistory = inject('fetchHistory')
 
 // Show the most recent trades first
 const reversedHistory = computed(() => {
