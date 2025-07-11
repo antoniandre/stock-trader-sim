@@ -1,5 +1,5 @@
 <template lang="pug">
-.w-flex
+.w-flex.h-screen
   sidebar.grow
   main.ova.grow.pa4
     router-view

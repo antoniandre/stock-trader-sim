@@ -10,20 +10,20 @@
   .w-flex.gap4.mt6(v-if="account")
     .gradient-card.grow
       .gradient-card__wrap
-        .text-upper.size--xs.op5.text-right.mt-1.mr-1 Account Balance
-        .title2.mt2.text-center
+        .text-upper.size--xs.op5 Account Balance
+        .title2.mt3.text-center
           span.op6.mr1 $
           | {{ account.cash ? parseFloat(account.cash).toLocaleString() : '0.00' }}
     .gradient-card.grow
       .gradient-card__wrap
-        .text-upper.size--xs.op5.text-right.mt-1.mr-1 Portfolio Value
-        .title2.mt2.text-center
+        .text-upper.size--xs.op5 Portfolio Value
+        .title2.mt3.text-center
           span.op6.mr1 $
           | {{ account.portfolio_value ? parseFloat(account.portfolio_value).toLocaleString() : '0.00' }}
     .gradient-card.grow
       .gradient-card__wrap
-        .text-upper.size--xs.op5.text-right.mt-1.mr-1 Buying Power
-        .title2.mt2.text-center
+        .text-upper.size--xs.op5 Buying Power
+        .title2.mt3.text-center
           span.op6.mr1 $
           | {{ account.buying_power ? parseFloat(account.buying_power).toLocaleString() : '0.00' }}
 

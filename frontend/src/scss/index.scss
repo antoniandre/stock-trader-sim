@@ -47,7 +47,7 @@ body {
       top: 50%;
       width: 100%;
       z-index: -2;
-      transform: translate(-50%, -50%) rotate(0deg) scale(1.05);
+      transform: translate(-50%, -50%) rotate(0deg) scale(1.07);
       aspect-ratio: 1;
       border-radius: 100%;
       background: conic-gradient(from 0deg, #333 20%, rgba(87, 143, 255, 0.7) 25%, hsl(220, 100%, 80%) 35%, rgba(87, 143, 255, 0.4666666667) 45%, #333 50%, #333 70%, rgba(0, 255, 195, 0.4666666667) 75%, hsl(166, 100%, 70%) 85%, rgba(0, 255, 195, 0.4666666667) 90%, #333 95%);
@@ -67,20 +67,17 @@ body {
 
   @keyframes rotate {
     0% {
-      transform: translate(-50%, -50%) rotate(0deg) scale(1.05);
-    }
-    50% {
-      transform: translate(-50%, -50%) rotate(180deg) scale(1.05);
+      transform: translate(-50%, -50%) rotate(0deg) scale(1.07);
     }
     100% {
-      transform: translate(-50%, -50%) rotate(360deg) scale(1.05);
+      transform: translate(-50%, -50%) rotate(360deg) scale(1.07);
     }
   }
 }
 
 .glass-box {
   border: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, var(--w-base-bg-color));
-  background: var(--w-glass-bg-color);
+  background: var(--w-glass-bg-color) radial-gradient(20rem circle at 90% 10%, #2c789b1f, #ffffff00);
   box-shadow: 0 0 12px color-mix(in srgb, var(--w-base-bg-color) 100%, transparent);
   border-radius: 12px;
 }

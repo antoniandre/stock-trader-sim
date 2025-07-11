@@ -11,14 +11,14 @@
 
   //- Navigation
   nav.grow.pa4.py6
-    router-link.w-flex.align-center.px4.py2.rounded-lg.text-grey-200(to="/" class="hover.grey8--bg" active-class="grey6--bg")
+    router-link.w-flex.align-center.px4.py2.grey(to="/" active-class="white")
       //- Dashboard Icon
       .w-icon.mr3
         svg(xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor")
           path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16")
       .title3 Dashboard
 
-    router-link.w-flex.align-center.px4.py2.rounded-lg.grey(to="/trading" class="hover.grey8--bg hover:white" active-class="grey6--bg white")
+    router-link.w-flex.align-center.px4.py2.grey(to="/trading" active-class="white")
       //- Trading Icon
       .w-icon.mr3
         svg(xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor")
