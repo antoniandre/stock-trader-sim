@@ -1,0 +1,8 @@
+## JS
+- use standard JS styleguide
+- use strostrup braces style, and if single instruction keep on 1 line without braces
+- don't spend time fixing linter errors and don't add an ESLint disable comment:
+  just ignore them except the `forEach` conversion to `for in`
+
+## SCSS
+- if only a single rule in scope, keep on one line
