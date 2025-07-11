@@ -1,62 +1,71 @@
 <template lang="pug">
 .w-space-xl.dark--bg.w-min-h-screen
-  .title1 Portfolio Dashboard
+  .w-flex.justify-space-between.align-center
+    .title1 Portfolio Dashboard
+    w-button(@click="fetchHistory" text round)
+      w-icon.mr2(:spin="portfolio.loading" sm) wi-spinner
+      | Refresh
 
   //- Account Summary
   .w-flex.gap4.mt6(v-if="account")
-    .gradient-card.pa4.grow
-      .text-upper.size--sm.op4 Account Balance
-      .title2.mt2
-        span.op6.mr1 $
-        | {{ account.cash ? parseFloat(account.cash).toLocaleString() : '0.00' }}
-    .gradient-card.pa4.grow
-      .text-upper.size--sm.op4 Portfolio Value
-      .title2.mt2
-        span.op6.mr1 $
-        | {{ account.portfolio_value ? parseFloat(account.portfolio_value).toLocaleString() : '0.00' }}
-    .gradient-card.pa4.grow
-      .text-upper.size--sm.op4 Buying Power
-      .title2.mt2
-        span.op6.mr1 $
-        | {{ account.buying_power ? parseFloat(account.buying_power).toLocaleString() : '0.00' }}
+    .gradient-card.grow
+      .gradient-card__wrap
+        .text-upper.size--xs.op5.text-right.mt-1.mr-1 Account Balance
+        .title2.mt2.text-center
+          span.op6.mr1 $
+          | {{ account.cash ? parseFloat(account.cash).toLocaleString() : '0.00' }}
+    .gradient-card.grow
+      .gradient-card__wrap
+        .text-upper.size--xs.op5.text-right.mt-1.mr-1 Portfolio Value
+        .title2.mt2.text-center
+          span.op6.mr1 $
+          | {{ account.portfolio_value ? parseFloat(account.portfolio_value).toLocaleString() : '0.00' }}
+    .gradient-card.grow
+      .gradient-card__wrap
+        .text-upper.size--xs.op5.text-right.mt-1.mr-1 Buying Power
+        .title2.mt2.text-center
+          span.op6.mr1 $
+          | {{ account.buying_power ? parseFloat(account.buying_power).toLocaleString() : '0.00' }}
 
-  portfolio-chart.mt6(:history="history")
-  trade-history.mt6(:history="tradingHistory")
+  portfolio-chart.mt6(:history="portfolio.history")
+  trade-history.mt6(:history="portfolio.history" :loading="portfolio.loading")
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, provide, reactive } from 'vue'
+import { fetchPortfolio, fetchTradingHistory, fetchAccount } from '@/api'
 import PortfolioChart from '@/components/portfolio-chart.vue'
 import TradeHistory from '@/components/trade-history.vue'
-import { fetchPortfolio, fetchTradingHistory, fetchAccount } from '@/api'
 
-const history = ref([])
-const tradingHistory = ref([])
-const account = ref(null)
-const loadingHistory = ref(false)
 let ws = null
+const account = ref(null)
+const portfolio = reactive({
+  history: [],
+  loading: false
+})
 
 async function fetchPortfolioData() {
   try {
     const data = await fetchPortfolio()
     history.value = data.history || []
-  } catch (err) {
+  }
+  catch (err) {
     console.error('Error fetching portfolio:', err)
   }
+  fetchHistory()
 }
 
 async function fetchHistory() {
   try {
-    loadingHistory.value = true
-    const data = await fetchTradingHistory(100)
-    tradingHistory.value = data || []
+    portfolio.loading = true
+    portfolio.history = await fetchTradingHistory(100) || []
   }
   catch (err) {
     console.error('Error fetching Alpaca trading history:', err)
-    tradingHistory.value = []
+    portfolio.history = []
   }
   finally {
-    loadingHistory.value = false
+    portfolio.loading = false
   }
 }
 
@@ -88,13 +97,13 @@ function connectWebSocket() {
           console.log('📊 Account update received:', data)
           // Refresh account data when updates are received
           fetchAccountData()
-          fetchHistory()
+          // fetchHistory()
         }
 
         if (data.type === 'trade') {
           console.log('📈 New trade received:', data)
           // Refresh trading history when new trades occur
-          fetchHistory()
+          // fetchHistory()
         }
       }
       catch (err) {
@@ -117,10 +126,11 @@ function connectWebSocket() {
   }
 }
 
+provide('fetchHistory', fetchHistory)
+
 onMounted(() => {
   fetchPortfolioData()
   fetchAccountData()
-  fetchHistory()
   connectWebSocket() // WS for real-time market data only.
 })
 
