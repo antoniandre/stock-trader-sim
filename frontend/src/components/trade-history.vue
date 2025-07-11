@@ -30,11 +30,9 @@
       span.ml2.grey Loading trades...
 
   //- No trading history message
-  .w-flex.gap4.mt6(v-if="!loading && !history.length")
-    .xs12
-        .pa6.text-center
-          h3.text-xl.text-bold.white.mb-4 No Alpaca Trading History
-          p.grey No trades found in your Alpaca account.
+  .w-flex.gap4.mt6.pa6.text-center(v-if="!loading && !history.length")
+    h3.text-xl.text-bold.white.mb4 No Trading History
+    p.caption No trades found in your Alpaca account.
 </template>
 
 <script setup>
