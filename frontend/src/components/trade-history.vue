@@ -6,7 +6,7 @@
       | Trading History
       small.ml1.grey.size--sm ({{ history.length }} trades)
     .ova(style="max-height: 32rem")
-      w-table.w-full.bd0(:headers="headers" :items="history")
+      w-table.w-full.bd0(:headers="headers" :items="reversedHistory")
         template(#item="{ item }")
           tr
             td.px2.text-bold {{ item.symbol }}
@@ -26,8 +26,8 @@
               | {{ new Date(item.timestamp).toLocaleTimeString() }}
 
     .w-flex.justify-center.mt4(v-if="loading")
-      .w-loader.w-sm
-      span.ml2.grey Loading more trades...
+      w-progress(circle)
+      span.ml2.grey Loading trades...
 
   //- No trading history message
   .w-flex.gap4.mt6(v-if="!loading && !history.length")
@@ -35,17 +35,15 @@
         .pa6.text-center
           h3.text-xl.text-bold.white.mb-4 No Alpaca Trading History
           p.grey No trades found in your Alpaca account.
-          w-button(@click="fetchHistory" color="primary" class="mt-4") Refresh
 </template>
 
 <script setup>
-import { computed, inject } from 'vue'
+import { computed } from 'vue'
 
 const props = defineProps({
   history: { type: Array, required: true },
   loading: { type: Boolean, default: false }
 })
-const fetchHistory = inject('fetchHistory')
 
 // Show the most recent trades first
 const reversedHistory = computed(() => {
