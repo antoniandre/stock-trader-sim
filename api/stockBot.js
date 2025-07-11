@@ -11,14 +11,12 @@ const {
   ALPACA_KEY,
   ALPACA_SECRET,
   ALPACA_BASE_URL,
-  ALPACA_DATA_STREAM,
+  ALPACA_DATA_STREAM_URL,
   SIMULATION
 } = process.env
 
-const ALPACA_TRADE_API_URL = ALPACA_BASE_URL || 'https://api.alpaca.markets'
-const ALPACA_DATA_STREAM_URL = ALPACA_DATA_STREAM || 'wss://stream.data.alpaca.markets/v2/iex'
-
 const isSim = !ALPACA_KEY || (SIMULATION === 'true')
+const ALPACA_ACCOUNT_URL = `${ALPACA_BASE_URL}/v2/account`
 
 const HEADERS = {
   'APCA-API-KEY-ID': ALPACA_KEY,
@@ -88,7 +86,7 @@ async function getAllTradableStocks() {
 
   try {
     console.log('📊 Fetching all tradable stocks from Alpaca...')
-    const url = `${ALPACA_TRADE_API_URL}/v2/assets?status=active&tradable=true&asset_class=us_equity`
+    const url = `${ALPACA_ACCOUNT_URL}?status=active&tradable=true&asset_class=us_equity`
     const { data } = await axios.get(url, { headers: HEADERS })
 
     // Filter to common stocks (exclude OTC, preferred shares, etc.)
@@ -258,7 +256,7 @@ async function placeOrder(symbol, qty, side) {
       time_in_force: 'gtc'
     }
 
-    const { data } = await axios.post(`${ALPACA_TRADE_API_URL}/v2/orders`, order, { headers: HEADERS })
+    const { data } = await axios.post(`${ALPACA_BASE_URL}/v2/orders`, order, { headers: HEADERS })
     console.log(`✅ ${side.toUpperCase()} ${qty} ${symbol} @ ${new Date().toLocaleTimeString()}`)
     return data
   }
