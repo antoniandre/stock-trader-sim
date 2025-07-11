@@ -199,12 +199,6 @@ function connectWebSocket() {
     ws.onerror = (err) => {
       console.error('❌ WebSocket error:', err)
       wsConnected.value = false
-      // Fallback to polling
-      if (!pollInterval) {
-        console.log('🔄 Falling back to polling')
-        fetchStocks()
-        pollInterval = setInterval(fetchStocks, 1000)
-      }
     }
 
     ws.onclose = () => {
