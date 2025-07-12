@@ -18,15 +18,18 @@
             .symbol.title3.mb1 {{ position.symbol }}
             .qty.size--sm.op7 {{ position.qty }} shares
 
-        .position-values.text-right
-          .market-value.title3.mb1
-            span.op6.mr1 $
+        .position-values
+          .market-value.title3.mb1.w-flex.gap1.align-center
+            small.op6 @
+            span.op6 $
             span {{ formatCurrency(position.market_value) }}
 
-          .unrealized-pl.size--sm(
+          .unrealized-pl(
             :class="parseFloat(position.unrealized_pl) >= 0 ? 'success-light3' : 'error'")
+            span.op6.mr1 $
             span {{ formatCurrency(position.unrealized_pl) }}
-            span.ml1 ({{ formatPercentage(position.unrealized_plpc) }}%)
+            span.mx1 ({{ formatPercentage(position.unrealized_plpc) }}%)
+            small P/L
 
         .price-info.text-right.ml4
           .current-price.title3.mb1
@@ -34,8 +37,8 @@
             span {{ formatCurrency(position.current_price) }}
 
           .price-change.size--sm(
-            :class="parseFloat(position.change_today || 0) >= 0 ? 'success-light3' : 'error'"
-          )
+            :class="parseFloat(position.change_today || 0) >= 0 ? 'success-light3' : 'error'")
+            span.op6.mr1 $
             span {{ formatCurrency(position.change_today || 0) }}
 
   .empty-state.text-center.py12.op5(v-else-if="!loading")
