@@ -63,23 +63,33 @@ export async function getAlpacaPortfolioHistory(period = '1D', timeframe = '1Min
     const equity = []
     const baseValue = 100000
 
+    // Create a deterministic seed based on the current day to ensure consistent data
+    const daysSinceEpoch = Math.floor(now / (1000 * 60 * 60 * 24))
+    const seed = daysSinceEpoch * 12345 // Simple seed for consistent data
+
     for (let i = 0; i < dataPoints; i++) {
-      const time = now - (dataPoints - i) * 60000 // 1 minute intervals
+      // Generate timestamps going from past to present (chronological order)
+      const time = now - (dataPoints - 1 - i) * 60000 // 1 minute intervals, oldest first
       timestamps.push(new Date(time).toISOString())
 
-      // Generate realistic portfolio value curve
+      // Generate realistic portfolio value curve with deterministic pseudo-random
       const progress = i / dataPoints
-      const trend = 0.02 * progress // 2% growth trend
-      const volatility = 0.01 * Math.sin(progress * 10) * Math.random()
+      const trend = 0.015 * progress // 1.5% growth trend over time
+
+      // Use deterministic "random" values based on seed and index
+      const pseudoRandom1 = Math.sin(seed + i * 17) * 0.5 + 0.5
+      const pseudoRandom2 = Math.sin(seed + i * 23) * 0.5 + 0.5
+
+      const volatility = 0.008 * Math.sin(progress * 8 + pseudoRandom1 * 6) * pseudoRandom2
       const value = baseValue * (1 + trend + volatility)
-      equity.push(value)
+      equity.push(Math.round(value * 100) / 100) // Round to 2 decimal places
     }
 
     return {
       timestamp: timestamps,
       equity: equity,
-      profit_loss: equity.map(val => val - baseValue),
-      profit_loss_pct: equity.map(val => ((val - baseValue) / baseValue) * 100),
+      profit_loss: equity.map(val => Math.round((val - baseValue) * 100) / 100),
+      profit_loss_pct: equity.map(val => Math.round(((val - baseValue) / baseValue) * 10000) / 100),
       base_value: baseValue,
       timeframe: timeframe
     }
