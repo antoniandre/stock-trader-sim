@@ -9,6 +9,10 @@
 
 ## Any language
 - all the comments start with a capital letter and ends with a period `.`.
+- block separation comments are constructed in the following way:
+  `// A title` starting with an uppercase on 1 line, followed by a line comment of a total of 60 characters in that line:
+  `// ---------------------------------------------------------`
+- try-catch blocks are always as small as possible, so when it catches we know exactly what happens.
 
 ## File names
 - are always written in kebab-case: no uppercase and dash separated words
