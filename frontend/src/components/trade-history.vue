@@ -4,7 +4,7 @@
   .w-flex.column.gap4.mt6(v-if="history.length")
     h3.title2
       | Trading History
-      small.ml1.grey.size--sm ({{ history.length }} trades)
+      small.ml2.grey.size--sm ({{ history.length }} trades)
     .ova(style="max-height: 32rem")
       w-table.w-full.bd0(:headers="headers" :items="reversedHistory")
         template(#item="{ item }")
