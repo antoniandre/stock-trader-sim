@@ -30,13 +30,13 @@
           span(:class="account.buying_power > 0 ? 'success-light3' : (account.buying_power ? 'error' : 'white')")
             | {{ account.buying_power ? parseFloat(account.buying_power).toLocaleString() : '0.00' }}
 
-  portfolio-chart.mt6(:history="portfolio.history")
+  portfolio-chart.mt6(:history="portfolio.portfolioHistory")
   trade-history.mt6(:history="portfolio.history" :loading="portfolio.loading")
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted, provide, reactive } from 'vue'
-import { fetchPortfolio, fetchTradingHistory, fetchAccount } from '@/api'
+import { fetchPortfolio, fetchTradingHistory, fetchAccount, fetchPortfolioHistory } from '@/api'
 import PortfolioChart from '@/components/portfolio-chart.vue'
 import TradeHistory from '@/components/trade-history.vue'
 
@@ -44,6 +44,7 @@ let ws = null
 const account = ref(null)
 const portfolio = reactive({
   history: [],
+  portfolioHistory: null,
   trades: [],
   loading: false
 })
@@ -71,6 +72,24 @@ async function fetchHistory() {
   }
   finally {
     portfolio.loading = false
+  }
+}
+
+async function fetchPortfolioHistoryData() {
+  try {
+    // Use 1M (1 month) period with 1D (daily) intervals to match the typical portfolio view
+    portfolio.portfolioHistory = await fetchPortfolioHistory('1M', '1D')
+    console.log('📊 Portfolio history fetched:', {
+      hasData: !!portfolio.portfolioHistory,
+      dataType: portfolio.portfolioHistory ? 'portfolio' : 'none',
+      timestamps: portfolio.portfolioHistory?.timestamp?.length || 0,
+      firstValue: portfolio.portfolioHistory?.equity?.[0],
+      lastValue: portfolio.portfolioHistory?.equity?.[portfolio.portfolioHistory?.equity?.length - 1]
+    })
+  }
+  catch (err) {
+    console.error('Error fetching portfolio history:', err)
+    portfolio.portfolioHistory = null
   }
 }
 
@@ -102,13 +121,14 @@ function connectWebSocket() {
           console.log('📊 Account update received:', data)
           // Refresh account data when updates are received
           fetchAccountData()
-          // fetchHistory()
+          fetchPortfolioHistoryData()
         }
 
         if (data.type === 'trade') {
           console.log('📈 New trade received:', data)
           // Refresh trading history when new trades occur
-          // fetchHistory()
+          fetchHistory()
+          fetchPortfolioHistoryData()
         }
       }
       catch (err) {
@@ -131,10 +151,14 @@ function connectWebSocket() {
   }
 }
 
-provide('fetchHistory', fetchHistory)
+provide('fetchHistory', () => {
+  fetchHistory()
+  fetchPortfolioHistoryData()
+})
 
 onMounted(() => {
   fetchPortfolioData()
+  fetchPortfolioHistoryData()
   fetchAccountData()
   connectWebSocket() // WS for real-time market data only.
 })

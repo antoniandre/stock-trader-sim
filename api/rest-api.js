@@ -6,13 +6,15 @@ import { ALPACA_BASE_URL, HEADERS, IS_SIMULATION, state, mockPrices, popularStoc
 export async function getAlpacaAccount() {
   if (IS_SIMULATION) {
     console.log('🧪 [SIM] Using mock account data')
+    // Match the final portfolio value from the 1M chart data
+    const finalPortfolioValue = 100000 // This should match the end value of our 1M chart
     return {
       id: 'mock-account',
       status: 'ACTIVE',
       currency: 'USD',
-      cash: 100000,
-      portfolio_value: 100000,
-      buying_power: 100000
+      cash: 99138.34,
+      portfolio_value: 100078.87,
+      buying_power: 199217.21
     }
   }
 
@@ -55,13 +57,33 @@ export async function getAlpacaAccountActivities(activityType = null, limit = 10
 
 export async function getAlpacaPortfolioHistory(period = '1D', timeframe = '1Min') {
   if (IS_SIMULATION) {
-    console.log('🧪 [SIM] Using mock portfolio history')
-    // Generate mock historical data with realistic curve
+    console.log(`🧪 [SIM] Using mock portfolio history for ${period} period with ${timeframe} timeframe`)
+
+    // Determine data points and time intervals based on period and timeframe
+    let dataPoints, intervalMs, baseValue
+
+    if (period === '1M') {
+      // 1 month of data
+      dataPoints = timeframe === '1D' ? 30 : (timeframe === '1H' ? 720 : 1440) // 30 days, 720 hours, or 1440 minutes
+      intervalMs = timeframe === '1D' ? 24 * 60 * 60 * 1000 : (timeframe === '1H' ? 60 * 60 * 1000 : 60 * 1000)
+      baseValue = 10000 // Start at 10k to show growth to 100k
+    }
+    else if (period === '1W') {
+      // 1 week of data
+      dataPoints = timeframe === '1D' ? 7 : (timeframe === '1H' ? 168 : 10080)
+      intervalMs = timeframe === '1D' ? 24 * 60 * 60 * 1000 : (timeframe === '1H' ? 60 * 60 * 1000 : 60 * 1000)
+      baseValue = 75000
+    }
+    else {
+      // 1 day of data (default)
+      dataPoints = timeframe === '1H' ? 24 : (timeframe === '15Min' ? 96 : 1440)
+      intervalMs = timeframe === '1H' ? 60 * 60 * 1000 : (timeframe === '15Min' ? 15 * 60 * 1000 : 60 * 1000)
+      baseValue = 100000
+    }
+
     const now = Date.now()
-    const dataPoints = 100
     const timestamps = []
     const equity = []
-    const baseValue = 100000
 
     // Create a deterministic seed based on the current day to ensure consistent data
     const daysSinceEpoch = Math.floor(now / (1000 * 60 * 60 * 24))
@@ -69,23 +91,43 @@ export async function getAlpacaPortfolioHistory(period = '1D', timeframe = '1Min
 
     for (let i = 0; i < dataPoints; i++) {
       // Generate timestamps going from past to present (chronological order)
-      const time = now - (dataPoints - 1 - i) * 60000 // 1 minute intervals, oldest first
+      const time = now - (dataPoints - 1 - i) * intervalMs
       timestamps.push(new Date(time).toISOString())
 
       // Generate realistic portfolio value curve with deterministic pseudo-random
       const progress = i / dataPoints
-      const trend = 0.015 * progress // 1.5% growth trend over time
 
-      // Use deterministic "random" values based on seed and index
-      const pseudoRandom1 = Math.sin(seed + i * 17) * 0.5 + 0.5
-      const pseudoRandom2 = Math.sin(seed + i * 23) * 0.5 + 0.5
+      // Different growth patterns based on period
+      let trend, volatility
+      if (period === '1M') {
+        // Dramatic growth for 1-month view - from ~$10k to ~$100k
+        trend = 9.0 * progress // 900% growth trend over the month to reach ~100k
+        const pseudoRandom1 = Math.sin(seed + i * 17) * 0.5 + 0.5
+        const pseudoRandom2 = Math.sin(seed + i * 23) * 0.5 + 0.5
+        volatility = 0.5 * Math.sin(progress * 12 + pseudoRandom1 * 8) * pseudoRandom2
 
-      const volatility = 0.008 * Math.sin(progress * 8 + pseudoRandom1 * 6) * pseudoRandom2
+        // Add some dramatic jumps to simulate real trading activity
+        if (i > dataPoints * 0.6 && i < dataPoints * 0.65) {
+          trend += 2.0 // Big jump in the middle-end
+        }
+      } else if (period === '1W') {
+        trend = 0.05 * progress // 5% growth trend over the week
+        const pseudoRandom1 = Math.sin(seed + i * 17) * 0.5 + 0.5
+        const pseudoRandom2 = Math.sin(seed + i * 23) * 0.5 + 0.5
+        volatility = 0.02 * Math.sin(progress * 10 + pseudoRandom1 * 6) * pseudoRandom2
+      } else {
+        // 1 day - smaller movements
+        trend = 0.015 * progress // 1.5% growth trend over the day
+        const pseudoRandom1 = Math.sin(seed + i * 17) * 0.5 + 0.5
+        const pseudoRandom2 = Math.sin(seed + i * 23) * 0.5 + 0.5
+        volatility = 0.008 * Math.sin(progress * 8 + pseudoRandom1 * 6) * pseudoRandom2
+      }
+
       const value = baseValue * (1 + trend + volatility)
       equity.push(Math.round(value * 100) / 100) // Round to 2 decimal places
     }
 
-    return {
+    const result = {
       timestamp: timestamps,
       equity: equity,
       profit_loss: equity.map(val => Math.round((val - baseValue) * 100) / 100),
@@ -93,6 +135,19 @@ export async function getAlpacaPortfolioHistory(period = '1D', timeframe = '1Min
       base_value: baseValue,
       timeframe: timeframe
     }
+
+    console.log(`🧪 [SIM] Generated portfolio history:`, {
+      period,
+      timeframe,
+      dataPoints,
+      baseValue,
+      firstValue: equity[0],
+      lastValue: equity[equity.length - 1],
+      firstTimestamp: timestamps[0],
+      lastTimestamp: timestamps[timestamps.length - 1]
+    })
+
+    return result
   }
 
   try {

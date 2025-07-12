@@ -54,6 +54,20 @@ export async function fetchTradingHistory(limit = 100) {
   }
 }
 
+export async function fetchPortfolioHistory(period = '1D', timeframe = '1Min') {
+  try {
+    const response = await fetch(`${API_BASE}/portfolio/history?period=${period}&timeframe=${timeframe}`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('API Error:', error)
+    throw error
+  }
+}
+
+
 // Market Data.
 // --------------------------------------------------------
 export async function fetchAllStocks() {
