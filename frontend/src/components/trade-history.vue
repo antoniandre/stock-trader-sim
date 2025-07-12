@@ -43,7 +43,7 @@ const props = defineProps({
   loading: { type: Boolean, default: false }
 })
 
-// Show the most recent trades first
+// Show the most recent trades first.
 const reversedHistory = computed(() => {
   return [...props.history].reverse()
 })
