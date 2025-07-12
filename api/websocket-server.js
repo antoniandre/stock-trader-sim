@@ -1,6 +1,6 @@
 import WebSocket, { WebSocketServer } from 'ws'
-import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state, mockPrices, popularStocks } from './config'
-import { getPrice, placeOrder, recordTrade } from './rest-api'
+import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state, mockPrices, popularStocks } from './config.js'
+import { getPrice, placeOrder, recordTrade } from './rest-api.js'
 
 // ===== WebSocket Management =====
 export function broadcast(data) {

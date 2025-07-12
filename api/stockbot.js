@@ -1,8 +1,8 @@
 import { createServer } from 'http'
-import { IS_SIMULATION, ALPACA_KEY } from './config'
-import { createRestApiRoutes, getAlpacaAccount, getAlpacaAccountActivities, getAllTradableStocks } from './rest-api'
-import { connectAlpacaSSE } from './sse-client'
-import { createWebSocketServer, connectAlpacaWebSocket, runSimulation, broadcast } from './websocket-server'
+import { IS_SIMULATION, ALPACA_KEY } from './config.js'
+import { createRestApiRoutes, getAlpacaAccount, getAlpacaAccountActivities, getAllTradableStocks } from './rest-api.js'
+import { connectAlpacaSSE } from './sse-client.js'
+import { createWebSocketServer, connectAlpacaWebSocket, runSimulation, broadcast } from './websocket-server.js'
 
 // ===== Server Setup =====
 const PORT = process.env.PORT || 3000

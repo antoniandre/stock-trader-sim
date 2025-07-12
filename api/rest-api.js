@@ -1,6 +1,6 @@
 import axios from 'axios'
 import express from 'express'
-import { ALPACA_BASE_URL, HEADERS, IS_SIMULATION, state, mockPrices, popularStocks } from './config'
+import { ALPACA_BASE_URL, HEADERS, IS_SIMULATION, state, mockPrices, popularStocks } from './config.js'
 
 // ===== Alpaca Account Data Functions =====
 export async function getAlpacaAccount() {
