@@ -11,9 +11,7 @@
           tr
             td.px2.text-bold
               .w-flex.align-center
-                .stock-logo.mr3
-                  w-image(:src="`https://financialmodelingprep.com/image-stock/${item.symbol}.png`" :alt="item.symbol" lazy)
-                    .logo-placeholder {{ item.symbol.charAt(0) }}
+                ticker-logo.mr3(:symbol="item.symbol" size="sm")
                 span {{ item.symbol }}
             td.px2.text-center
               w-tag.px2.py1.text-bold(:class="item.side === 'buy' ? 'success--bg' : 'error--bg'" round xs)
@@ -42,6 +40,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import TickerLogo from './ticker-logo.vue'
 
 const props = defineProps({
   history: { type: Array, required: true },

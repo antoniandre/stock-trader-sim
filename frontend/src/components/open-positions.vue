@@ -13,9 +13,7 @@
       .w-divider(v-if="i")
       .w-flex.justify-space-between.align-center.py3
         .position-info.w-flex.align-center
-          .stock-logo.mr3
-            w-image(:src="`https://financialmodelingprep.com/image-stock/${position.symbol}.png`" :alt="position.symbol" lazy @error="(e, imgWrapEl) => imgWrapEl.querySelector('.hide').classList.remove('hide')")
-              .logo-placeholder.hide {{ position.symbol.charAt(0) }}
+          ticker-logo.mr3(:symbol="position.symbol")
           div
             .symbol.title3.mb1 {{ position.symbol }}
             .qty.size--sm.op7 {{ position.qty }} shares
@@ -53,6 +51,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { fetchPositions } from '@/api'
+import TickerLogo from './ticker-logo.vue'
 
 const positions = ref([])
 const loading = ref(false)

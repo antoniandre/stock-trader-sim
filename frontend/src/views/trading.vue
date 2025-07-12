@@ -60,9 +60,7 @@ w-grid.gap-xl
             tr(v-for="stock in paginatedStocks" :key="stock.symbol" class="w-hover-bg-dark-3")
               td.py4
                 .w-flex.align-center
-                  .stock-logo.mr3
-                    w-image.logo-img(:src="`https://financialmodelingprep.com/image-stock/${stock.symbol}.png`" :alt="stock.symbol" lazy)
-                      .logo-placeholder {{ stock.symbol.charAt(0) }}
+                  ticker-logo.mr3(:symbol="stock.symbol")
                   div
                     span.sm.light {{ stock.symbol }}
                     span.w-ml-md.w.pxmd.w.pyxs.xs.bdrs2.dark3--bg.light {{ stock.exchange }}
@@ -90,6 +88,7 @@ w-grid.gap-xl
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { fetchAllStocks } from '@/api'
 import TickerCard from '@/components/ticker-card.vue'
+import TickerLogo from '@/components/ticker-logo.vue'
 
 const stocks = ref([])
 const searchQuery = ref('')
