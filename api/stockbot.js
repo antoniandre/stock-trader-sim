@@ -1,8 +1,8 @@
 import { createServer } from 'http'
-import { isSim, ALPACA_KEY } from './config.js'
-import { createRestApiRoutes, getAlpacaAccount, getAlpacaAccountActivities, getAllTradableStocks } from './rest-api.js'
-import { connectAlpacaSSE } from './sse-client.js'
-import { createWebSocketServer, connectAlpacaWebSocket, runSimulation, broadcast } from './websocket-server.js'
+import { IS_SIMULATION, ALPACA_KEY } from './config'
+import { createRestApiRoutes, getAlpacaAccount, getAlpacaAccountActivities, getAllTradableStocks } from './rest-api'
+import { connectAlpacaSSE } from './sse-client'
+import { createWebSocketServer, connectAlpacaWebSocket, runSimulation, broadcast } from './websocket-server'
 
 // ===== Server Setup =====
 const PORT = process.env.PORT || 3000
@@ -21,12 +21,12 @@ async function startServer() {
   server.listen(PORT, async () => {
     console.log(`🌐 API running on port ${PORT}`)
     console.log(`🔌 WebSocket server running on ws://localhost:${PORT}`)
-    console.log(`🧪 Simulation mode: ${isSim}`)
+    console.log(`🧪 Simulation mode: ${IS_SIMULATION}`)
 
     // Initialize stock data
     await getAllTradableStocks()
 
-    if (isSim) {
+    if (IS_SIMULATION) {
       console.log('⚡ Demo mode: Running simulation every 1 second')
       setInterval(runSimulation, 1000) // Update every 1 second
     }

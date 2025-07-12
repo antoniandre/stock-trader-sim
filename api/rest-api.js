@@ -56,12 +56,31 @@ export async function getAlpacaAccountActivities(activityType = null, limit = 10
 export async function getAlpacaPortfolioHistory(period = '1D', timeframe = '1Min') {
   if (IS_SIMULATION) {
     console.log('🧪 [SIM] Using mock portfolio history')
+    // Generate mock historical data with realistic curve
+    const now = Date.now()
+    const dataPoints = 100
+    const timestamps = []
+    const equity = []
+    const baseValue = 100000
+
+    for (let i = 0; i < dataPoints; i++) {
+      const time = now - (dataPoints - i) * 60000 // 1 minute intervals
+      timestamps.push(new Date(time).toISOString())
+
+      // Generate realistic portfolio value curve
+      const progress = i / dataPoints
+      const trend = 0.02 * progress // 2% growth trend
+      const volatility = 0.01 * Math.sin(progress * 10) * Math.random()
+      const value = baseValue * (1 + trend + volatility)
+      equity.push(value)
+    }
+
     return {
-      timestamp: [Date.now()],
-      equity: [100000],
-      profit_loss: [0],
-      profit_loss_pct: [0],
-      base_value: 100000,
+      timestamp: timestamps,
+      equity: equity,
+      profit_loss: equity.map(val => val - baseValue),
+      profit_loss_pct: equity.map(val => ((val - baseValue) / baseValue) * 100),
+      base_value: baseValue,
       timeframe: timeframe
     }
   }
@@ -104,6 +123,46 @@ export async function getAlpacaTradingHistory(limit = 100) {
   catch (error) {
     console.error('Error fetching trading history:', error)
     return { success: false, message: 'Failed to fetch trading history.' }
+  }
+}
+
+export async function getAlpacaPositions() {
+  if (IS_SIMULATION) {
+    console.log('🧪 [SIM] Using mock positions')
+    return [
+      {
+        symbol: 'AAPL',
+        qty: '10',
+        market_value: '1755.00',
+        cost_basis: '1700.00',
+        unrealized_pl: '55.00',
+        unrealized_plpc: '0.0324',
+        current_price: '175.50',
+        lastday_price: '174.20',
+        change_today: '1.30'
+      },
+      {
+        symbol: 'MSFT',
+        qty: '5',
+        market_value: '2101.50',
+        cost_basis: '2000.00',
+        unrealized_pl: '101.50',
+        unrealized_plpc: '0.0508',
+        current_price: '420.30',
+        lastday_price: '418.90',
+        change_today: '1.40'
+      }
+    ]
+  }
+
+  try {
+    const { data } = await axios.get(`${ALPACA_BASE_URL}/v2/positions`, { headers: HEADERS })
+    console.log(`✅ Successfully fetched ${data.length} positions`)
+    return data
+  }
+  catch (error) {
+    console.error('❌ Error fetching positions:', error.message)
+    return []
   }
 }
 
@@ -291,12 +350,37 @@ export function createRestApiRoutes() {
     }
   })
 
+  // Get portfolio history with proper data formatting for chart
+  app.get('/api/portfolio/history', async (req, res) => {
+    try {
+      const { period = '1D', timeframe = '1Min' } = req.query
+      const history = await getAlpacaPortfolioHistory(period, timeframe)
+      res.json(history)
+    }
+    catch (error) {
+      console.error('Error fetching portfolio history:', error)
+      res.status(500).json({ error: 'Failed to fetch portfolio history' })
+    }
+  })
+
   // Get trading history specifically (filtered activities)
   app.get('/api/trading-history', async (req, res) => {
     const { limit = 100 } = req.query
     const { success, history, message } = await getAlpacaTradingHistory(limit)
     if (success) res.json(history)
     else res.status(500).json({ error: 'Failed to fetch trading history.' })
+  })
+
+  // Get open positions
+  app.get('/api/positions', async (req, res) => {
+    try {
+      const positions = await getAlpacaPositions()
+      res.json(positions)
+    }
+    catch (error) {
+      console.error('Error fetching positions:', error)
+      res.status(500).json({ error: 'Failed to fetch positions' })
+    }
   })
 
   app.get('/api/stocks', async (req, res) => {
