@@ -31,6 +31,7 @@
             | {{ account.buying_power ? parseFloat(account.buying_power).toLocaleString() : '0.00' }}
 
   portfolio-chart.mt6(:history="portfolio.portfolioHistory")
+  open-positions.mt6
   trade-history.mt6(:history="portfolio.history" :loading="portfolio.loading")
 </template>
 
@@ -38,6 +39,7 @@
 import { ref, onMounted, onUnmounted, provide, reactive } from 'vue'
 import { fetchPortfolio, fetchTradingHistory, fetchAccount, fetchPortfolioHistory } from '@/api'
 import PortfolioChart from '@/components/portfolio-chart.vue'
+import OpenPositions from '@/components/open-positions.vue'
 import TradeHistory from '@/components/trade-history.vue'
 
 let ws = null

@@ -67,6 +67,18 @@ export async function fetchPortfolioHistory(period = '1D', timeframe = '1Min') {
   }
 }
 
+export async function fetchPositions() {
+  try {
+    const response = await fetch(`${API_BASE}/positions`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('API Error:', error)
+    throw error
+  }
+}
 
 // Market Data.
 // --------------------------------------------------------
