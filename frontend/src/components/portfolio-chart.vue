@@ -252,10 +252,12 @@ const chartOptions = {
 
           // Show P&L info if available.
           if (profitLoss !== undefined && profitLoss !== null) {
+            // Convert decimal percentage to percentage (0.0001 -> 0.01%).
+            const percentageValue = profitLossPercent != null ? profitLossPercent * 100 : 0
             const plValue = `P&L: $${profitLoss.toLocaleString('en-US', {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2
-            })} (${profitLossPercent >= 0 ? '+' : ''}${profitLossPercent.toFixed(2)}%)`
+            })} (${percentageValue >= 0 ? '+' : ''}${percentageValue.toFixed(2)}%)`
 
             return [portfolioValue, plValue]
           }
