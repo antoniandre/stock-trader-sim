@@ -1,6 +1,15 @@
 <template lang="pug">
 .glass-box.pa6.ovh
-  h2.title2.mb4 Portfolio Performance
+  .w-flex.justify-space-between.align-center.mb4
+    h2.title2 Portfolio Performance
+    .period-selector
+      .period-buttons
+        w-button.period-btn(
+          v-for="period in periods"
+          :key="period.value"
+          :class="{ active: selectedPeriod === period.value }"
+          @click="changePeriod(period.value)")
+          | {{ period.label }}
   .chart-wrap
     Line(ref="chartRef" :data="chartData" :options="chartOptions")
 </template>
@@ -11,7 +20,23 @@ import { Line } from 'vue-chartjs'
 import 'chart.js/auto'
 
 const props = defineProps(['history'])
+const emit = defineEmits(['period-change'])
 const chartRef = ref(null)
+
+// Period selector.
+const periods = [
+  { label: '1D', value: '1D' },
+  { label: '1M', value: '1M' },
+  { label: '1Y', value: '12M' },
+  { label: 'All', value: 'ALL' }
+]
+
+const selectedPeriod = ref('1M')
+
+function changePeriod(period) {
+  selectedPeriod.value = period
+  emit('period-change', period)
+}
 
 // Store sorted data for tooltip access.
 const sortedTimestamps = ref([])
@@ -19,9 +44,35 @@ const sortedProfitLoss = ref([])
 const sortedProfitLossPercent = ref([])
 
 const chartData = computed(() => {
+  // Guard against null/undefined history to prevent rendering errors.
+  if (!props.history) {
+    // Clear sorted data.
+    sortedTimestamps.value = []
+    sortedProfitLoss.value = []
+    sortedProfitLossPercent.value = []
+
+    return {
+      labels: [],
+      datasets: [{
+        label: 'Portfolio Value',
+        data: [],
+        borderColor: '#3B82F6',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        borderWidth: 2,
+        fill: 'start',
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 6,
+        pointHoverBorderWidth: 2,
+        pointHoverBorderColor: '#3B82F6',
+        pointHoverBackgroundColor: '#fff'
+      }]
+    }
+  }
+
   // Check if this is Alpaca portfolio history format (has timestamp and equity arrays).
   if (props.history?.timestamp && props.history?.equity) {
-    // Combine timestamp, equity, and profit/loss data, then sort by timestamp
+    // Combine timestamp, equity, and profit/loss data, then sort by timestamp.
     const combined = props.history.timestamp.map((timestamp, index) => {
       // Convert Unix timestamp (seconds) to proper JavaScript timestamp (milliseconds).
       let convertedTimestamp = timestamp
@@ -47,15 +98,25 @@ const chartData = computed(() => {
     sortedProfitLoss.value = combined.map(item => item.profitLoss)
     sortedProfitLossPercent.value = combined.map(item => item.profitLossPercent)
 
-    // Format labels based on timeframe - use dates for daily data, time for intraday.
+    // Format labels based on timeframe and period.
     const labels = combined.map(item => {
       const date = new Date(item.timestamp)
-      // If we have less than 50 data points, it's likely daily data, so show dates.
-      if (combined.length <= 50) {
+
+      // For yearly or all-time data with many points, show month/year.
+      if (combined.length > 200) {
+        return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+      }
+      // For monthly data or less than 50 points, show dates.
+      else if (combined.length <= 50) {
         return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       }
-      // Otherwise show time for intraday data.
-      return date.toLocaleTimeString()
+      // Otherwise show time for intraday data with seconds.
+      return date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      })
     })
     const dataPoints = combined.map(item => item.equity)
 
@@ -123,7 +184,12 @@ const chartData = computed(() => {
   // Sort trade history by timestamp to ensure chronological order.
   const sortedHistory = [...props.history].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
 
-  const labels = sortedHistory.map(h => new Date(h.timestamp).toLocaleTimeString())
+  const labels = sortedHistory.map(h => new Date(h.timestamp).toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }))
   const portfolio = {} // Holds the current quantity of each stock.
   const dataPoints = sortedHistory.map(trade => {
     if (!portfolio[trade.symbol]) portfolio[trade.symbol] = { qty: 0, price: 0 }
@@ -209,12 +275,14 @@ const chartOptions = {
                 year: 'numeric'
               })
             }
-            // For intraday data, show date and time.
+            // For intraday data, show date and time with seconds.
             return date.toLocaleString('en-US', {
               month: 'short',
               day: 'numeric',
               hour: '2-digit',
-              minute: '2-digit'
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: false
             })
           }
 
@@ -279,5 +347,35 @@ watch(() => props.history, (newHistory) => {
 <style lang="scss">
 .chart-wrap {
   height: 40vh;
+}
+
+.period-selector {
+  .period-buttons {
+    display: flex;
+    gap: 8px;
+  }
+
+  .period-btn {
+    padding: 6px 16px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    &.active {
+      background: #f59e0b;
+      color: #1f2937;
+      font-weight: 600;
+    }
+  }
 }
 </style>

@@ -6,7 +6,7 @@
       w-icon.mr2(:spin="portfolio.loading" sm) wi-spinner
       | Refresh
 
-  //- Account Summary
+  //- Account Summary.
   .w-flex.gap4.mt6(v-if="account")
     .gradient-card.grow
       .gradient-card__wrap
@@ -30,7 +30,7 @@
           span(:class="account.buying_power > 0 ? 'success-light3' : (account.buying_power ? 'error' : 'white')")
             | {{ account.buying_power ? parseFloat(account.buying_power).toLocaleString() : '0.00' }}
 
-  portfolio-chart.mt6(:history="portfolio.portfolioHistory")
+  portfolio-chart.mt6(:history="portfolio.portfolioHistory" @period-change="onPeriodChange")
   open-positions.mt6
   trade-history.mt6(:history="portfolio.history" :loading="portfolio.loading")
 </template>
@@ -77,22 +77,29 @@ async function fetchHistory() {
   }
 }
 
-async function fetchPortfolioHistoryData() {
+async function fetchPortfolioHistoryData(period = '1M') {
   try {
-    // Use 1M (1 month) period with 1D (daily) intervals to match the typical portfolio view
-    portfolio.portfolioHistory = await fetchPortfolioHistory('1M', '1D')
-    console.log('📊 Portfolio history fetched:', {
-      hasData: !!portfolio.portfolioHistory,
-      dataType: portfolio.portfolioHistory ? 'portfolio' : 'none',
-      timestamps: portfolio.portfolioHistory?.timestamp?.length || 0,
-      firstValue: portfolio.portfolioHistory?.equity?.[0],
-      lastValue: portfolio.portfolioHistory?.equity?.[portfolio.portfolioHistory?.equity?.length - 1]
-    })
+    // Map period to appropriate timeframe based on Alpaca API restrictions.
+    let timeframe = '1D' // Default to 1D which works for all periods.
+
+    // Only use intraday timeframes for short periods (less than 30 days).
+    // 1 day can use hourly data.
+    if (period === '1D') timeframe = '1H'
+    // For 1M, 12M, and ALL, use daily data to avoid 422 errors.
+    // (Alpaca restricts intraday timeframes to periods < 30 days).
+
+    console.log(`📊 Fetching portfolio history for ${period} period with ${timeframe} intervals`)
+    portfolio.portfolioHistory = await fetchPortfolioHistory(period, timeframe)
   }
   catch (err) {
     console.error('Error fetching portfolio history:', err)
     portfolio.portfolioHistory = null
   }
+}
+
+function onPeriodChange(period) {
+  console.log(`📊 Period changed to: ${period}`)
+  fetchPortfolioHistoryData(period)
 }
 
 async function fetchAccountData() {
@@ -121,14 +128,14 @@ function connectWebSocket() {
 
         if (data.type === 'account-update') {
           console.log('📊 Account update received:', data)
-          // Refresh account data when updates are received
+          // Refresh account data when updates are received.
           fetchAccountData()
           fetchPortfolioHistoryData()
         }
 
         if (data.type === 'trade') {
           console.log('📈 New trade received:', data)
-          // Refresh trading history when new trades occur
+          // Refresh trading history when new trades occur.
           fetchHistory()
           fetchPortfolioHistoryData()
         }
@@ -144,7 +151,7 @@ function connectWebSocket() {
 
     ws.onclose = () => {
       console.log('🔌 Dashboard WebSocket disconnected')
-      // Reconnect after 5 seconds
+      // Reconnect after 5 seconds.
       setTimeout(connectWebSocket, 5000)
     }
   }
