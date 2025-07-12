@@ -23,7 +23,7 @@ const props = defineProps(['history'])
 const emit = defineEmits(['period-change'])
 const chartRef = ref(null)
 
-// Period selector.
+// ===== Configuration =====
 const periods = [
   { label: '1D', value: '1D' },
   { label: '1M', value: '1M' },
@@ -33,203 +33,160 @@ const periods = [
 
 const selectedPeriod = ref('1M')
 
-function changePeriod(period) {
-  selectedPeriod.value = period
-  emit('period-change', period)
-}
-
 // Store sorted data for tooltip access.
 const sortedTimestamps = ref([])
 const sortedProfitLoss = ref([])
 const sortedProfitLossPercent = ref([])
 
-const chartData = computed(() => {
-  // Guard against null/undefined history to prevent rendering errors.
-  if (!props.history) {
-    // Clear sorted data.
-    sortedTimestamps.value = []
-    sortedProfitLoss.value = []
-    sortedProfitLossPercent.value = []
+// ===== Helper Functions =====
+function convertTimestamp(timestamp) {
+  if (typeof timestamp !== 'number') return timestamp
+  // Convert Unix seconds to milliseconds if needed.
+  return timestamp < 1000000000000 ? timestamp * 1000 : timestamp
+}
 
-    return {
-      labels: [],
-      datasets: [{
-        label: 'Portfolio Value',
-        data: [],
-        borderColor: '#3B82F6',
-        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-        borderWidth: 2,
-        fill: 'start',
-        tension: 0.4,
-        pointRadius: 0,
-        pointHoverRadius: 6,
-        pointHoverBorderWidth: 2,
-        pointHoverBorderColor: '#3B82F6',
-        pointHoverBackgroundColor: '#fff'
-      }]
-    }
+function createEmptyDataset() {
+  return {
+    label: 'Portfolio Value',
+    data: [],
+    borderColor: '#3B82F6',
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    borderWidth: 2,
+    fill: 'start',
+    tension: 0.4,
+    pointRadius: 0,
+    pointHoverRadius: 6,
+    pointHoverBorderWidth: 2,
+    pointHoverBorderColor: '#3B82F6',
+    pointHoverBackgroundColor: '#fff'
   }
+}
 
-  // Check if this is Alpaca portfolio history format (has timestamp and equity arrays).
-  if (props.history?.timestamp && props.history?.equity) {
-    // Combine timestamp, equity, and profit/loss data, then sort by timestamp.
-    const combined = props.history.timestamp.map((timestamp, index) => {
-      // Convert Unix timestamp (seconds) to proper JavaScript timestamp (milliseconds).
-      let convertedTimestamp = timestamp
-      if (typeof timestamp === 'number') {
-        // If it's a number and looks like Unix seconds (less than year 2001 in milliseconds).
-        // Convert seconds to milliseconds.
-        if (timestamp < 1000000000000) convertedTimestamp = timestamp * 1000
-      }
+function formatChartLabel(timestamp, period, dataLength) {
+  const date = new Date(timestamp)
 
-      return {
-        timestamp: convertedTimestamp,
-        equity: props.history.equity[index],
-        profitLoss: props.history.profit_loss ? props.history.profit_loss[index] : null,
-        profitLossPercent: props.history.profit_loss_pct ? props.history.profit_loss_pct[index] : null
-      }
+  // For 1D period (intraday data), show times.
+  if (period === '1D') {
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
     })
+  }
 
-    // Sort by timestamp to ensure chronological order.
-    combined.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-
-    // Store sorted data for tooltip access.
-    sortedTimestamps.value = combined.map(item => item.timestamp)
-    sortedProfitLoss.value = combined.map(item => item.profitLoss)
-    sortedProfitLossPercent.value = combined.map(item => item.profitLossPercent)
-
-    // Format labels based on timeframe and period.
-    const labels = combined.map(item => {
-      const date = new Date(item.timestamp)
-
-      // For yearly or all-time data with many points, show month/year.
-      if (combined.length > 200) {
-        return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
-      }
-      // For monthly data or less than 50 points, show dates.
-      else if (combined.length <= 50) {
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      }
-      // Otherwise show time for intraday data with seconds.
-      return date.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      })
+  // For large datasets, show month/year.
+  if (dataLength > 200) {
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      year: '2-digit'
     })
-    const dataPoints = combined.map(item => item.equity)
-
-    // Create gradient.
-    const chartEl = chartRef.value?.chart
-    let gradient = null
-    if (chartEl) {
-      const ctx = chartEl.ctx
-      gradient = ctx.createLinearGradient(0, 0, 0, 400)
-      gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)')
-      gradient.addColorStop(1, 'rgba(59, 130, 246, 0)')
-    }
-
-    return {
-      labels,
-      datasets: [{
-        label: 'Portfolio Value',
-        data: dataPoints,
-        borderColor: '#3B82F6',
-        backgroundColor: gradient || 'rgba(59, 130, 246, 0.1)',
-        borderWidth: 2,
-        fill: 'start',
-        tension: 0.4,
-        pointRadius: 0,
-        pointHoverRadius: 6,
-        pointHoverBorderWidth: 2,
-        pointHoverBorderColor: '#3B82F6',
-        pointHoverBackgroundColor: '#fff'
-      }]
-    }
   }
 
-  // Fallback to old trading history format if portfolio history not available.
-  if (!props.history || !Array.isArray(props.history)) {
-    // Clear sorted data.
-    sortedTimestamps.value = []
-    sortedProfitLoss.value = []
-    sortedProfitLossPercent.value = []
+  // Default: show dates.
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric'
+  })
+}
 
-    return {
-      labels: [],
-      datasets: [{
-        label: 'Portfolio Value',
-        data: [],
-        borderColor: '#3B82F6',
-        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-        borderWidth: 2,
-        fill: 'start',
-        tension: 0.4,
-        pointRadius: 0,
-        pointHoverRadius: 6,
-        pointHoverBorderWidth: 2,
-        pointHoverBorderColor: '#3B82F6',
-        pointHoverBackgroundColor: '#fff'
-      }]
-    }
-  }
+function processAlpacaHistory(history, period) {
+  // Combine and convert timestamps.
+  const combined = history.timestamp.map((timestamp, index) => ({
+    timestamp: convertTimestamp(timestamp),
+    equity: history.equity[index],
+    profitLoss: history.profit_loss?.[index] || null,
+    profitLossPercent: history.profit_loss_pct?.[index] || null
+  }))
 
-  // Old format: calculate portfolio value from trade history.
-  // Clear sorted data for portfolio history format.
+  // Sort chronologically.
+  combined.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+
+  // Store sorted data for tooltips.
+  sortedTimestamps.value = combined.map(item => item.timestamp)
+  sortedProfitLoss.value = combined.map(item => item.profitLoss)
+  sortedProfitLossPercent.value = combined.map(item => item.profitLossPercent)
+
+  // Generate labels and data.
+  const labels = combined.map(item => formatChartLabel(item.timestamp, period, combined.length))
+  const dataPoints = combined.map(item => item.equity)
+
+  return { labels, dataPoints }
+}
+
+function processTradeHistory(history) {
+  if (!Array.isArray(history)) return { labels: [], dataPoints: [] }
+
+  // Clear portfolio history data.
   sortedTimestamps.value = []
   sortedProfitLoss.value = []
   sortedProfitLossPercent.value = []
 
-  // Sort trade history by timestamp to ensure chronological order.
-  const sortedHistory = [...props.history].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+  // Sort by timestamp.
+  const sortedHistory = [...history].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
 
-  const labels = sortedHistory.map(h => new Date(h.timestamp).toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  }))
-  const portfolio = {} // Holds the current quantity of each stock.
+  // Calculate portfolio values.
+  const portfolio = {}
+  const labels = sortedHistory.map(trade =>
+    new Date(trade.timestamp).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    })
+  )
+
   const dataPoints = sortedHistory.map(trade => {
     if (!portfolio[trade.symbol]) portfolio[trade.symbol] = { qty: 0, price: 0 }
+
     portfolio[trade.symbol].qty += (trade.side === 'buy' ? 1 : -1) * trade.qty
     portfolio[trade.symbol].price = trade.price
 
-    let totalValue = 0
-    for (const symbol in portfolio) {
-      totalValue += portfolio[symbol].qty * portfolio[symbol].price
-    }
-    return totalValue.toFixed(2)
+    const totalValue = Object.values(portfolio).reduce((sum, pos) => sum + (pos.qty * pos.price), 0)
+    return Number(totalValue.toFixed(2))
   })
 
-  // Create gradient.
+  return { labels, dataPoints }
+}
+
+function createGradient() {
   const chartEl = chartRef.value?.chart
-  let gradient = null
-  if (chartEl) {
-    const ctx = chartEl.ctx
-    gradient = ctx.createLinearGradient(0, 0, 0, 400)
-    gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)')
-    gradient.addColorStop(1, 'rgba(59, 130, 246, 0)')
+  if (!chartEl) return 'rgba(59, 130, 246, 0.1)'
+
+  const ctx = chartEl.ctx
+  const gradient = ctx.createLinearGradient(0, 0, 0, 400)
+  gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)')
+  gradient.addColorStop(1, 'rgba(59, 130, 246, 0)')
+  return gradient
+}
+
+// ===== Main Computed =====
+const chartData = computed(() => {
+  // Guard against null/undefined history.
+  if (!props.history) {
+    sortedTimestamps.value = []
+    sortedProfitLoss.value = []
+    sortedProfitLossPercent.value = []
+    return { labels: [], datasets: [createEmptyDataset()] }
   }
 
-  return {
-    labels,
-    datasets: [{
-      label: 'Portfolio Value',
-      data: dataPoints,
-      borderColor: '#3B82F6',
-      backgroundColor: gradient || 'rgba(59, 130, 246, 0.1)',
-      borderWidth: 2,
-      fill: 'start',
-      tension: 0.4,
-      pointRadius: 0,
-      pointHoverRadius: 6,
-      pointHoverBorderWidth: 2,
-      pointHoverBorderColor: '#3B82F6',
-      pointHoverBackgroundColor: '#fff'
-    }]
+  let labels, dataPoints
+
+  // Process Alpaca portfolio history format.
+  if (props.history?.timestamp && props.history?.equity) {
+    ({ labels, dataPoints } = processAlpacaHistory(props.history, selectedPeriod.value))
   }
+  else {
+    // Process trade history format.
+    ({ labels, dataPoints } = processTradeHistory(props.history))
+  }
+
+  // Create dataset with gradient.
+  const dataset = {
+    ...createEmptyDataset(),
+    data: dataPoints,
+    backgroundColor: createGradient()
+  }
+
+  return { labels, datasets: [dataset] }
 })
 
 const chartOptions = {
@@ -251,31 +208,19 @@ const chartOptions = {
       bodyColor: '#fff',
       borderColor: '#3B82F6',
       borderWidth: 1,
-      titleFont: {
-        size: 14,
-        weight: 'bold'
-      },
-      bodyFont: {
-        size: 13
-      },
+      titleFont: { size: 14, weight: 'bold' },
+      bodyFont: { size: 13 },
       callbacks: {
-                title: function(tooltipItems) {
-          // Get the data index to access the sorted timestamps.
+        title(tooltipItems) {
           const dataIndex = tooltipItems[0].dataIndex
           const timestamp = sortedTimestamps.value[dataIndex]
 
-          if (timestamp) {
-            const date = new Date(timestamp)
-            // For monthly data, show full date and time.
-            if (sortedTimestamps.value.length <= 50) {
-              return date.toLocaleDateString('en-US', {
-                weekday: 'short',
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric'
-              })
-            }
-            // For intraday data, show date and time with seconds.
+          if (!timestamp) return tooltipItems[0].label
+
+          const date = new Date(timestamp)
+
+          // For 1D period, show date and time.
+          if (selectedPeriod.value === '1D') {
             return date.toLocaleString('en-US', {
               month: 'short',
               day: 'numeric',
@@ -286,33 +231,36 @@ const chartOptions = {
             })
           }
 
-          return tooltipItems[0].label
+          // For longer periods, show full date.
+          return date.toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          })
         },
-                label: function(context) {
+        label(context) {
           const value = context.parsed.y
           const dataIndex = context.dataIndex
+          const profitLoss = sortedProfitLoss.value[dataIndex]
+          const profitLossPercent = sortedProfitLossPercent.value[dataIndex]
 
-          // Check if we have portfolio history data with additional info.
-          if (sortedProfitLoss.value[dataIndex] !== undefined && sortedProfitLoss.value[dataIndex] !== null) {
-            const profitLoss = sortedProfitLoss.value[dataIndex]
-            const profitLossPercent = sortedProfitLossPercent.value[dataIndex]
-
-            return [
-              `Portfolio Value: $${value.toLocaleString('en-US', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              })}`,
-              `P&L: $${profitLoss.toLocaleString('en-US', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              })} (${profitLossPercent >= 0 ? '+' : ''}${profitLossPercent.toFixed(2)}%)`
-            ]
-          }
-
-          return `Portfolio Value: $${value.toLocaleString('en-US', {
+          const portfolioValue = `Portfolio Value: $${value.toLocaleString('en-US', {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
           })}`
+
+          // Show P&L info if available.
+          if (profitLoss !== undefined && profitLoss !== null) {
+            const plValue = `P&L: $${profitLoss.toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            })} (${profitLossPercent >= 0 ? '+' : ''}${profitLossPercent.toFixed(2)}%)`
+
+            return [portfolioValue, plValue]
+          }
+
+          return portfolioValue
         }
       }
     }
@@ -323,12 +271,10 @@ const chartOptions = {
       grid: { color: 'rgba(255, 255, 255, 0.05)' },
       ticks: {
         color: '#C9D1D9',
-        callback: function(value) {
-          return '$' + value.toLocaleString('en-US', {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-          })
-        }
+        callback: value => '$' + value.toLocaleString('en-US', {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0
+        })
       }
     },
     x: {
@@ -338,8 +284,15 @@ const chartOptions = {
   }
 }
 
-watch(() => props.history, (newHistory) => {
-  // The 'quiet' mode prevents a jarring re-animation on every update.
+// ===== Event Handlers =====
+function changePeriod(period) {
+  selectedPeriod.value = period
+  emit('period-change', period)
+}
+
+// ===== Watchers =====
+watch(() => props.history, () => {
+  // Update chart quietly to prevent jarring animations.
   if (chartRef.value?.chart) chartRef.value.chart.update('quiet')
 }, { deep: true })
 </script>
