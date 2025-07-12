@@ -2,14 +2,14 @@
 .glass-box.pa6.ovh
   .w-flex.justify-space-between.align-center.mb4
     h2.title2 Portfolio Performance
-    .period-selector
-      .period-buttons
-        w-button.period-btn(
-          v-for="period in periods"
-          :key="period.value"
-          :class="{ active: selectedPeriod === period.value }"
-          @click="changePeriod(period.value)")
-          | {{ period.label }}
+    .period-selector.w-flex.gap2.no-grow
+      w-button.period-btn(
+        v-for="period in periods"
+        :key="period.value"
+        color="base"
+        :class="{ 'period-btn--active': selectedPeriod === period.value }"
+        @click="changePeriod(period.value)")
+        | {{ period.label }}
   .chart-wrap
     Line(ref="chartRef" :data="chartData" :options="chartOptions")
 </template>
@@ -350,32 +350,10 @@ watch(() => props.history, (newHistory) => {
 }
 
 .period-selector {
-  .period-buttons {
-    display: flex;
-    gap: 8px;
-  }
-
   .period-btn {
-    padding: 6px 16px;
-    border: none;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
+    background-color: rgba(255, 255, 255, 0.1);
 
-    &:hover {
-      background: rgba(255, 255, 255, 0.15);
-      color: rgba(255, 255, 255, 0.9);
-    }
-
-    &.active {
-      background: #f59e0b;
-      color: #1f2937;
-      font-weight: 600;
-    }
+    &--active {background-color: var(--w-primary-color);}
   }
 }
 </style>
