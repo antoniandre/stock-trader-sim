@@ -13,13 +13,15 @@
         .text-upper.size--xs.op5 Account Balance
         .title2.mt3.text-center
           span.op6.mr1 $
-          | {{ account.cash ? parseFloat(account.cash).toLocaleString() : '0.00' }}
+          span(:class="account.cash > 0 ? 'success-light3' : (account.cash ? 'error' : 'white')")
+            | {{ account.cash ? parseFloat(account.cash).toLocaleString() : '0.00' }}
     .gradient-card.grow
       .gradient-card__wrap
         .text-upper.size--xs.op5 Portfolio Value
         .title2.mt3.text-center
           span.op6.mr1 $
-          | {{ account.portfolio_value ? parseFloat(account.portfolio_value).toLocaleString() : '0.00' }}
+          span(:class="account.portfolio_value > 0 ? 'success-light3' : (account.portfolio_value ? 'error' : 'white')")
+            | {{ account.portfolio_value ? parseFloat(account.portfolio_value).toLocaleString() : '0.00' }}
     .gradient-card.grow
       .gradient-card__wrap
         .text-upper.size--xs.op5 Buying Power
