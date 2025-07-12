@@ -2,7 +2,7 @@
 .w-space-xl.dark--bg.w-min-h-screen
   .w-flex.justify-space-between.align-center
     .title1 Portfolio Dashboard
-    w-button(@click="fetchHistory" text round)
+    w-button.mr-2(@click="fetchHistory" text round)
       w-icon.mr2(:spin="portfolio.loading" sm) wi-spinner
       | Refresh
 
