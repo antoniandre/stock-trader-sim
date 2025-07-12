@@ -44,13 +44,15 @@ let ws = null
 const account = ref(null)
 const portfolio = reactive({
   history: [],
+  trades: [],
   loading: false
 })
 
 async function fetchPortfolioData() {
   try {
     const data = await fetchPortfolio()
-    history.value = data.history || []
+    portfolio.history = data.history || []
+    portfolio.trades = data.trades || []
   }
   catch (err) {
     console.error('Error fetching portfolio:', err)
