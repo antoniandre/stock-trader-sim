@@ -11,7 +11,7 @@ export const {
   SIMULATION
 } = process.env
 
-export const isSim = !ALPACA_KEY || (SIMULATION === 'true')
+export const IS_SIMULATION = !ALPACA_KEY || (SIMULATION === 'true')
 export const ALPACA_ACCOUNT_URL = `${ALPACA_BASE_URL}/v2/account`
 
 export const HEADERS = {

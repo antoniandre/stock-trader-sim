@@ -1,9 +1,9 @@
-import { ALPACA_BASE_URL, ALPACA_KEY, ALPACA_SECRET, isSim, state } from './config.js'
-import { getAlpacaAccountActivities } from './rest-api.js'
+import { ALPACA_BASE_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state } from './config'
+import { getAlpacaAccountActivities } from './rest-api'
 
 // ===== Server-Sent Events for Account Updates =====
 export async function connectAlpacaSSE(broadcastFn) {
-  if (isSim) {
+  if (IS_SIMULATION) {
     console.log('🧪 [SIM] SSE not available in simulation mode')
     return
   }

@@ -1,6 +1,6 @@
 import WebSocket, { WebSocketServer } from 'ws'
-import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, isSim, state, mockPrices, popularStocks } from './config.js'
-import { getPrice, placeOrder, recordTrade } from './rest-api.js'
+import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state, mockPrices, popularStocks } from './config'
+import { getPrice, placeOrder, recordTrade } from './rest-api'
 
 // ===== WebSocket Management =====
 export function broadcast(data) {
@@ -18,7 +18,7 @@ export function createWebSocketServer(server) {
     state.wsClients.add(ws)
 
     // Send initial data
-    if (isSim) {
+    if (IS_SIMULATION) {
       const mockStocks = Object.entries(mockPrices).map(([symbol, price]) => ({
         symbol,
         price,
@@ -53,7 +53,7 @@ export function createWebSocketServer(server) {
 
 // ===== Alpaca WebSocket Streaming =====
 export function connectAlpacaWebSocket() {
-  if (isSim) return
+  if (IS_SIMULATION) return
 
   try {
     console.log('🔌 Connecting to Alpaca WebSocket stream...')

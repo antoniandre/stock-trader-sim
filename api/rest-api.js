@@ -1,10 +1,10 @@
 import axios from 'axios'
 import express from 'express'
-import { ALPACA_BASE_URL, HEADERS, isSim, state, mockPrices, popularStocks } from './config.js'
+import { ALPACA_BASE_URL, HEADERS, IS_SIMULATION, state, mockPrices, popularStocks } from './config'
 
 // ===== Alpaca Account Data Functions =====
 export async function getAlpacaAccount() {
-  if (isSim) {
+  if (IS_SIMULATION) {
     console.log('🧪 [SIM] Using mock account data')
     return {
       id: 'mock-account',
@@ -28,7 +28,7 @@ export async function getAlpacaAccount() {
 }
 
 export async function getAlpacaAccountActivities(activityType = null, limit = 100) {
-  if (isSim) {
+  if (IS_SIMULATION) {
     console.log('🧪 [SIM] Using mock trading history')
     return []
   }
@@ -54,7 +54,7 @@ export async function getAlpacaAccountActivities(activityType = null, limit = 10
 }
 
 export async function getAlpacaPortfolioHistory(period = '1D', timeframe = '1Min') {
-  if (isSim) {
+  if (IS_SIMULATION) {
     console.log('🧪 [SIM] Using mock portfolio history')
     return {
       timestamp: [Date.now()],
@@ -110,7 +110,7 @@ export async function getAlpacaTradingHistory(limit = 100) {
 export async function getAllTradableStocks() {
   if (state.allStocks.length > 0) return state.allStocks
 
-  if (isSim) {
+  if (IS_SIMULATION) {
     // In simulation, use popular stocks
     state.allStocks = popularStocks.map(symbol => ({
       symbol,
@@ -161,7 +161,7 @@ export async function getAllTradableStocks() {
 }
 
 export async function getPrice(symbol) {
-  if (isSim) {
+  if (IS_SIMULATION) {
     const basePrice = mockPrices[symbol]
     if (!basePrice) return 0
 
@@ -187,7 +187,7 @@ export async function getPrice(symbol) {
 }
 
 export async function placeOrder(symbol, qty, side) {
-  if (isSim) {
+  if (IS_SIMULATION) {
     const price = await getPrice(symbol)
     if (!price) return null
 
@@ -318,7 +318,7 @@ export function createRestApiRoutes() {
   app.get('/api/health', (req, res) => {
     res.json({
       status: 'ok',
-      simulation: isSim,
+      simulation: IS_SIMULATION,
       timestamp: new Date().toISOString(),
       connectedClients: state.wsClients.size,
       totalStocks: state.allStocks.length,
