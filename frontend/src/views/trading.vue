@@ -41,33 +41,34 @@ w-grid.gap-xl
       //- Stats
       .w-flex.gap4.my4
         .w-card.dark2--bg.bdrs2.pa4
-          .sm.light Total Stocks
+          span.op5.text-upper.size--sm Total Stocks
           .title2 {{ filteredStocks.length }}
         .w-card.dark2--bg.bdrs2.pa4
-          .sm.light Last Update
-          .lg.light {{ lastUpdate }}
+          span.op5.text-upper.size--sm Last Update
+          .lg {{ lastUpdate }}
 
       //- Stocks Table
-      .w-card.dark2--bg.bdrs2.ova.pa4
-        table.w-table
+      .glass-box.ova.pa4
+        table.w-table.bd0
           thead.dark3--bg
             tr
               th.py4 Symbol
               th.py4 Name
-              th.py4.right.xs.light Price
-              th.py4.center.xs.light Actions
+              th.py4.right.xs Price
+              th.py4.center.xs Actions
           tbody
             tr(v-for="stock in paginatedStocks" :key="stock.symbol" class="w-hover-bg-dark-3")
               td.py4
                 .w-flex.align-center
                   ticker-logo.mr3(:symbol="stock.symbol")
-                  div
-                    span.sm.light {{ stock.symbol }}
-                    span.w-ml-md.w.pxmd.w.pyxs.xs.bdrs2.dark3--bg.light {{ stock.exchange }}
+                  .w-flex.gap2
+                    span {{ stock.symbol }}
+                    w-tag(sm round :class="stock.exchange === 'NYSE' ? 'teal-dark3--bg' : (stock.exchange === 'NASDAQ' ? 'primary-dark4--bg' : 'success-dark4--bg')")
+                      small {{ stock.exchange }}
               td.py4
-                span.sm.light {{ stock.name }}
+                span {{ stock.name }}
               td.py4.right
-                span.sm.light ${{ stock.price.toFixed(2) }}
+                span ${{ stock.price.toFixed(2) }}
               td.py4.center
                 .w-flex.align-center.justify-center.gap1
                   w-button(@click="placeOrder(stock.symbol, 1, 'buy')" color="success" text)
@@ -75,13 +76,13 @@ w-grid.gap-xl
                   w-button(@click="placeOrder(stock.symbol, 1, 'sell')" color="error" text)
                     strong.size--xs SELL
 
-      //- Pagination
-      .w-flex.align-center.justify-between.w-mt-xl(v-if="totalPages > 1")
-        .w-flex.align-center.gap-md
-          w-button.dark(:disabled="currentPage === 1" @click="currentPage--") Previous
-          span.sm.light Page {{ currentPage }} of {{ totalPages }}
-          w-button.dark(:disabled="currentPage === totalPages" @click="currentPage++") Next
-        .sm.light Showing {{ startIndex + 1 }}-{{ endIndex }} of {{ filteredStocks.length }} stocks
+        //- Pagination
+        .w-flex.align-center.justify-between(v-if="totalPages > 1")
+          .w-flex.align-center.gap2
+            w-button(:disabled="currentPage === 1" @click="currentPage--") Previous
+            span Page {{ currentPage }} of {{ totalPages }}
+            w-button(:disabled="currentPage === totalPages" @click="currentPage++") Next
+          span.op5.size--sm Showing {{ startIndex + 1 }}-{{ endIndex }} of {{ filteredStocks.length }} stocks
 </template>
 
 <script setup>
