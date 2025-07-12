@@ -6,3 +6,6 @@
 
 ## SCSS
 - if only a single rule in scope, keep on one line
+
+## Any language
+- all the comments start with a capital letter and ends with a period `.`.
