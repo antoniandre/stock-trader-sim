@@ -9,3 +9,6 @@
 
 ## Any language
 - all the comments start with a capital letter and ends with a period `.`.
+
+## File names
+- are always written in kebab-case: no uppercase and dash separated words
