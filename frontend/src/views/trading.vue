@@ -60,8 +60,12 @@ w-grid.gap-xl
             tr(v-for="stock in paginatedStocks" :key="stock.symbol" class="w-hover-bg-dark-3")
               td.py4
                 .w-flex.align-center
-                  span.sm.light {{ stock.symbol }}
-                  span.w-ml-md.w.pxmd.w.pyxs.xs.bdrs2.dark3--bg.light {{ stock.exchange }}
+                  .stock-logo.mr3
+                    w-image.logo-img(:src="`https://financialmodelingprep.com/image-stock/${stock.symbol}.png`" :alt="stock.symbol" lazy)
+                      .logo-placeholder {{ stock.symbol.charAt(0) }}
+                  div
+                    span.sm.light {{ stock.symbol }}
+                    span.w-ml-md.w.pxmd.w.pyxs.xs.bdrs2.dark3--bg.light {{ stock.exchange }}
               td.py4
                 span.sm.light {{ stock.name }}
               td.py4.right

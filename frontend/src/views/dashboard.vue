@@ -88,7 +88,6 @@ async function fetchPortfolioHistoryData(period = '1M') {
     // For 1M, 12M, and ALL, use daily data to avoid 422 errors.
     // (Alpaca restricts intraday timeframes to periods < 30 days).
 
-    console.log(`📊 Fetching portfolio history for ${period} period with ${timeframe} intervals`)
     portfolio.portfolioHistory = await fetchPortfolioHistory(period, timeframe)
   }
   catch (err) {
@@ -98,7 +97,6 @@ async function fetchPortfolioHistoryData(period = '1M') {
 }
 
 function onPeriodChange(period) {
-  console.log(`📊 Period changed to: ${period}`)
   fetchPortfolioHistoryData(period)
 }
 

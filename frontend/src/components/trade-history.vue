@@ -9,7 +9,12 @@
       w-table.bd0(:headers="headers" :items="reversedHistory")
         template(#item="{ item }")
           tr
-            td.px2.text-bold {{ item.symbol }}
+            td.px2.text-bold
+              .w-flex.align-center
+                .stock-logo.mr3
+                  w-image(:src="`https://financialmodelingprep.com/image-stock/${item.symbol}.png`" :alt="item.symbol" lazy)
+                    .logo-placeholder {{ item.symbol.charAt(0) }}
+                span {{ item.symbol }}
             td.px2.text-center
               w-tag.px2.py1.text-bold(:class="item.side === 'buy' ? 'success--bg' : 'error--bg'" round xs)
                 | {{ item.side.toUpperCase() }}

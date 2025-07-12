@@ -12,9 +12,13 @@
     .position-item(v-for="(position, i) in positions" :key="position.symbol")
       .w-divider(v-if="i")
       .w-flex.justify-space-between.align-center.py3
-        .position-info
-          .symbol.title3.mb1 {{ position.symbol }}
-          .qty.size--sm.op7 {{ position.qty }} shares
+        .position-info.w-flex.align-center
+          .stock-logo.mr3
+            w-image(:src="`https://financialmodelingprep.com/image-stock/${position.symbol}.png`" :alt="position.symbol" lazy @error="(e, imgWrapEl) => imgWrapEl.querySelector('.hide').classList.remove('hide')")
+              .logo-placeholder.hide {{ position.symbol.charAt(0) }}
+          div
+            .symbol.title3.mb1 {{ position.symbol }}
+            .qty.size--sm.op7 {{ position.qty }} shares
 
         .position-values.text-right
           .market-value.title3.mb1
