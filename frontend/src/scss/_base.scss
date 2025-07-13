@@ -1,20 +1,24 @@
-:root .w-app {
-  --w-base-bg-color: #0d1117;
-  --w-glass-bg-color: #f0f8ff05;
+:root {
+  &[data-theme="dark"] .w-app {
+    --w-base-bg-color: #0d1117;
+    --bg-gradient-stop1: #161B22;
+    --bg-gradient-stop2: var(--w-base-bg-color);
+    --w-glass-bg-color: #f0f8ff05;
+  }
+  &[data-theme="light"] .w-app {
+    --bg-gradient-stop1: #00ccff12;
+    --bg-gradient-stop2: var(--w-base-bg-color);
+    --w-glass-bg-color: #c7faff05;
+  }
 
   .glass--bg {background: var(--w-glass-bg-color);}
 }
 
-body {
-  // @apply.grey9--bg text-grey-200 font-sans;
-  background-image: radial-gradient(circle at top, #161B22, #0D1117);
-  /* radial-gradient(circle at top, #0e1825, #161c24) */
+.w-app {
+  background-image: radial-gradient(circle at top, var(--bg-gradient-stop1), var(--bg-gradient-stop2));
   min-height: 100vh;
-  font-family: 'Inter', sans-serif;
 
-  a {
-    color: inherit;
-  }
+  a {color: inherit;}
 }
 
 .gradient-card {

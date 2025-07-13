@@ -11,14 +11,14 @@
 
   //- Navigation
   nav.grow.pa4.py6
-    router-link.w-flex.align-center.px4.py2.grey(to="/" active-class="white")
+    router-link.w-flex.align-center.px4.py2(to="/" active-class="primary")
       //- Dashboard Icon
       .w-icon.mr3
         svg(xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor")
           path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16")
       .title3 Dashboard
 
-    router-link.w-flex.align-center.px4.py2.grey(to="/trading" active-class="white")
+    router-link.w-flex.align-center.px4.py2(to="/trading" active-class="primary")
       //- Trading Icon
       .w-icon.mr3
         svg(xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor")
@@ -30,7 +30,7 @@
   .w-flex.align-center.px4.py4.no-grow.pa4
     w-image.bdrsr(src="https://i.pravatar.cc/100" alt="User Avatar" width="40")
     .ml3
-      p.text-bold.white User
+      p.text-bold User
       p.size--sm.grey user@example.com
 </template>
 
@@ -40,7 +40,7 @@
 
 <style lang="scss">
 .sidebar {
-  background-color: rgb(13 17 23);
+  background-color: var(--w-base-bg-color);
   border-right: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
 }
 </style>
