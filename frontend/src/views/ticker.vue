@@ -2,14 +2,17 @@
 .ticker-view
   //- Header with back button
   .w-flex.align-center.gap4.mb6
-    w-button(@click="$router.push('/trading')" text round)
-      w-icon.mr2 wi-arrow-left
+    w-button.ml-2(@click="$router.push('/trading')" text round)
+      w-icon.mr2(rotate90) wi-arrow-down
       | Back to Trading
+
     .w-flex.align-center.gap4
       ticker-logo(:symbol="symbol" size="lg")
       div
-        .title1 {{ symbol }}
-        .size--sm.op7 {{ stockData?.name || 'Loading...' }}
+        w-tag.w-flex.gap2(round bg-color="info-dark4")
+          strong {{ symbol }}
+          span.bdrsr.pa1.bd1(:class="'red--bg'")
+        h1.title2 {{ stockData?.name || 'Loading...' }}
 
   //- Stock Details & Trading
   w-grid.gap6(:columns="{ xs: 1, lg: 2 }")
@@ -39,9 +42,9 @@
 
       //- Price Chart
       .glass-box.pa6
-        .w-flex.justify-between.align-center.mb4
+        .w-flex.justify-space-between.align-center.mb4
           .title2 Price Chart
-          .period-selector.w-flex.gap2
+          .period-selector.w-flex.gap2.no-grow
             w-button.period-btn(
               v-for="period in chartPeriods"
               :key="period.value"
@@ -65,8 +68,6 @@
           w-select(
             v-model="orderForm.type"
             :items="orderTypes"
-            item-label="label"
-            item-value="value"
             outline)
 
         //- Quantity Input

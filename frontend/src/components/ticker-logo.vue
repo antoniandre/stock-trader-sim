@@ -49,29 +49,20 @@ const sizeClass = computed(() => `ticker-logo--${props.size}`)
   // Size variants
   &--sm {
     width: 24px;
-    height: 24px;
 
-    .logo-placeholder {
-      font-size: 10px;
-    }
+    .logo-placeholder {font-size: 10px;}
   }
 
   &--md {
     width: 32px;
-    height: 32px;
 
-    .logo-placeholder {
-      font-size: 12px;
-    }
+    .logo-placeholder {font-size: 12px;}
   }
 
   &--lg {
-    width: 40px;
-    height: 40px;
+    width: 48px;
 
-    .logo-placeholder {
-      font-size: 16px;
-    }
+    .logo-placeholder {font-size: 18px;}
   }
 }
 </style>
