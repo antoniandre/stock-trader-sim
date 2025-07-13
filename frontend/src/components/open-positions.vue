@@ -1,6 +1,6 @@
 <template lang="pug">
-.glass-box.pa6
-  .w-flex.justify-space-between.align-center.mb4
+.glass-box.px4.py6
+  .w-flex.justify-space-between.align-center.mb4.mx2
     h2.title2
       | Open Positions
       small.ml4.grey.size--sm {{ positions.length }} Position{{ positions.length > 1 ? 's' : '' }}
@@ -9,14 +9,14 @@
       | Refresh
 
   .positions-list(v-if="positions.length")
-    .position-item(v-for="(position, i) in positions" :key="position.symbol")
+    .position-item.px2(v-for="(position, i) in positions" :key="position.symbol")
       .w-divider(v-if="i")
       .w-flex.justify-space-between.align-center.py3
         .position-info.w-flex.align-center
           ticker-logo.mr3(:symbol="position.symbol")
           div
             .symbol.title3.mb1 {{ position.symbol }}
-            .qty.size--sm.op7 {{ position.qty }} shares
+            .qty.size--sm.op7 {{ position.qty }} share{{ position.qty > 1 ? 's' : '' }}
 
         .position-values
           .market-value.title3.mb1.w-flex.gap1.align-center
