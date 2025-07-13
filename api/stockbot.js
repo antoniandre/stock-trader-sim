@@ -24,14 +24,13 @@ async function startServer() {
   server.listen(PORT, async () => {
     console.log(`🌐 API running on port ${PORT}`)
     console.log(`🔌 WebSocket server running on ws://localhost:${PORT}`)
-    console.log(`🧪 Simulation mode: ${IS_SIMULATION}`)
 
     // Initialize stock data.
     await getAllTradableStocks()
     await initializeStockPrices()
 
     if (IS_SIMULATION) {
-      console.log('⚡ Demo mode: Running simulation every 1 second')
+      console.log('🧪 Demo mode: Running simulation every 1 second')
       setInterval(runSimulationWrapper, 1000) // Update every 1 second.
     }
     else {
@@ -48,9 +47,7 @@ async function startServer() {
       connectAlpacaSSE(broadcast)
     }
 
-    if (!ALPACA_KEY) {
-      console.log('⚠️ Using mock data - set ALPACA_KEY and ALPACA_SECRET for real data')
-    }
+    if (!ALPACA_KEY) console.log('⚠️ Using mock data - set ALPACA_KEY and ALPACA_SECRET for real data')
   })
 }
 
