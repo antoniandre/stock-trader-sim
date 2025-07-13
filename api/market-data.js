@@ -1,6 +1,7 @@
 import axios from 'axios'
-import { ALPACA_BASE_URL, HEADERS, IS_SIMULATION, state, mockPrices, popularStocks } from './config.js'
+import { ALPACA_BASE_URL, HEADERS, IS_SIMULATION, state } from './config.js'
 import { getEasternTime, formatErrorResponse } from './utils.js'
+import { getMockPrice, initializeMockPrices, getMockTradableStocks, generateMockHistoricalData } from './simulation.js'
 
 // Market Status Functions
 // --------------------------------------------------------
@@ -107,13 +108,7 @@ function getNextMarketClose(easternTime) {
 // --------------------------------------------------------
 export async function getPrice(symbol) {
   if (IS_SIMULATION) {
-    const basePrice = mockPrices[symbol]
-    if (!basePrice) return 0
-
-    const timeVariation = Math.sin(Date.now() / 10000) * 0.02
-    const randomVariation = (Math.random() - 0.5) * 0.01
-    const newPrice = basePrice * (1 + timeVariation + randomVariation)
-    return Math.max(newPrice, basePrice * 0.95)
+    return getMockPrice(symbol)
   }
 
   // Use cached price from WebSocket if available.
@@ -154,7 +149,7 @@ export async function getPrice(symbol) {
 
 export async function initializeStockPrices() {
   if (IS_SIMULATION) {
-    console.log('🧪 [SIM] Using mock prices')
+    initializeMockPrices()
     return
   }
 
@@ -168,14 +163,7 @@ export async function getAllTradableStocks() {
   if (state.allStocks.length > 0) return state.allStocks
 
   if (IS_SIMULATION) {
-    // In simulation, use popular stocks.
-    state.allStocks = popularStocks.map(symbol => ({
-      symbol,
-      name: symbol,
-      exchange: 'NASDAQ',
-      status: 'active',
-      tradable: true
-    }))
+    state.allStocks = getMockTradableStocks()
     return state.allStocks
   }
 
@@ -206,13 +194,7 @@ export async function getAllTradableStocks() {
   catch (error) {
     console.error('❌ Error fetching tradable stocks:', error.message)
     // Fallback to popular stocks.
-    state.allStocks = popularStocks.map(symbol => ({
-      symbol,
-      name: symbol,
-      exchange: 'NASDAQ',
-      status: 'active',
-      tradable: true
-    }))
+    state.allStocks = getMockTradableStocks()
     return state.allStocks
   }
 }
@@ -297,70 +279,6 @@ function getPeriodParameters(period) {
         timeframe: '1Hour',
         limit: 100,
         startDate: new Date(easternTime.getTime() - 24 * 60 * 60 * 1000)
-      }
-  }
-}
-
-function generateMockHistoricalData(symbol, period) {
-  const basePrice = mockPrices[symbol] || 100
-  const now = Date.now()
-  const { dataPoints, intervalMs } = getMockDataParams(period)
-
-  const data = []
-  let currentPrice = basePrice
-
-  for (let i = 0; i < dataPoints; i++) {
-    const timestamp = now - (dataPoints - 1 - i) * intervalMs
-
-    // Generate realistic price movement.
-    const volatility = 0.02  // 2% volatility.
-    const trend = Math.sin(i / 20) * 0.005  // Small trend component.
-    const randomChange = (Math.random() - 0.5) * volatility
-
-    currentPrice = currentPrice * (1 + trend + randomChange)
-
-    // Ensure price doesn't go below 10% of base price.
-    currentPrice = Math.max(currentPrice, basePrice * 0.1)
-
-    data.push({
-      timestamp,
-      price: Math.round(currentPrice * 100) / 100,
-      volume: Math.floor(Math.random() * 10000) + 1000,
-      open: currentPrice,
-      high: currentPrice * 1.01,
-      low: currentPrice * 0.99
-    })
-  }
-
-  return { symbol, period, data }
-}
-
-function getMockDataParams(period) {
-  switch (period) {
-    case '1D':
-      return {
-        dataPoints: 390,  // Trading minutes in a day.
-        intervalMs: 60 * 1000  // 1 minute.
-      }
-    case '1W':
-      return {
-        dataPoints: 336,  // 7 days * 48 (5-min intervals per day).
-        intervalMs: 5 * 60 * 1000  // 5 minutes.
-      }
-    case '1M':
-      return {
-        dataPoints: 720,  // 30 days * 24 hours.
-        intervalMs: 60 * 60 * 1000  // 1 hour.
-      }
-    case '3M':
-      return {
-        dataPoints: 90,  // 90 days.
-        intervalMs: 24 * 60 * 60 * 1000  // 1 day.
-      }
-    default:
-      return {
-        dataPoints: 100,
-        intervalMs: 60 * 60 * 1000  // 1 hour.
       }
   }
 }

@@ -2,7 +2,8 @@ import express from 'express'
 import { state } from './config.js'
 import { subscribeToStock } from './websocket-server.js'
 import { getMarketStatus, getPrice, getAllTradableStocks, initializeStockPrices, getStockHistoricalData } from './market-data.js'
-import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, placeOrder, recordTrade } from './alpaca-account.js'
+import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, placeOrder } from './alpaca-account.js'
+import { recordTrade } from './simulation.js'
 import { createStandardResponse } from './utils.js'
 
 // Express API Routes

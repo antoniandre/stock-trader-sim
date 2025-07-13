@@ -4,7 +4,7 @@ import { createRestApiRoutes } from './rest-api.js'
 import { getAllTradableStocks, initializeStockPrices } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities } from './alpaca-account.js'
 import { connectAlpacaSSE } from './sse-client.js'
-import { createWebSocketServer, connectAlpacaWebSocket, runSimulation, broadcast } from './websocket-server.js'
+import { createWebSocketServer, connectAlpacaWebSocket, runSimulationWrapper, broadcast } from './websocket-server.js'
 
 // Server Setup
 // --------------------------------------------------------
@@ -32,7 +32,7 @@ async function startServer() {
 
     if (IS_SIMULATION) {
       console.log('⚡ Demo mode: Running simulation every 1 second')
-      setInterval(runSimulation, 1000) // Update every 1 second.
+      setInterval(runSimulationWrapper, 1000) // Update every 1 second.
     }
     else {
       console.log('⚡ Live mode: Using Alpaca WebSocket streaming')

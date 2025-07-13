@@ -33,29 +33,4 @@ export const state = {
   sseClient: null // Server-Sent Events client for account updates
 }
 
-// Mock Data
-// --------------------------------------------------------
-export const mockPrices = {
-  AAPL: 175.50,
-  MSFT: 420.30,
-  TSLA: 245.80,
-  GOOGL: 2800.00,
-  AMZN: 3500.00,
-  META: 380.00,
-  NVDA: 950.00,
-  NFLX: 650.00,
-  AMD: 180.00,
-  INTC: 45.00,
-  ORCL: 140.00,
-  CRM: 250.00,
-  ADBE: 580.00,
-  PYPL: 220.00,
-  SQ: 180.00
-}
-
-// Popular stocks for simulation.
-export const popularStocks = [
-  'AAPL', 'MSFT', 'TSLA', 'GOOGL', 'AMZN', 'META', 'NVDA', 'NFLX',
-  'AMD', 'INTC', 'ORCL', 'CRM', 'ADBE', 'PYPL', 'SQ', 'UBER',
-  'LYFT', 'SPOT', 'ZM', 'SHOP', 'TWTR', 'SNAP', 'PINS', 'ROKU'
-]
+// Mock data is now in simulation.js

@@ -1,6 +1,8 @@
 import WebSocket, { WebSocketServer } from 'ws'
-import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state, mockPrices } from './config.js'
-import { getPrice, placeOrder } from './market-data.js'
+import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state } from './config.js'
+import { getPrice } from './market-data.js'
+import { placeOrder } from './alpaca-account.js'
+import { runSimulation, mockPrices } from './simulation.js'
 
 // Track subscribed stocks dynamically - start with empty set.
 const subscribedStocks = new Set()
@@ -202,58 +204,12 @@ export function disconnectAlpacaWebSocket() {
 
 // Simulation Mode
 // --------------------------------------------------------
-export async function runSimulation() {
-  // Update prices for all stocks in simulation.
-  for (const stock of state.allStocks) {
-    const price = await getPrice(stock.symbol)
-    if (price > 0) state.stockPrices[stock.symbol] = price
-  }
+export async function runSimulationWrapper() {
+  const { priceUpdates, trades } = await runSimulation()
 
   // Broadcast updated prices.
-  const priceUpdates = Object.entries(state.stockPrices).map(([symbol, price]) => ({
-    symbol,
-    price,
-    lastSide: 'buy'
-  }))
-
   broadcast({ type: 'market-update', data: priceUpdates })
 
-  // Simple trading logic for demo (only for a few stocks).
-  const demoStocks = ['AAPL', 'MSFT', 'TSLA']
-  for (const symbol of demoStocks) {
-    const price = await getPrice(symbol)
-    if (!price) continue
-
-    console.log(`📊 ${symbol}: $${price.toFixed(2)}`)
-
-    const basePrice = mockPrices[symbol]
-    const priceRatio = price / basePrice
-
-    if (priceRatio < 0.98) {
-      const trade = await placeOrder(symbol, 1, 'buy')
-      if (trade) {
-        broadcast({
-          type: 'trade',
-          side: 'buy',
-          symbol,
-          qty: 1,
-          price,
-          timestamp: new Date().toISOString()
-        })
-      }
-    }
-    else if (priceRatio > 1.02 && state.portfolio[symbol]?.qty > 0) {
-      const trade = await placeOrder(symbol, 1, 'sell')
-      if (trade) {
-        broadcast({
-          type: 'trade',
-          side: 'sell',
-          symbol,
-          qty: 1,
-          price,
-          timestamp: new Date().toISOString()
-        })
-      }
-    }
-  }
+  // Broadcast trades.
+  trades.forEach(trade => broadcast(trade))
 }
