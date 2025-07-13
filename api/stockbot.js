@@ -1,46 +1,49 @@
 import { createServer } from 'http'
 import { IS_SIMULATION, ALPACA_KEY } from './config.js'
-import { createRestApiRoutes, getAlpacaAccount, getAlpacaAccountActivities, getAllTradableStocks, initializeStockPrices } from './rest-api.js'
+import { createRestApiRoutes } from './rest-api.js'
+import { getAllTradableStocks, initializeStockPrices } from './market-data.js'
+import { getAlpacaAccount, getAlpacaAccountActivities } from './alpaca-account.js'
 import { connectAlpacaSSE } from './sse-client.js'
 import { createWebSocketServer, connectAlpacaWebSocket, runSimulation, broadcast } from './websocket-server.js'
 
-// ===== Server Setup =====
+// Server Setup
+// --------------------------------------------------------
 const PORT = process.env.PORT || 3000
 
 async function startServer() {
-  // Create Express app with REST API routes
+  // Create Express app with REST API routes.
   const app = createRestApiRoutes()
 
-  // Create HTTP server
+  // Create HTTP server.
   const server = createServer(app)
 
-  // Create WebSocket server
+  // Create WebSocket server.
   const wss = createWebSocketServer(server)
 
-  // Start server
+  // Start server.
   server.listen(PORT, async () => {
     console.log(`🌐 API running on port ${PORT}`)
     console.log(`🔌 WebSocket server running on ws://localhost:${PORT}`)
     console.log(`🧪 Simulation mode: ${IS_SIMULATION}`)
 
-    // Initialize stock data
+    // Initialize stock data.
     await getAllTradableStocks()
     await initializeStockPrices()
 
     if (IS_SIMULATION) {
       console.log('⚡ Demo mode: Running simulation every 1 second')
-      setInterval(runSimulation, 1000) // Update every 1 second
+      setInterval(runSimulation, 1000) // Update every 1 second.
     }
     else {
       console.log('⚡ Live mode: Using Alpaca WebSocket streaming')
       connectAlpacaWebSocket()
 
-      // Initialize account data
+      // Initialize account data.
       console.log('📊 Initializing Alpaca account data...')
       await getAlpacaAccount()
       await getAlpacaAccountActivities()
 
-      // Connect to SSE for real-time account updates
+      // Connect to SSE for real-time account updates.
       console.log('🔌 Setting up SSE for account updates...')
       connectAlpacaSSE(broadcast)
     }
@@ -51,7 +54,7 @@ async function startServer() {
   })
 }
 
-// Start the server
+// Start the server.
 startServer().catch(error => {
   console.error('❌ Failed to start server:', error)
   process.exit(1)

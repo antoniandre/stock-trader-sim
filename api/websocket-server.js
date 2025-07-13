@@ -1,25 +1,26 @@
 import WebSocket, { WebSocketServer } from 'ws'
-import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state, mockPrices, popularStocks } from './config.js'
-import { getPrice, placeOrder, recordTrade } from './rest-api.js'
+import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state, mockPrices } from './config.js'
+import { getPrice, placeOrder } from './market-data.js'
 
-// Track subscribed stocks dynamically - start with empty set
+// Track subscribed stocks dynamically - start with empty set.
 const subscribedStocks = new Set()
 
-// ===== WebSocket Management =====
+// WebSocket Management
+// --------------------------------------------------------
 export function broadcast(data) {
   const message = JSON.stringify(data)
   state.wsClients.forEach(client => {
-    if (client.readyState === 1) client.send(message) // WebSocket.OPEN
+    if (client.readyState === 1) client.send(message) // WebSocket.OPEN.
   })
 }
 
-// Function to subscribe to a new stock
+// Function to subscribe to a new stock.
 export function subscribeToStock(symbol) {
   if (!subscribedStocks.has(symbol)) {
     subscribedStocks.add(symbol)
     console.log(`📡 Adding subscription for ${symbol} (total: ${subscribedStocks.size})`)
 
-    // If we have an active Alpaca WebSocket, update the subscription
+    // If we have an active Alpaca WebSocket, update the subscription.
     if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1) {
       const subscribeMessage = {
         action: 'subscribe',
@@ -34,13 +35,13 @@ export function subscribeToStock(symbol) {
   }
 }
 
-// Function to unsubscribe from a stock (optional, for cleanup)
+// Function to unsubscribe from a stock (optional, for cleanup).
 export function unsubscribeFromStock(symbol) {
-  if (subscribedStocks.has(symbol) && !popularStocks.includes(symbol)) {
+  if (subscribedStocks.has(symbol)) {
     subscribedStocks.delete(symbol)
     console.log(`📡 Removing subscription for ${symbol}`)
 
-    // If we have an active Alpaca WebSocket, update the subscription
+    // If we have an active Alpaca WebSocket, update the subscription.
     if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1) {
       const unsubscribeMessage = {
         action: 'unsubscribe',
@@ -59,7 +60,7 @@ export function createWebSocketServer(server) {
     console.log('🔌 New WebSocket client connected')
     state.wsClients.add(ws)
 
-    // Send initial data
+    // Send initial data.
     if (IS_SIMULATION) {
       const mockStocks = Object.entries(mockPrices).map(([symbol, price]) => ({
         symbol,
@@ -93,7 +94,8 @@ export function createWebSocketServer(server) {
   return wss
 }
 
-// ===== Alpaca WebSocket Streaming =====
+// Alpaca WebSocket Streaming
+// --------------------------------------------------------
 export function connectAlpacaWebSocket() {
   if (IS_SIMULATION) return
 
@@ -115,12 +117,11 @@ export function connectAlpacaWebSocket() {
     state.alpacaWebSocket.on('message', (data) => {
       try {
         const message = JSON.parse(data)
-        console.log('📨 Alpaca WebSocket message:', JSON.stringify(message, null, 2))
 
         if (message.T === 'success' && message.msg === 'authenticated') {
           console.log('✅ Authenticated with Alpaca WebSocket')
 
-          // Only subscribe if we have stocks that have been explicitly requested
+          // Only subscribe if we have stocks that have been explicitly requested.
           if (subscribedStocks.size > 0) {
             const stocksArray = Array.from(subscribedStocks)
             const subscribeMessage = {
@@ -135,7 +136,7 @@ export function connectAlpacaWebSocket() {
           }
         }
 
-        // Handle both trades and quotes
+        // Handle both trades and quotes.
         if (message.T === 'trade') {
           const symbol = message.S
           const price = message.p
@@ -152,7 +153,7 @@ export function connectAlpacaWebSocket() {
 
         if (message.T === 'quote') {
           const symbol = message.S
-          const price = message.ap || message.bp // Ask price or bid price
+          const price = message.ap || message.bp // Ask price or bid price.
           if (price > 0) {
             console.log(`📈 Quote received: ${symbol} @ $${price}`)
             state.stockPrices[symbol] = price
@@ -166,7 +167,7 @@ export function connectAlpacaWebSocket() {
           }
         }
 
-        // Log other message types for debugging
+        // Log other message types for debugging.
         if (message.T && message.T !== 'trade' && message.T !== 'success') {
           console.log(`🔍 Unknown message type: ${message.T}`, message)
         }
@@ -199,15 +200,16 @@ export function disconnectAlpacaWebSocket() {
   }
 }
 
-// ===== Simulation Mode =====
+// Simulation Mode
+// --------------------------------------------------------
 export async function runSimulation() {
-  // Update prices for all stocks in simulation
+  // Update prices for all stocks in simulation.
   for (const stock of state.allStocks) {
     const price = await getPrice(stock.symbol)
     if (price > 0) state.stockPrices[stock.symbol] = price
   }
 
-  // Broadcast updated prices
+  // Broadcast updated prices.
   const priceUpdates = Object.entries(state.stockPrices).map(([symbol, price]) => ({
     symbol,
     price,
@@ -216,7 +218,7 @@ export async function runSimulation() {
 
   broadcast({ type: 'market-update', data: priceUpdates })
 
-  // Simple trading logic for demo (only for a few stocks)
+  // Simple trading logic for demo (only for a few stocks).
   const demoStocks = ['AAPL', 'MSFT', 'TSLA']
   for (const symbol of demoStocks) {
     const price = await getPrice(symbol)

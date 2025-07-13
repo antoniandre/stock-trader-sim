@@ -2,7 +2,8 @@ import dotenv from 'dotenv'
 
 dotenv.config()
 
-// ===== Configuration =====
+// Configuration
+// --------------------------------------------------------
 export const {
   ALPACA_KEY,
   ALPACA_SECRET,
@@ -19,7 +20,8 @@ export const HEADERS = {
   'APCA-API-SECRET-KEY': ALPACA_SECRET
 }
 
-// ===== State Management =====
+// State Management
+// --------------------------------------------------------
 export const state = {
   portfolio: {}, // { symbol: { qty, history: [{ side, qty, price, timestamp }] } }
   stockPrices: {}, // { symbol: price }
@@ -31,7 +33,8 @@ export const state = {
   sseClient: null // Server-Sent Events client for account updates
 }
 
-// ===== Mock Data =====
+// Mock Data
+// --------------------------------------------------------
 export const mockPrices = {
   AAPL: 175.50,
   MSFT: 420.30,
@@ -50,7 +53,7 @@ export const mockPrices = {
   SQ: 180.00
 }
 
-// Popular stocks for simulation
+// Popular stocks for simulation.
 export const popularStocks = [
   'AAPL', 'MSFT', 'TSLA', 'GOOGL', 'AMZN', 'META', 'NVDA', 'NFLX',
   'AMD', 'INTC', 'ORCL', 'CRM', 'ADBE', 'PYPL', 'SQ', 'UBER',

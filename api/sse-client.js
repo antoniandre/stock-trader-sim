@@ -1,15 +1,16 @@
 import { ALPACA_BASE_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state } from './config.js'
-import { getAlpacaAccountActivities } from './rest-api.js'
+import { getAlpacaAccountActivities } from './alpaca-account.js'
 
-// ===== Server-Sent Events for Account Updates =====
+// Server-Sent Events for Account Updates
+// --------------------------------------------------------
 export async function connectAlpacaSSE(broadcastFn) {
   if (IS_SIMULATION) {
     console.log('🧪 [SIM] SSE not available in simulation mode')
     return
   }
 
-  // Note: Using EventSource for SSE connection
-  // This requires installing 'eventsource' package
+  // Note: Using EventSource for SSE connection.
+  // This requires installing 'eventsource' package.
   try {
     const EventSource = (await import('eventsource')).default
 
@@ -31,7 +32,7 @@ export async function connectAlpacaSSE(broadcastFn) {
         const data = JSON.parse(event.data)
         console.log('📊 Received account update:', data)
 
-        // Broadcast account updates to frontend
+        // Broadcast account updates to frontend.
         if (broadcastFn) {
           broadcastFn({
             type: 'account-update',
@@ -40,7 +41,7 @@ export async function connectAlpacaSSE(broadcastFn) {
           })
         }
 
-        // Refresh account activities when new trades occur
+        // Refresh account activities when new trades occur.
         if (data.event_type === 'trade') {
           getAlpacaAccountActivities()
         }
