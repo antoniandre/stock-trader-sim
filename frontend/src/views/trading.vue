@@ -57,7 +57,7 @@ w-grid.gap-xl
               th.py4.right.xs Price
               th.py4.center.xs Actions
           tbody
-            tr(v-for="stock in paginatedStocks" :key="stock.symbol" class="w-hover-bg-dark-3")
+            tr(v-for="stock in paginatedStocks" :key="stock.symbol" class="clickable-row" @click="$router.push(`/trading/${stock.symbol}`)")
               td.py4
                 .w-flex.align-center
                   ticker-logo.mr3(:symbol="stock.symbol")
@@ -70,7 +70,7 @@ w-grid.gap-xl
               td.py4.right
                 span ${{ stock.price.toFixed(2) }}
               td.py4.center
-                .w-flex.align-center.justify-center.gap1
+                .w-flex.align-center.justify-center.gap1(@click.stop)
                   w-button(@click="placeOrder(stock.symbol, 1, 'buy')" color="success" text)
                     strong.size--xs BUY
                   w-button(@click="placeOrder(stock.symbol, 1, 'sell')" color="error" text)
@@ -227,3 +227,12 @@ onUnmounted(() => {
   if (pollInterval) clearInterval(pollInterval)
 })
 </script>
+
+<style lang="scss" scoped>
+.clickable-row {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+
+  &:hover {background-color: rgba(255, 255, 255, 0.08) !important;}
+}
+</style>

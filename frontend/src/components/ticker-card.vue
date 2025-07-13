@@ -1,5 +1,5 @@
 <template lang="pug">
-.ticker-card.gradient-card
+.ticker-card.gradient-card(@click="$router.push(`/trading/${symbol}`)")
   .gradient-card__wrap
     .w-flex.justify-between.align-center.gap1
       .w-flex.align-center
@@ -22,3 +22,13 @@ defineProps({
   lastSide: String
 })
 </script>
+
+<style lang="scss" scoped>
+.ticker-card {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+
+  &:hover {transform: translateY(-2px);}
+  &:active {transform: translateY(0);}
+}
+</style>

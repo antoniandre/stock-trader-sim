@@ -12,6 +12,12 @@ const routes = [
     component: () => import('@/views/trading.vue'),
   },
   {
+    path: '/trading/:symbol',
+    name: 'ticker',
+    component: () => import('@/views/ticker.vue'),
+    props: true
+  },
+  {
     path: '/:pathMatch(.*)',
     name: 'not-found',
     component: () => import('@/views/404.vue')
