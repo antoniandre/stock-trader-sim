@@ -2,12 +2,54 @@ import WebSocket, { WebSocketServer } from 'ws'
 import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state, mockPrices, popularStocks } from './config.js'
 import { getPrice, placeOrder, recordTrade } from './rest-api.js'
 
+// Track subscribed stocks dynamically - start with empty set
+const subscribedStocks = new Set()
+
 // ===== WebSocket Management =====
 export function broadcast(data) {
   const message = JSON.stringify(data)
   state.wsClients.forEach(client => {
     if (client.readyState === 1) client.send(message) // WebSocket.OPEN
   })
+}
+
+// Function to subscribe to a new stock
+export function subscribeToStock(symbol) {
+  if (!subscribedStocks.has(symbol)) {
+    subscribedStocks.add(symbol)
+    console.log(`📡 Adding subscription for ${symbol} (total: ${subscribedStocks.size})`)
+
+    // If we have an active Alpaca WebSocket, update the subscription
+    if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1) {
+      const subscribeMessage = {
+        action: 'subscribe',
+        trades: [symbol],
+        quotes: [symbol]
+      }
+      state.alpacaWebSocket.send(JSON.stringify(subscribeMessage))
+      console.log(`📡 Subscribed to ${symbol} via WebSocket`)
+    }
+  } else {
+    console.log(`📡 ${symbol} already subscribed`)
+  }
+}
+
+// Function to unsubscribe from a stock (optional, for cleanup)
+export function unsubscribeFromStock(symbol) {
+  if (subscribedStocks.has(symbol) && !popularStocks.includes(symbol)) {
+    subscribedStocks.delete(symbol)
+    console.log(`📡 Removing subscription for ${symbol}`)
+
+    // If we have an active Alpaca WebSocket, update the subscription
+    if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1) {
+      const unsubscribeMessage = {
+        action: 'unsubscribe',
+        trades: [symbol],
+        quotes: [symbol]
+      }
+      state.alpacaWebSocket.send(JSON.stringify(unsubscribeMessage))
+    }
+  }
 }
 
 export function createWebSocketServer(server) {
@@ -73,21 +115,31 @@ export function connectAlpacaWebSocket() {
     state.alpacaWebSocket.on('message', (data) => {
       try {
         const message = JSON.parse(data)
+        console.log('📨 Alpaca WebSocket message:', JSON.stringify(message, null, 2))
 
         if (message.T === 'success' && message.msg === 'authenticated') {
           console.log('✅ Authenticated with Alpaca WebSocket')
 
-          // Subscribe to popular stocks
-          const subscribeMessage = {
-            action: 'subscribe',
-            trades: popularStocks
+          // Only subscribe if we have stocks that have been explicitly requested
+          if (subscribedStocks.size > 0) {
+            const stocksArray = Array.from(subscribedStocks)
+            const subscribeMessage = {
+              action: 'subscribe',
+              trades: stocksArray,
+              quotes: stocksArray
+            }
+            console.log('📡 Subscribing to trades and quotes for:', stocksArray)
+            state.alpacaWebSocket.send(JSON.stringify(subscribeMessage))
+          } else {
+            console.log('📡 No stocks requested yet, waiting for specific subscriptions...')
           }
-          state.alpacaWebSocket.send(JSON.stringify(subscribeMessage))
         }
 
+        // Handle both trades and quotes
         if (message.T === 'trade') {
           const symbol = message.S
           const price = message.p
+          console.log(`💰 Trade received: ${symbol} @ $${price}`)
           state.stockPrices[symbol] = price
 
           broadcast({
@@ -97,9 +149,31 @@ export function connectAlpacaWebSocket() {
             timestamp: new Date().toISOString()
           })
         }
+
+        if (message.T === 'quote') {
+          const symbol = message.S
+          const price = message.ap || message.bp // Ask price or bid price
+          if (price > 0) {
+            console.log(`📈 Quote received: ${symbol} @ $${price}`)
+            state.stockPrices[symbol] = price
+
+            broadcast({
+              type: 'price',
+              symbol,
+              price,
+              timestamp: new Date().toISOString()
+            })
+          }
+        }
+
+        // Log other message types for debugging
+        if (message.T && message.T !== 'trade' && message.T !== 'success') {
+          console.log(`🔍 Unknown message type: ${message.T}`, message)
+        }
       }
       catch (error) {
         console.error('❌ Error parsing WebSocket message:', error)
+        console.error('Raw message:', data.toString())
       }
     })
 

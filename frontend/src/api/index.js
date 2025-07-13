@@ -94,3 +94,50 @@ export async function fetchAllStocks() {
     throw error
   }
 }
+
+// Get single stock details
+export async function fetchStock(symbol) {
+  try {
+    const response = await fetch(`${API_BASE}/stocks/${symbol}`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('API Error:', error)
+    throw error
+  }
+}
+
+// Get single stock price
+export async function fetchStockPrice(symbol) {
+  try {
+    const response = await fetch(`${API_BASE}/stocks/${symbol}/price`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('API Error:', error)
+    throw error
+  }
+}
+
+// Subscribe to a stock's WebSocket updates
+export async function subscribeToStock(symbol) {
+  try {
+    const response = await fetch(`${API_BASE}/stocks/${symbol}/subscribe`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('API Error:', error)
+    throw error
+  }
+}

@@ -1,6 +1,7 @@
 import axios from 'axios'
 import express from 'express'
 import { ALPACA_BASE_URL, HEADERS, IS_SIMULATION, state, mockPrices, popularStocks } from './config.js'
+import { subscribeToStock } from './websocket-server.js'
 
 // ===== Alpaca Account Data Functions =====
 export async function getAlpacaAccount() {
@@ -351,16 +352,47 @@ export async function getPrice(symbol) {
   // Use cached price from WebSocket if available.
   if (state.stockPrices[symbol]) return state.stockPrices[symbol]
 
-  // Fallback to REST API.
-  const url = `https://data.alpaca.markets/v2/stocks/${symbol}/quotes/latest`
-  try {
-    const { data } = await axios.get(url, { headers: HEADERS })
-    return data.quote?.ap || 0
+  // Try multiple Alpaca endpoints for price data
+  const endpoints = [
+    `https://data.alpaca.markets/v2/stocks/${symbol}/quotes/latest`,
+    `https://data.alpaca.markets/v2/stocks/${symbol}/trades/latest`,
+    `https://data.alpaca.markets/v2/stocks/${symbol}/bars/latest?timeframe=1Day`
+  ]
+
+  for (const url of endpoints) {
+    try {
+      console.log(`💲 Trying to fetch ${symbol} price from ${url.split('/').pop()}`)
+      const { data } = await axios.get(url, { headers: HEADERS })
+
+      let price = 0
+      if (data.quote?.ap) price = data.quote.ap  // Ask price from quotes
+      else if (data.quote?.bp) price = data.quote.bp  // Bid price from quotes
+      else if (data.trade?.p) price = data.trade.p   // Price from latest trade
+      else if (data.bar?.c) price = data.bar.c       // Close price from latest bar
+
+      if (price > 0) {
+        console.log(`💲 Got ${symbol} price: $${price.toFixed(2)} from ${url.split('/').pop()}`)
+        state.stockPrices[symbol] = price
+        return price
+      }
+    }
+    catch (e) {
+      console.warn(`⚠️ Failed to fetch ${symbol} from ${url.split('/').pop()}: ${e.message}`)
+    }
   }
-  catch (e) {
-    console.error(`❌ Error fetching ${symbol}:`, e.message)
-    return mockPrices[symbol] || 0
+
+  console.warn(`⚠️ No price data available for ${symbol} from any Alpaca endpoint`)
+  return 0
+}
+
+export async function initializeStockPrices() {
+  if (IS_SIMULATION) {
+    console.log('🧪 [SIM] Using mock prices')
+    return
   }
+
+  console.log('💰 Stock prices will be fetched on-demand when requested')
+  // No longer pre-fetching popular stocks - prices are fetched when needed
 }
 
 export async function placeOrder(symbol, qty, side) {
@@ -514,6 +546,77 @@ export function createRestApiRoutes() {
     catch (error) {
       console.error('Error fetching stocks:', error)
       res.status(500).json({ error: 'Failed to fetch stocks' })
+    }
+  })
+
+  // Get single stock price
+  app.get('/api/stocks/:symbol/price', async (req, res) => {
+    try {
+      const { symbol } = req.params
+      const price = await getPrice(symbol)
+
+      // Cache the price for future WebSocket updates
+      if (price > 0) {
+        state.stockPrices[symbol] = price
+      }
+
+      res.json({
+        symbol,
+        price,
+        timestamp: new Date().toISOString()
+      })
+    }
+    catch (error) {
+      console.error(`Error fetching price for ${symbol}:`, error)
+      res.status(500).json({ error: `Failed to fetch price for ${symbol}` })
+    }
+  })
+
+  // Get single stock details
+  app.get('/api/stocks/:symbol', async (req, res) => {
+    try {
+      const { symbol } = req.params
+      const stocks = await getAllTradableStocks()
+      const stockData = stocks.find(stock => stock.symbol === symbol)
+
+      if (!stockData) {
+        return res.status(404).json({ error: `Stock ${symbol} not found` })
+      }
+
+      const price = await getPrice(symbol)
+
+      // Cache the price for future WebSocket updates
+      if (price > 0) {
+        state.stockPrices[symbol] = price
+      }
+
+      res.json({
+        ...stockData,
+        price,
+        lastSide: 'buy',
+        timestamp: new Date().toISOString()
+      })
+    }
+    catch (error) {
+      console.error(`Error fetching stock ${req.params.symbol}:`, error)
+      res.status(500).json({ error: `Failed to fetch stock ${req.params.symbol}` })
+    }
+  })
+
+  // Subscribe to a stock's WebSocket updates
+  app.post('/api/stocks/:symbol/subscribe', async (req, res) => {
+    try {
+      const { symbol } = req.params
+      subscribeToStock(symbol)
+      res.json({
+        success: true,
+        message: `Subscribed to ${symbol} updates`,
+        timestamp: new Date().toISOString()
+      })
+    }
+    catch (error) {
+      console.error(`Error subscribing to ${req.params.symbol}:`, error)
+      res.status(500).json({ error: `Failed to subscribe to ${req.params.symbol}` })
     }
   })
 

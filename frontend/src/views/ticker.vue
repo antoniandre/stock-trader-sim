@@ -29,16 +29,21 @@
 
         .w-flex.align-center.gap6
           .price-display
-            .title1.text-bold
+            .title1.text-bold(v-if="currentPrice > 0")
               span.op6.mr2 $
               span {{ currentPrice.toFixed(2) }}
+            .title1.text-bold(v-else)
+              span.op6 Price Unavailable
             .size--sm.mt1.op7 Last updated: {{ lastUpdate }}
 
-          .price-change(v-if="priceChange" :class="priceChange >= 0 ? 'success-light3' : 'error'")
+          .price-change(v-if="priceChange && currentPrice > 0" :class="priceChange >= 0 ? 'success-light3' : 'error'")
             .text-bold
               span {{ priceChange >= 0 ? '+' : '' }}${{ Math.abs(priceChange).toFixed(2) }}
-            .size--sm
-              | ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
+            .size--sm ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
+
+          .no-price-info(v-else-if="currentPrice === 0")
+            .text-bold.op6 Market data not available
+            .size--sm.op5 This stock may not be actively traded
 
       //- Price Chart
       .glass-box.pa6
@@ -101,24 +106,30 @@
             outline)
 
         //- Order Value Display
-        .mb4.pa3.glass--bg.bdrs2(v-if="orderValue > 0")
+        .mb4.pa3.glass--bg.bdrs2(v-if="orderValue > 0 && currentPrice > 0")
           .w-flex.justify-between
             span.op7 Estimated Total:
             span.text-bold ${{ orderValue.toFixed(2) }}
+
+        //- No Price Data Warning
+        .mb4.pa3.error-dark4--bg.bdrs2(v-if="currentPrice === 0")
+          .w-flex.align-center.gap2
+            w-icon.error wi-alert-triangle
+            span Trading disabled: No current market data available
 
         //- Buy/Sell Buttons
         .w-flex.gap4
           w-button.grow(
             @click="placeOrder('buy')"
             color="success"
-            :disabled="!isOrderValid"
+            :disabled="!isOrderValid || currentPrice === 0"
             large)
             strong BUY {{ symbol }}
 
           w-button.grow(
             @click="placeOrder('sell')"
             color="error"
-            :disabled="!isOrderValid"
+            :disabled="!isOrderValid || currentPrice === 0"
             large)
             strong SELL {{ symbol }}
 
@@ -151,7 +162,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Line } from 'vue-chartjs'
 import 'chart.js/auto'
-import { fetchAllStocks } from '@/api'
+import { fetchStock, fetchStockPrice, subscribeToStock } from '@/api'
 import TickerLogo from '@/components/ticker-logo.vue'
 
 const props = defineProps({
@@ -324,15 +335,64 @@ const chartOptions = {
 // Methods
 async function fetchStockData() {
   try {
-    const data = await fetchAllStocks()
-    stockData.value = data.stocks?.find(stock => stock.symbol === props.symbol)
+    console.log(`📊 Fetching data for ${props.symbol}...`)
+
+    // Fetch stock details and price
+    const data = await fetchStock(props.symbol)
+    stockData.value = data
+
     if (stockData.value) {
       currentPrice.value = stockData.value.price
       previousPrice.value = stockData.value.price
+
+      // Subscribe to WebSocket updates for this stock
+      try {
+        await subscribeToStock(props.symbol)
+        console.log(`📡 Subscribed to ${props.symbol} updates`)
+      } catch (subscribeError) {
+        console.warn(`⚠️ Failed to subscribe to ${props.symbol}:`, subscribeError)
+      }
     }
   }
   catch (error) {
     console.error('Error fetching stock data:', error)
+
+    // If the stock is not found, still try to get price data
+    try {
+      console.log(`📊 Trying to fetch price for ${props.symbol}...`)
+      const priceData = await fetchStockPrice(props.symbol)
+      if (priceData.price > 0) {
+        currentPrice.value = priceData.price
+        previousPrice.value = priceData.price
+
+        // Create basic stock data
+        stockData.value = {
+          symbol: props.symbol,
+          name: props.symbol,
+          price: priceData.price,
+          exchange: 'Unknown'
+        }
+
+        // Subscribe to WebSocket updates
+        try {
+          await subscribeToStock(props.symbol)
+          console.log(`📡 Subscribed to ${props.symbol} updates`)
+        } catch (subscribeError) {
+          console.warn(`⚠️ Failed to subscribe to ${props.symbol}:`, subscribeError)
+        }
+      }
+    } catch (priceError) {
+      console.error('Error fetching stock price:', priceError)
+      // Set default values
+      stockData.value = {
+        symbol: props.symbol,
+        name: props.symbol,
+        price: 0,
+        exchange: 'Unknown'
+      }
+      currentPrice.value = 0
+      previousPrice.value = 0
+    }
   }
 }
 
