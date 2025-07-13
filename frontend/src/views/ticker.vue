@@ -22,10 +22,19 @@
       .glass-box.pa6.mb4
         .w-flex.justify-between.align-center.mb4
           .title2 Current Price
-          .w-flex.align-center.gap2
-            .w-icon.size--xs(:class="wsConnected ? 'success--bg' : 'yellow--bg'")
-            span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
-              | {{ wsConnected ? 'Live' : 'Delayed' }}
+          .w-flex.align-center.gap4
+            .w-flex.align-center.gap2
+              .w-icon.size--xs(:class="wsConnected ? 'success--bg' : 'yellow--bg'")
+              span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
+                | {{ wsConnected ? 'Live' : 'Delayed' }}
+            .w-flex.align-center.gap2
+              .w-icon.size--xs(:class="marketStatusIcon")
+              span.size--sm(:class="marketStatusClass")
+                | {{ marketStatus.message }}
+              span.size--xs.op6(v-if="marketStatus.status === 'open' && marketStatus.nextClose")
+                | (closes at {{ new Date(marketStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
+              span.size--xs.op6(v-else-if="marketStatus.nextOpen")
+                | (opens {{ formatNextOpen(marketStatus.nextOpen) }})
 
         .w-flex.align-center.gap6
           .price-display
@@ -43,7 +52,6 @@
 
           .no-price-info(v-else-if="currentPrice === 0")
             .text-bold.op6 Market data not available
-            .size--sm.op5 This stock may not be actively traded
 
       //- Price Chart
       .glass-box.pa6
@@ -55,7 +63,7 @@
               :key="period.value"
               color="base"
               :class="{ 'period-btn--active': selectedPeriod === period.value }"
-              @click="selectedPeriod = period.value")
+              @click="changePeriod(period.value)")
               | {{ period.label }}
 
         .chart-container
@@ -67,55 +75,66 @@
       .glass-box.pa6
         .title2.mb4 Place Order
 
-        //- Order Type Selection
-        .mb4
-          label.size--sm.op7.mb2 Order Type
-          w-select(
-            v-model="orderForm.type"
-            :items="orderTypes"
-            outline)
+        .w-flex.gap4.wrap
+          .grow
+            //- Order Type Selection
+            .mb4
+              label.size--sm.op7.mb2 Order Type
+              w-select(
+                v-model="orderForm.type"
+                :items="orderTypes"
+                outline)
 
-        //- Quantity Input
-        .mb4
-          label.size--sm.op7.mb2 Quantity
-          w-input(
-            v-model.number="orderForm.quantity"
-            type="number"
-            min="1"
-            placeholder="Number of shares"
-            outline)
+            //- Quantity Input
+            .mb4
+              label.size--sm.op7.mb2 Quantity
+              w-input(
+                v-model.number="orderForm.quantity"
+                type="number"
+                min="1"
+                placeholder="Number of shares"
+                outline)
 
-        //- Limit Price (only for limit orders)
-        .mb4(v-if="orderForm.type === 'limit'")
-          label.size--sm.op7.mb2 Limit Price
-          w-input(
-            v-model.number="orderForm.limitPrice"
-            type="number"
-            step="0.01"
-            placeholder="Price per share"
-            outline)
+            //- Limit Price (only for limit orders)
+            .mb4(v-if="orderForm.type === 'limit'")
+              label.size--sm.op7.mb2 Limit Price
+              w-input(
+                v-model.number="orderForm.limitPrice"
+                type="number"
+                step="0.01"
+                placeholder="Price per share"
+                outline)
 
-        //- Stop Loss (optional)
-        .mb4
-          label.size--sm.op7.mb2 Stop Loss (Optional)
-          w-input(
-            v-model.number="orderForm.stopLoss"
-            type="number"
-            step="0.01"
-            placeholder="Stop loss price"
-            outline)
+            //- Stop Loss (optional)
+            .mb4
+              label.size--sm.op7.mb2 Stop Loss (Optional)
+              w-input(
+                v-model.number="orderForm.stopLoss"
+                type="number"
+                step="0.01"
+                placeholder="Stop loss price"
+                outline)
 
-        //- Order Value Display
-        .mb4.pa3.glass--bg.bdrs2(v-if="orderValue > 0 && currentPrice > 0")
-          .w-flex.justify-between
-            span.op7 Estimated Total:
-            span.text-bold ${{ orderValue.toFixed(2) }}
+            //- Order Value Display
+            .mb4.pa3.glass--bg.bdrs2(v-if="orderValue > 0 && currentPrice > 0")
+              .w-flex.justify-between
+                span.op7 Estimated Total:
+                span.text-bold ${{ orderValue.toFixed(2) }}
 
-        //- No Price Data Warning
-        .mb4.pa3.error-dark4--bg.bdrs2(v-if="currentPrice === 0")
-          .w-flex.align-center.gap2
-            w-icon.error wi-alert-triangle
-            span Trading disabled: No current market data available
+            //- No Price Data Warning
+            .mb4.pa3.error-dark4--bg.bdrs2(v-if="currentPrice === 0")
+              .w-flex.align-center.gap2
+                w-icon.error wi-alert-triangle
+                span Trading disabled: No current market data available
+
+          //- Quick Actions
+          .w-card.pa6.mt4.no-grow.lg-grow
+            .title3.mb4 Quick Actions
+            .w-flex.column.gap2
+              w-button.fill-width.text-bold(@click="setQuickQuantity(1)" sm) 1 Share
+              w-button.fill-width.text-bold(@click="setQuickQuantity(10)" sm) 10 Shares
+              w-button.fill-width.text-bold(@click="setQuickQuantity(100)" sm) 100 Shares
+              w-button.fill-width.text-bold(@click="setQuickQuantity(1000)" sm) 1000 Shares
 
         //- Buy/Sell Buttons
         .w-flex.gap4
@@ -124,23 +143,14 @@
             color="success"
             :disabled="!isOrderValid || currentPrice === 0"
             large)
-            strong BUY {{ symbol }}
+            strong BUY
 
           w-button.grow(
             @click="placeOrder('sell')"
             color="error"
             :disabled="!isOrderValid || currentPrice === 0"
             large)
-            strong SELL {{ symbol }}
-
-      //- Quick Actions
-      .glass-box.pa6.mt4
-        .title3.mb4 Quick Actions
-        .w-flex.gap2.wrap
-          w-button(@click="setQuickQuantity(1)" sm) 1 Share
-          w-button(@click="setQuickQuantity(10)" sm) 10 Shares
-          w-button(@click="setQuickQuantity(100)" sm) 100 Shares
-          w-button(@click="setQuickQuantity(1000)" sm) 1000 Shares
+            strong SELL
 
       //- Recent Trades for this symbol
       .glass-box.pa6.mt4(v-if="recentTrades.length")
@@ -162,7 +172,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Line } from 'vue-chartjs'
 import 'chart.js/auto'
-import { fetchStock, fetchStockPrice, subscribeToStock } from '@/api'
+import { fetchStock, fetchStockPrice, subscribeToStock, fetchMarketStatus, fetchStockHistory } from '@/api'
 import TickerLogo from '@/components/ticker-logo.vue'
 
 const props = defineProps({
@@ -174,10 +184,16 @@ const stockData = ref(null)
 const currentPrice = ref(0)
 const previousPrice = ref(0)
 const priceHistory = ref([])
+const historicalData = ref([])
 const wsConnected = ref(false)
 const lastUpdate = ref('Never')
 const selectedPeriod = ref('1D')
 const recentTrades = ref([])
+const marketStatus = ref({
+  status: 'closed',
+  message: 'Loading...',
+  isWeekend: false
+})
 
 // WebSocket
 let ws = null
@@ -225,9 +241,37 @@ const isOrderValid = computed(() => {
   return true
 })
 
+const marketStatusClass = computed(() => {
+  switch (marketStatus.value.status) {
+    case 'open':
+      return 'success'
+    case 'premarket':
+    case 'afterhours':
+      return 'warning'
+    case 'closed':
+    default:
+      return 'error'
+  }
+})
+
+const marketStatusIcon = computed(() => {
+  switch (marketStatus.value.status) {
+    case 'open':
+      return 'success--bg'
+    case 'premarket':
+    case 'afterhours':
+      return 'warning--bg'
+    case 'closed':
+    default:
+      return 'error--bg'
+  }
+})
+
 // Chart data
 const chartData = computed(() => {
-  if (!priceHistory.value.length) {
+  const dataToUse = historicalData.value.length > 0 ? historicalData.value : priceHistory.value
+
+  if (!dataToUse.length) {
     return {
       labels: [],
       datasets: [{
@@ -244,16 +288,45 @@ const chartData = computed(() => {
     }
   }
 
-  const labels = priceHistory.value.map(item => {
+  const labels = dataToUse.map(item => {
     const date = new Date(item.timestamp)
-    return date.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    })
+    // Format labels based on selected period.
+    switch (selectedPeriod.value) {
+      case '1D':
+        return date.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        })
+      case '1W':
+        return date.toLocaleDateString('en-US', {
+          weekday: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        })
+      case '1M':
+        return date.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          hour12: false
+        })
+      case '3M':
+        return date.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric'
+        })
+      default:
+        return date.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        })
+    }
   })
 
-  const data = priceHistory.value.map(item => item.price)
+  const data = dataToUse.map(item => item.price)
 
   return {
     labels,
@@ -333,6 +406,40 @@ const chartOptions = {
 }
 
 // Methods
+async function fetchMarketStatusData() {
+  try {
+    const status = await fetchMarketStatus()
+    marketStatus.value = status
+  }
+  catch (error) {
+    console.error('Error fetching market status:', error)
+    marketStatus.value = {
+      status: 'closed',
+      message: 'Unable to determine market status',
+      isWeekend: false
+    }
+  }
+}
+
+async function fetchHistoricalData() {
+  try {
+    console.log(`📊 Fetching historical data for ${props.symbol} (${selectedPeriod.value})...`)
+    const data = await fetchStockHistory(props.symbol, selectedPeriod.value)
+
+    if (data.data && data.data.length > 0) {
+      historicalData.value = data.data
+      console.log(`✅ Loaded ${data.data.length} historical data points for ${props.symbol}`)
+    } else {
+      console.warn(`⚠️ No historical data available for ${props.symbol}`)
+      historicalData.value = []
+    }
+  }
+  catch (error) {
+    console.error('Error fetching historical data:', error)
+    historicalData.value = []
+  }
+}
+
 async function fetchStockData() {
   try {
     console.log(`📊 Fetching data for ${props.symbol}...`)
@@ -477,11 +584,46 @@ function updatePrice(newPrice) {
     if (priceHistory.value.length > 100) {
       priceHistory.value = priceHistory.value.slice(-100)
     }
+
+    // For 1D period, also update historical data with live prices
+    if (selectedPeriod.value === '1D' && historicalData.value.length > 0) {
+      historicalData.value.push({
+        timestamp: Date.now(),
+        price: newPrice
+      })
+
+      // Keep only relevant data for the period
+      const cutoff = Date.now() - (24 * 60 * 60 * 1000)  // 24 hours ago
+      historicalData.value = historicalData.value.filter(item => item.timestamp > cutoff)
+    }
   }
 }
 
 function setQuickQuantity(quantity) {
   orderForm.value.quantity = quantity
+}
+
+async function changePeriod(period) {
+  if (selectedPeriod.value === period) return
+
+  selectedPeriod.value = period
+  await fetchHistoricalData()
+}
+
+function formatNextOpen(nextOpenISO) {
+  const nextOpen = new Date(nextOpenISO)
+  const now = new Date()
+  const diffMs = nextOpen - now
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+  const diffDays = Math.floor(diffHours / 24)
+
+  if (diffDays > 0) {
+    return `in ${diffDays} day${diffDays > 1 ? 's' : ''}`
+  } else if (diffHours > 0) {
+    return `in ${diffHours} hour${diffHours > 1 ? 's' : ''}`
+  } else {
+    return 'soon'
+  }
 }
 
 async function placeOrder(side) {
@@ -525,7 +667,17 @@ async function placeOrder(side) {
 // Lifecycle
 onMounted(async () => {
   await fetchStockData()
+  await fetchMarketStatusData()
+  await fetchHistoricalData()
   connectWebSocket()
+
+  // Update market status every 30 seconds
+  const statusInterval = setInterval(fetchMarketStatusData, 30000)
+
+  // Clean up interval on unmount
+  onUnmounted(() => {
+    clearInterval(statusInterval)
+  })
 })
 
 onUnmounted(() => {
@@ -538,7 +690,9 @@ onUnmounted(() => {
 // Watch for symbol changes
 watch(() => props.symbol, async () => {
   await fetchStockData()
+  await fetchHistoricalData()
   priceHistory.value = []
+  historicalData.value = []
   recentTrades.value = []
 }, { immediate: true })
 </script>

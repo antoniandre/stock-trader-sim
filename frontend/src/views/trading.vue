@@ -3,12 +3,21 @@ w-grid.gap-xl
   .w-col-12
     .w-flex.align-center.justify-between
       .title1 Stock Trading
-      //- Connection Status
-      .w-flex.align-center.gap2.mla.no-grow
-        .w-icon.size--xs.success--bg(v-if="wsConnected")
-        .w-icon.size--xs.yellow--bg(v-else)
-        span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
-          | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
+      //- Connection Status & Market Status
+      .w-flex.align-center.gap4.mla.no-grow
+        .w-flex.align-center.gap2
+          .w-icon.size--xs.success--bg(v-if="wsConnected")
+          .w-icon.size--xs.yellow--bg(v-else)
+          span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
+            | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
+        .w-flex.align-center.gap2
+          .w-icon.size--xs(:class="marketStatusIcon")
+          span.size--sm(:class="marketStatusClass")
+            | {{ marketStatus.message }}
+          span.size--xs.op6(v-if="marketStatus.status === 'open' && marketStatus.nextClose")
+            | (closes at {{ new Date(marketStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
+          span.size--xs.op6(v-else-if="marketStatus.nextOpen")
+            | (opens {{ formatNextOpen(marketStatus.nextOpen) }})
 
     w-input.w-input.light.my4.h-auto(
       v-model="searchQuery"
@@ -27,9 +36,9 @@ w-grid.gap-xl
         :lastSide="stock.lastSide")
 
     //- Loading State
-    .w-center.w-my-xxl(v-if="loading")
-      .w-loader.w-xxl
-      p.op5 Loading stocks...
+    .w-flex.column.py12.align-center.justify-center(v-if="loading")
+      w-progress(circle)
+      p.op5.mt4 Loading stocks...
 
     //- Error State
     w-alert.bdrs2(v-else-if="error")
@@ -87,7 +96,7 @@ w-grid.gap-xl
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { fetchAllStocks } from '@/api'
+import { fetchAllStocks, fetchMarketStatus } from '@/api'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
 
@@ -99,6 +108,11 @@ const wsConnected = ref(false)
 const lastUpdate = ref('Never')
 const currentPage = ref(1)
 const itemsPerPage = 50
+const marketStatus = ref({
+  status: 'closed',
+  message: 'Loading...',
+  isWeekend: false
+})
 let ws = null
 let pollInterval = null
 
@@ -120,6 +134,47 @@ const paginatedStocks = computed(() => {
   return filteredStocks.value.slice(startIndex.value, endIndex.value)
 })
 
+const marketStatusClass = computed(() => {
+  switch (marketStatus.value.status) {
+    case 'open':
+      return 'success'
+    case 'premarket':
+    case 'afterhours':
+      return 'warning'
+    case 'closed':
+    default:
+      return 'error'
+  }
+})
+
+const marketStatusIcon = computed(() => {
+  switch (marketStatus.value.status) {
+    case 'open':
+      return 'success--bg'
+    case 'premarket':
+    case 'afterhours':
+      return 'warning--bg'
+    case 'closed':
+    default:
+      return 'error--bg'
+  }
+})
+
+async function fetchMarketStatusData() {
+  try {
+    const status = await fetchMarketStatus()
+    marketStatus.value = status
+  }
+  catch (error) {
+    console.error('Error fetching market status:', error)
+    marketStatus.value = {
+      status: 'closed',
+      message: 'Unable to determine market status',
+      isWeekend: false
+    }
+  }
+}
+
 async function fetchStocks() {
   try {
     console.log('📊 Fetching all stocks...')
@@ -132,6 +187,22 @@ async function fetchStocks() {
     error.value = 'Failed to load stocks. Make sure the API server is running.'
     console.error('Error fetching stocks:', err)
     loading.value = false
+  }
+}
+
+function formatNextOpen(nextOpenISO) {
+  const nextOpen = new Date(nextOpenISO)
+  const now = new Date()
+  const diffMs = nextOpen - now
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+  const diffDays = Math.floor(diffHours / 24)
+
+  if (diffDays > 0) {
+    return `in ${diffDays} day${diffDays > 1 ? 's' : ''}`
+  } else if (diffHours > 0) {
+    return `in ${diffHours} hour${diffHours > 1 ? 's' : ''}`
+  } else {
+    return 'soon'
   }
 }
 
@@ -219,7 +290,16 @@ function connectWebSocket() {
 
 onMounted(async () => {
   await fetchStocks()
+  await fetchMarketStatusData()
   connectWebSocket()
+
+  // Update market status every 30 seconds
+  const statusInterval = setInterval(fetchMarketStatusData, 30000)
+
+  // Clean up interval on unmount
+  onUnmounted(() => {
+    clearInterval(statusInterval)
+  })
 })
 
 onUnmounted(() => {

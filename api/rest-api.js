@@ -3,6 +3,237 @@ import express from 'express'
 import { ALPACA_BASE_URL, HEADERS, IS_SIMULATION, state, mockPrices, popularStocks } from './config.js'
 import { subscribeToStock } from './websocket-server.js'
 
+// ===== Historical Stock Data Functions =====
+export async function getStockHistoricalData(symbol, period = '1D') {
+  if (IS_SIMULATION) {
+    console.log(`🧪 [SIM] Generating mock historical data for ${symbol} (${period})`)
+    return generateMockHistoricalData(symbol, period)
+  }
+
+  try {
+    // Map period to Alpaca API parameters.
+    let timeframe, limit, startDate
+    const now = new Date()
+    const easternTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }))
+
+    switch (period) {
+      case '1D':
+        timeframe = '1Min'
+        limit = 390  // Trading minutes in a day.
+        startDate = new Date(easternTime.getTime() - 24 * 60 * 60 * 1000)
+        break
+      case '1W':
+        timeframe = '5Min'
+        limit = 500
+        startDate = new Date(easternTime.getTime() - 7 * 24 * 60 * 60 * 1000)
+        break
+      case '1M':
+        timeframe = '1Hour'
+        limit = 500
+        startDate = new Date(easternTime.getTime() - 30 * 24 * 60 * 60 * 1000)
+        break
+      case '3M':
+        timeframe = '1Day'
+        limit = 90
+        startDate = new Date(easternTime.getTime() - 90 * 24 * 60 * 60 * 1000)
+        break
+      default:
+        timeframe = '1Hour'
+        limit = 100
+        startDate = new Date(easternTime.getTime() - 24 * 60 * 60 * 1000)
+    }
+
+    const params = new URLSearchParams({
+      timeframe,
+      limit: limit.toString(),
+      start: startDate.toISOString()
+    })
+
+    const url = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?${params}`
+    console.log(`📊 Fetching historical data for ${symbol} (${period}): ${url}`)
+
+    const { data } = await axios.get(url, { headers: HEADERS })
+
+    if (!data.bars || data.bars.length === 0) {
+      console.warn(`⚠️ No historical data found for ${symbol}`)
+      return { symbol, period, data: [] }
+    }
+
+    // Transform Alpaca data to our format.
+    const historicalData = data.bars.map(bar => ({
+      timestamp: new Date(bar.t).getTime(),
+      price: bar.c,  // Close price.
+      volume: bar.v,
+      open: bar.o,
+      high: bar.h,
+      low: bar.l
+    }))
+
+    console.log(`✅ Fetched ${historicalData.length} historical data points for ${symbol}`)
+    return { symbol, period, data: historicalData }
+  }
+  catch (error) {
+    console.error(`❌ Error fetching historical data for ${symbol}:`, error.message)
+    // Fall back to mock data on error.
+    return generateMockHistoricalData(symbol, period)
+  }
+}
+
+function generateMockHistoricalData(symbol, period) {
+  const basePrice = mockPrices[symbol] || 100
+  const now = Date.now()
+  let dataPoints, intervalMs
+
+  switch (period) {
+    case '1D':
+      dataPoints = 390  // Trading minutes in a day.
+      intervalMs = 60 * 1000  // 1 minute.
+      break
+    case '1W':
+      dataPoints = 336  // 7 days * 48 (5-min intervals per day).
+      intervalMs = 5 * 60 * 1000  // 5 minutes.
+      break
+    case '1M':
+      dataPoints = 720  // 30 days * 24 hours.
+      intervalMs = 60 * 60 * 1000  // 1 hour.
+      break
+    case '3M':
+      dataPoints = 90  // 90 days.
+      intervalMs = 24 * 60 * 60 * 1000  // 1 day.
+      break
+    default:
+      dataPoints = 100
+      intervalMs = 60 * 60 * 1000  // 1 hour.
+  }
+
+  const data = []
+  let currentPrice = basePrice
+
+  for (let i = 0; i < dataPoints; i++) {
+    const timestamp = now - (dataPoints - 1 - i) * intervalMs
+
+    // Generate realistic price movement.
+    const volatility = 0.02  // 2% volatility.
+    const trend = Math.sin(i / 20) * 0.005  // Small trend component.
+    const randomChange = (Math.random() - 0.5) * volatility
+
+    currentPrice = currentPrice * (1 + trend + randomChange)
+
+    // Ensure price doesn't go below 10% of base price.
+    currentPrice = Math.max(currentPrice, basePrice * 0.1)
+
+    data.push({
+      timestamp,
+      price: Math.round(currentPrice * 100) / 100,
+      volume: Math.floor(Math.random() * 10000) + 1000,
+      open: currentPrice,
+      high: currentPrice * 1.01,
+      low: currentPrice * 0.99
+    })
+  }
+
+  return { symbol, period, data }
+}
+
+// ===== Market Status Functions =====
+export function getMarketStatus() {
+  const now = new Date()
+  const easternTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }))
+
+  const day = easternTime.getDay() // 0 = Sunday, 6 = Saturday
+  const hours = easternTime.getHours()
+  const minutes = easternTime.getMinutes()
+  const currentTimeMinutes = hours * 60 + minutes
+
+  // Weekend check
+  if (day === 0 || day === 6) {
+    return {
+      status: 'closed',
+      message: 'Market is closed - Weekend',
+      nextOpen: getNextMarketOpen(easternTime),
+      isWeekend: true
+    }
+  }
+
+  // Market hours in minutes since midnight ET
+  const preMarketStart = 4 * 60 // 4:00 AM ET
+  const marketOpen = 9 * 60 + 30 // 9:30 AM ET
+  const marketClose = 16 * 60 // 4:00 PM ET
+  const afterHoursEnd = 20 * 60 // 8:00 PM ET
+
+  if (currentTimeMinutes < preMarketStart) {
+    return {
+      status: 'closed',
+      message: 'Market is closed - Before premarket',
+      nextOpen: getNextMarketOpen(easternTime),
+      isWeekend: false
+    }
+  } else if (currentTimeMinutes >= preMarketStart && currentTimeMinutes < marketOpen) {
+    return {
+      status: 'premarket',
+      message: 'Pre-market trading',
+      nextOpen: getNextMarketOpen(easternTime),
+      isWeekend: false
+    }
+  } else if (currentTimeMinutes >= marketOpen && currentTimeMinutes < marketClose) {
+    return {
+      status: 'open',
+      message: 'Market is open',
+      nextClose: getNextMarketClose(easternTime),
+      isWeekend: false
+    }
+  } else if (currentTimeMinutes >= marketClose && currentTimeMinutes < afterHoursEnd) {
+    return {
+      status: 'afterhours',
+      message: 'After-hours trading',
+      nextOpen: getNextMarketOpen(easternTime),
+      isWeekend: false
+    }
+  } else {
+    return {
+      status: 'closed',
+      message: 'Market is closed - After hours ended',
+      nextOpen: getNextMarketOpen(easternTime),
+      isWeekend: false
+    }
+  }
+}
+
+function getNextMarketOpen(easternTime) {
+  const nextOpen = new Date(easternTime)
+
+  // If it's Friday after market close, next open is Monday
+  if (nextOpen.getDay() === 5 && nextOpen.getHours() >= 16) {
+    nextOpen.setDate(nextOpen.getDate() + 3) // Add 3 days to get to Monday
+  }
+  // If it's Saturday, next open is Monday
+  else if (nextOpen.getDay() === 6) {
+    nextOpen.setDate(nextOpen.getDate() + 2) // Add 2 days to get to Monday
+  }
+  // If it's Sunday, next open is Monday
+  else if (nextOpen.getDay() === 0) {
+    nextOpen.setDate(nextOpen.getDate() + 1) // Add 1 day to get to Monday
+  }
+  // If it's after market close on a weekday, next open is next day
+  else if (nextOpen.getHours() >= 16) {
+    nextOpen.setDate(nextOpen.getDate() + 1)
+  }
+
+  // Set to 9:30 AM ET
+  nextOpen.setHours(9, 30, 0, 0)
+
+  return nextOpen.toISOString()
+}
+
+function getNextMarketClose(easternTime) {
+  const nextClose = new Date(easternTime)
+
+  // Set to 4:00 PM ET today
+  nextClose.setHours(16, 0, 0, 0)
+
+  return nextClose.toISOString()
+}
+
 // ===== Alpaca Account Data Functions =====
 export async function getAlpacaAccount() {
   if (IS_SIMULATION) {
@@ -617,6 +848,35 @@ export function createRestApiRoutes() {
     catch (error) {
       console.error(`Error subscribing to ${req.params.symbol}:`, error)
       res.status(500).json({ error: `Failed to subscribe to ${req.params.symbol}` })
+    }
+  })
+
+  // Get historical data for a stock
+  app.get('/api/stocks/:symbol/history', async (req, res) => {
+    try {
+      const { symbol } = req.params
+      const { period = '1D' } = req.query
+
+      const historicalData = await getStockHistoricalData(symbol, period)
+      res.json(historicalData)
+    }
+    catch (error) {
+      console.error(`Error fetching historical data for ${req.params.symbol}:`, error)
+      res.status(500).json({ error: `Failed to fetch historical data for ${req.params.symbol}` })
+    }
+  })
+
+  app.get('/api/market-status', (req, res) => {
+    try {
+      const marketStatus = getMarketStatus()
+      res.json({
+        ...marketStatus,
+        timestamp: new Date().toISOString()
+      })
+    }
+    catch (error) {
+      console.error('Error getting market status:', error)
+      res.status(500).json({ error: 'Failed to get market status' })
     }
   })
 

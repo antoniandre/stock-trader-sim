@@ -141,3 +141,31 @@ export async function subscribeToStock(symbol) {
     throw error
   }
 }
+
+// Get market status
+export async function fetchMarketStatus() {
+  try {
+    const response = await fetch(`${API_BASE}/market-status`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('API Error:', error)
+    throw error
+  }
+}
+
+// Get historical data for a stock
+export async function fetchStockHistory(symbol, period = '1D') {
+  try {
+    const response = await fetch(`${API_BASE}/stocks/${symbol}/history?period=${period}`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('API Error:', error)
+    throw error
+  }
+}
