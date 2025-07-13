@@ -111,12 +111,80 @@ export function createRestApiRoutes() {
   app.get('/api/stocks', async (req, res) => {
     try {
       const stocks = await getAllTradableStocks()
-      const stocksWithPrices = stocks.map(stock => ({
+      const { search, page = 1, limit = 50 } = req.query
+
+      let filteredStocks = stocks
+
+      // Apply search filter if provided
+      if (search) {
+        filteredStocks = stocks.filter(stock =>
+          stock.symbol.toLowerCase().includes(search.toLowerCase()) ||
+          stock.name.toLowerCase().includes(search.toLowerCase())
+        )
+      }
+
+      // Sort stocks to show ones with prices first
+      filteredStocks.sort((a, b) => {
+        const aPrice = state.stockPrices[a.symbol] || 0
+        const bPrice = state.stockPrices[b.symbol] || 0
+        if (aPrice > 0 && bPrice === 0) return -1
+        if (aPrice === 0 && bPrice > 0) return 1
+        return a.symbol.localeCompare(b.symbol)
+      })
+
+      // Calculate pagination
+      const pageNum = parseInt(page)
+      const limitNum = parseInt(limit)
+      const startIndex = (pageNum - 1) * limitNum
+      const endIndex = startIndex + limitNum
+      const paginatedStocks = filteredStocks.slice(startIndex, endIndex)
+
+      // Fetch prices for stocks on current page that don't have prices yet
+      console.log(`💰 Fetching prices for ${paginatedStocks.length} stocks on page ${pageNum}...`)
+      const stocksToFetch = paginatedStocks.filter(stock => !state.stockPrices[stock.symbol])
+
+      if (stocksToFetch.length > 0) {
+        console.log(`📊 Need to fetch prices for: ${stocksToFetch.map(s => s.symbol).join(', ')}`)
+
+        // Fetch prices in parallel, but limit concurrent requests to avoid overwhelming Alpaca
+        const batchSize = 5
+        for (let i = 0; i < stocksToFetch.length; i += batchSize) {
+          const batch = stocksToFetch.slice(i, i + batchSize)
+          await Promise.all(batch.map(async stock => {
+            try {
+              const price = await getPrice(stock.symbol)
+              if (price > 0) {
+                state.stockPrices[stock.symbol] = price
+                console.log(`💲 Fetched ${stock.symbol}: $${price.toFixed(2)}`)
+              }
+            }
+            catch (error) {
+              console.warn(`⚠️ Failed to fetch price for ${stock.symbol}: ${error.message}`)
+            }
+          }))
+
+          // Small delay between batches to be nice to the API
+          if (i + batchSize < stocksToFetch.length) {
+            await new Promise(resolve => setTimeout(resolve, 100))
+          }
+        }
+      }
+
+      const stocksWithPrices = paginatedStocks.map(stock => ({
         ...stock,
         price: state.stockPrices[stock.symbol] || 0,
         lastSide: 'buy'
       }))
-      res.json({ stocks: stocksWithPrices })
+
+      res.json({
+        stocks: stocksWithPrices,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: filteredStocks.length,
+          totalPages: Math.ceil(filteredStocks.length / limitNum)
+        }
+      })
     }
     catch (error) {
       console.error('Error fetching stocks:', error)

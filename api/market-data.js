@@ -153,8 +153,26 @@ export async function initializeStockPrices() {
     return
   }
 
-  console.log('💰 Stock prices will be fetched on-demand when requested')
-  // No longer pre-fetching popular stocks - prices are fetched when needed.
+    console.log('💰 Fetching initial prices for popular stocks...')
+
+  // Fetch prices for popular stocks to have some initial data.
+  const popularStocks = ['AAPL', 'MSFT', 'TSLA', 'GOOGL', 'AMZN', 'META', 'NVDA', 'NFLX', 'AMD', 'INTC', 'ORCL', 'CRM', 'ADBE', 'PYPL', 'SQ', 'UBER', 'LYFT', 'SPOT', 'ZM', 'SHOP']
+
+  let pricesFetched = 0
+  for (const symbol of popularStocks) {
+    try {
+      const price = await getPrice(symbol)
+      if (price > 0) {
+        pricesFetched++
+        console.log(`💲 Initialized ${symbol}: $${price.toFixed(2)}`)
+      }
+    }
+    catch (error) {
+      console.warn(`⚠️ Failed to fetch initial price for ${symbol}: ${error.message}`)
+    }
+  }
+
+  console.log(`✅ Initialized ${pricesFetched} stock prices from Alpaca`)
 }
 
 // Stock Data Functions

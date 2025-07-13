@@ -82,9 +82,15 @@ export async function fetchPositions() {
 
 // Market Data.
 // --------------------------------------------------------
-export async function fetchAllStocks() {
+export async function fetchAllStocks(page = 1, limit = 50, search = '') {
   try {
-    const response = await fetch(`${API_BASE}/stocks`)
+    const params = new URLSearchParams()
+    if (page) params.append('page', page.toString())
+    if (limit) params.append('limit', limit.toString())
+    if (search) params.append('search', search)
+
+    const queryString = params.toString() ? `?${params.toString()}` : ''
+    const response = await fetch(`${API_BASE}/stocks${queryString}`)
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
     return await response.json()

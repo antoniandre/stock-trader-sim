@@ -102,8 +102,17 @@ export function getMockPrice(symbol) {
 }
 
 export function initializeMockPrices() {
-  console.log('🧪 [SIM] Using mock prices')
-  // No initialization needed for mock prices.
+  console.log('🧪 [SIM] Initializing mock prices for all stocks')
+
+  // Initialize prices for all stocks in the simulation.
+  for (const stock of state.allStocks) {
+    const price = getMockPrice(stock.symbol)
+    if (price > 0) {
+      state.stockPrices[stock.symbol] = price
+    }
+  }
+
+  console.log(`✅ Initialized ${Object.keys(state.stockPrices).length} stock prices`)
 }
 
 // Mock Historical Data Generation

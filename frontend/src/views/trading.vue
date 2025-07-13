@@ -21,15 +21,21 @@ w-grid.gap-xl
 
     w-input.w-input.light.my4.h-auto(
       v-model="searchQuery"
+      @input="handleSearchChange"
       outline
       round
       placeholder="Search for a stock..."
       input-class="py4 px6")
 
+    //- Loading indicator for price fetching
+    .w-flex.align-center.gap2.my2(v-if="fetchingPrices")
+      w-progress.mr2(circle sm)
+      span.size--sm.op7 Fetching current prices for visible stocks...
+
     //- Ticker Cards
     w-grid.gap4(:columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }" )
       ticker-card(
-        v-for="stock in filteredStocks.slice(0, 20)"
+        v-for="stock in paginatedStocks.slice(0, 20)"
         :key="stock.symbol"
         :symbol="stock.symbol"
         :price="stock.price"
@@ -51,7 +57,13 @@ w-grid.gap-xl
       .w-flex.gap4.my4
         .w-card.dark2--bg.bdrs2.pa4
           span.op5.text-upper.size--sm Total Stocks
-          .title2 {{ filteredStocks.length }}
+          .title2 {{ totalStocks }}
+        .w-card.dark2--bg.bdrs2.pa4
+          span.op5.text-upper.size--sm Showing
+          .title2 {{ stocks.length }}
+        .w-card.dark2--bg.bdrs2.pa4
+          span.op5.text-upper.size--sm With Prices
+          .title2 {{ stocks.filter(s => s.price > 0).length }}
         .w-card.dark2--bg.bdrs2.pa4
           span.op5.text-upper.size--sm Last Update
           .lg {{ lastUpdate }}
@@ -71,7 +83,10 @@ w-grid.gap-xl
               td.px2.py2
                 span {{ stock.name }}
               td.px2.py2.text-right
-                span.text-bold ${{ stock.price.toFixed(2) }}
+                .w-flex.align-center.justify-end.gap1(v-if="stock.price > 0")
+                  span.text-bold ${{ stock.price.toFixed(2) }}
+                .w-flex.align-center.justify-end.gap1(v-else)
+                  span.op5 Fetching...
               td.px2.py2.text-center
                 .w-flex.align-center.justify-center.gap2(@click.stop)
                   w-button.px2(
@@ -79,23 +94,27 @@ w-grid.gap-xl
                     color="success"
                     outline
                     round
-                    sm)
+                    sm
+                    :disabled="stock.price === 0")
                     strong.size--xs BUY
                   w-button.px2(
                     @click="placeOrder(stock.symbol, 1, 'sell')"
                     color="error"
                     outline
                     round
-                    sm)
+                    sm
+                    :disabled="stock.price === 0")
                     strong.size--xs SELL
 
         //- Pagination
-        .w-flex.align-center.justify-between(v-if="totalPages > 1")
+        .w-flex.align-center.justify-between.mt4(v-if="totalPages > 1")
           .w-flex.align-center.gap2
-            w-button(:disabled="currentPage === 1" @click="currentPage--") Previous
+            w-button(:disabled="currentPage === 1" @click="prevPage") Previous
             span Page {{ currentPage }} of {{ totalPages }}
-            w-button(:disabled="currentPage === totalPages" @click="currentPage++") Next
-          span.op5.size--sm Showing {{ startIndex + 1 }}-{{ endIndex }} of {{ filteredStocks.length }} stocks
+            w-button(:disabled="currentPage === totalPages" @click="nextPage") Next
+          .w-flex.align-center.gap2
+            span.op5.size--sm Showing {{ stocks.length }} of {{ totalStocks }} stocks
+            span.op5.size--sm(v-if="searchQuery") • Filtered by "{{ searchQuery }}"
 </template>
 
 <script setup>
@@ -112,6 +131,9 @@ const wsConnected = ref(false)
 const lastUpdate = ref('Never')
 const currentPage = ref(1)
 const itemsPerPage = 50
+const totalStocks = ref(0)
+const totalPages = ref(1)
+const fetchingPrices = ref(false)
 const marketStatus = ref({
   status: 'closed',
   message: 'Loading...',
@@ -119,23 +141,14 @@ const marketStatus = ref({
 })
 let ws = null
 let pollInterval = null
+let searchTimeout = null
 
 const filteredStocks = computed(() => {
-  if (!searchQuery.value) return stocks.value
-
-  return stocks.value.filter(stock =>
-    stock.symbol.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-    stock.name.toLowerCase().includes(searchQuery.value.toLowerCase())
-  )
+  return stocks.value
 })
 
-const totalPages = computed(() => Math.ceil(filteredStocks.value.length / itemsPerPage))
-
-const startIndex = computed(() => (currentPage.value - 1) * itemsPerPage)
-const endIndex = computed(() => Math.min(startIndex.value + itemsPerPage, filteredStocks.value.length))
-
 const paginatedStocks = computed(() => {
-  return filteredStocks.value.slice(startIndex.value, endIndex.value)
+  return stocks.value
 })
 
 const tableHeaders = [
@@ -186,19 +199,63 @@ async function fetchMarketStatusData() {
   }
 }
 
-async function fetchStocks() {
+async function fetchStocks(resetPage = false) {
   try {
-    console.log('📊 Fetching all stocks...')
-    const data = await fetchAllStocks()
+    if (resetPage) currentPage.value = 1
+
+    console.log(`📊 Fetching stocks page ${currentPage.value} (search: "${searchQuery.value}")...`)
+    loading.value = true
+    fetchingPrices.value = true
+
+    const data = await fetchAllStocks(currentPage.value, itemsPerPage, searchQuery.value)
+
     stocks.value = data.stocks || []
+    totalStocks.value = data.pagination?.total || 0
+    totalPages.value = data.pagination?.totalPages || 1
+
     loading.value = false
+    fetchingPrices.value = false
     lastUpdate.value = new Date().toLocaleTimeString()
+
+    console.log(`✅ Loaded ${stocks.value.length} stocks for page ${currentPage.value}/${totalPages.value}`)
+    console.log(`💰 Stocks with prices: ${stocks.value.filter(s => s.price > 0).length}/${stocks.value.length}`)
   }
   catch (err) {
     error.value = 'Failed to load stocks. Make sure the API server is running.'
     console.error('Error fetching stocks:', err)
     loading.value = false
+    fetchingPrices.value = false
   }
+}
+
+// Debounced search function
+function onSearchInput() {
+  if (searchTimeout) clearTimeout(searchTimeout)
+
+  searchTimeout = setTimeout(() => {
+    fetchStocks(true) // Reset to page 1 when searching
+  }, 500) // 500ms delay
+}
+
+// Watch for search changes
+function handleSearchChange() {
+  onSearchInput()
+}
+
+// Page navigation functions
+async function goToPage(page) {
+  if (page >= 1 && page <= totalPages.value && page !== currentPage.value) {
+    currentPage.value = page
+    await fetchStocks()
+  }
+}
+
+async function nextPage() {
+  await goToPage(currentPage.value + 1)
+}
+
+async function prevPage() {
+  await goToPage(currentPage.value - 1)
 }
 
 function formatNextOpen(nextOpenISO) {
@@ -250,26 +307,39 @@ function connectWebSocket() {
         const data = JSON.parse(event.data)
 
         if (data.type === 'market-update') {
-          // If stocks.value is empty, initialize it from the incoming data
-          if (!stocks.value.length && data.data?.length) stocks.value = data.data
+          // Update prices for stocks currently displayed on this page
+          if (data.data?.length && stocks.value.length) {
+            const priceMap = {}
+            data.data.forEach(stock => {
+              priceMap[stock.symbol] = stock.price
+            })
 
-          // Update stock prices
-          const priceMap = {}
-          data.data.forEach(stock => {
-            priceMap[stock.symbol] = stock.price
-          })
+            // Update prices for currently displayed stocks
+            stocks.value = stocks.value.map(stock => ({
+              ...stock,
+              price: priceMap[stock.symbol] || stock.price
+            }))
 
-          stocks.value = stocks.value.map(stock => ({
-            ...stock,
-            price: priceMap[stock.symbol] || stock.price
-          }))
+            lastUpdate.value = new Date().toLocaleTimeString()
+          }
+        }
 
-          lastUpdate.value = new Date().toLocaleTimeString()
+        if (data.type === 'price') {
+          // Update specific stock price if it's currently displayed
+          const stockIndex = stocks.value.findIndex(s => s.symbol === data.symbol)
+          if (stockIndex !== -1) {
+            stocks.value[stockIndex].price = data.price
+            lastUpdate.value = new Date().toLocaleTimeString()
+          }
         }
 
         if (data.type === 'trade') {
           console.log('📈 New trade received in trading view:', data)
-          // You can add trade notifications or updates here
+          // Update the price of the traded stock if it's visible
+          const stockIndex = stocks.value.findIndex(s => s.symbol === data.symbol)
+          if (stockIndex !== -1) {
+            stocks.value[stockIndex].price = data.price
+          }
         }
 
         if (data.type === 'trading-history-update') {
@@ -305,17 +375,13 @@ onMounted(async () => {
   connectWebSocket()
 
   // Update market status every 30 seconds
-  const statusInterval = setInterval(fetchMarketStatusData, 30000)
-
-  // Clean up interval on unmount
-  onUnmounted(() => {
-    clearInterval(statusInterval)
-  })
+  setInterval(fetchMarketStatusData, 30000)
 })
 
 onUnmounted(() => {
   if (ws) ws.close()
   if (pollInterval) clearInterval(pollInterval)
+  if (searchTimeout) clearTimeout(searchTimeout)
 })
 </script>
 
