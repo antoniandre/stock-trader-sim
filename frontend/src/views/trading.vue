@@ -58,31 +58,35 @@ w-grid.gap-xl
 
       //- Stocks Table
       .glass-box.ova.pa4
-        table.w-table.bd0
-          thead.dark3--bg
-            tr
-              th.py4 Symbol
-              th.py4 Name
-              th.py4.right.xs Price
-              th.py4.center.xs Actions
-          tbody
-            tr(v-for="stock in paginatedStocks" :key="stock.symbol" class="clickable-row" @click="$router.push(`/trading/${stock.symbol}`)")
-              td.py4
+        w-table.bd0(:headers="tableHeaders" :items="paginatedStocks")
+          template(#item="{ item: stock }")
+            tr.clickable-row(@click="$router.push(`/trading/${stock.symbol}`)")
+              td.px2.py2
                 .w-flex.align-center
                   ticker-logo.mr3(:symbol="stock.symbol")
                   .w-flex.gap2
-                    span {{ stock.symbol }}
+                    span.text-bold {{ stock.symbol }}
                     w-tag(sm round :class="stock.exchange === 'NYSE' ? 'teal-dark3--bg' : (stock.exchange === 'NASDAQ' ? 'primary-dark4--bg' : 'success-dark4--bg')")
                       small {{ stock.exchange }}
-              td.py4
+              td.px2.py2
                 span {{ stock.name }}
-              td.py4.right
-                span ${{ stock.price.toFixed(2) }}
-              td.py4.center
-                .w-flex.align-center.justify-center.gap1(@click.stop)
-                  w-button(@click="placeOrder(stock.symbol, 1, 'buy')" color="success" text)
+              td.px2.py2.text-right
+                span.text-bold ${{ stock.price.toFixed(2) }}
+              td.px2.py2.text-center
+                .w-flex.align-center.justify-center.gap2(@click.stop)
+                  w-button.px2(
+                    @click="placeOrder(stock.symbol, 1, 'buy')"
+                    color="success"
+                    outline
+                    round
+                    sm)
                     strong.size--xs BUY
-                  w-button(@click="placeOrder(stock.symbol, 1, 'sell')" color="error" text)
+                  w-button.px2(
+                    @click="placeOrder(stock.symbol, 1, 'sell')"
+                    color="error"
+                    outline
+                    round
+                    sm)
                     strong.size--xs SELL
 
         //- Pagination
@@ -133,6 +137,13 @@ const endIndex = computed(() => Math.min(startIndex.value + itemsPerPage, filter
 const paginatedStocks = computed(() => {
   return filteredStocks.value.slice(startIndex.value, endIndex.value)
 })
+
+const tableHeaders = [
+  { key: 'symbol', label: 'Symbol' },
+  { key: 'name', label: 'Name' },
+  { key: 'price', label: 'Price', align: 'right' },
+  { key: 'actions', label: 'Actions', align: 'center' }
+]
 
 const marketStatusClass = computed(() => {
   switch (marketStatus.value.status) {
