@@ -12,7 +12,7 @@
     "vue": "^3.5.0",
     "vue-chartjs": "^5.3.0",
     "vue-router": "^4.5.1",
-    "wave-ui": "^3.24.0"
+    "wave-ui": "^3.25.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
