@@ -7,7 +7,9 @@
         :model-value="$waveui.theme === 'dark'"
         @update:model-value="onThemeSwitch")
         template(#thumb)
-          w-icon(sm) {{ $waveui.theme === 'dark' ? 'wi-star' : 'wi-check'  }}
+          icon.w-icon.size--sm(
+            :icon="$waveui.theme === 'dark' ? 'line-md:moon-filled' : 'mingcute:sun-fill'"
+            :class="$waveui.theme === 'dark' ? 'primary' : 'amber'")
     main.pa4
       router-view
 </template>

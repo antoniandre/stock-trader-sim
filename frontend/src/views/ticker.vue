@@ -1,7 +1,7 @@
 <template lang="pug">
 .ticker-view
   w-button.mt2.ml8.pl2(@click="$router.push('/trading')" text round absolute left)
-    w-icon.mr2(rotate90) wi-arrow-down
+    icon.w-icon.mr2(icon="mdi:arrow-left")
     | Back to Trading
 
   .w-flex.align-center.gap4
@@ -122,7 +122,7 @@
             //- No Price Data Warning
             .mb4.pa3.error-dark4--bg.bdrs2(v-if="currentPrice === 0")
               .w-flex.align-center.gap2
-                w-icon.error wi-alert-triangle
+                icon.w-icon.error(icon="mdi:alert-triangle")
                 span Trading disabled: No current market data available
 
           //- Quick Actions

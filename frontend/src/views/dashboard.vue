@@ -3,7 +3,7 @@
   .w-flex.justify-space-between.align-center
     .title1 Portfolio Dashboard
     w-button.mr-2(@click="fetchHistory" text round)
-      w-icon.mr2(:spin="portfolio.loading" sm) wi-spinner
+      icon.w-icon.mr2(:class="{ 'w-icon--spin': portfolio.loading }" icon="mdi:refresh")
       | Refresh
 
   //- Account Summary.

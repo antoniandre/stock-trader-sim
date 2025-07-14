@@ -5,7 +5,7 @@
       | Open Positions
       small.ml4.grey.size--sm {{ positions.length }} Position{{ positions.length > 1 ? 's' : '' }}
     w-button.mr-3(@click="refreshPositions" text round)
-      w-icon.mr2(:spin="loading" sm) wi-spinner
+      icon.w-icon.mr2(:class="{ 'w-icon--spin': loading }" icon="mdi:refresh")
       | Refresh
 
   .positions-list(v-if="positions.length")
@@ -42,7 +42,7 @@
             span {{ formatCurrency(position.change_today || 0) }}
 
   .empty-state.text-center.py12.op5(v-else-if="!loading")
-    w-icon.op1(size="48") wi-info-circle
+    icon.w-icon.op1(icon="mdi:information-outline" size="48")
     .mt4.title3 No Open Positions
     .mt2.size--sm.op7 Your positions will appear here once you make trades
 

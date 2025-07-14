@@ -2,10 +2,8 @@
 .sidebar.w-flex.column.no-shrink.no-grow(style="width: 250px")
   //- Logo
   .w-flex.align-center.gap4.no-grow.pa4
-    //- Logo SVG
-    .w-icon.size--xl(style="width: 30px")
-      svg.info(xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2")
-        path(stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6")
+    //- Logo Icon
+    icon.w-icon.size--xl.info(icon="hugeicons:chart-increase" style="width: 30px; height: 30px")
     .title2 Stock Trader
   .w-divider
 
@@ -13,16 +11,12 @@
   nav.grow.pa4.py6
     router-link.w-flex.align-center.px4.py2(to="/" active-class="primary")
       //- Dashboard Icon
-      .w-icon.mr3
-        svg(xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor")
-          path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16")
+      icon.w-icon.mr3(icon="mdi:view-dashboard")
       .title3 Dashboard
 
     router-link.w-flex.align-center.px4.py2(to="/trading" active-class="primary")
       //- Trading Icon
-      .w-icon.mr3
-        svg(xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor")
-          path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4")
+      icon.w-icon.mr3(icon="mdi:chart-line-stacked")
       .title3 Trading
 
   //- User Profile
