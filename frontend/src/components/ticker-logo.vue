@@ -1,11 +1,12 @@
 <template lang="pug">
-.ticker-logo(:class="sizeClass")
-  w-image(
-    :src="`https://financialmodelingprep.com/image-stock/${symbol}.png`"
-    :alt="symbol"
-    lazy
-    @error="(e, imgWrapEl) => imgWrapEl.querySelector('.hide').classList.remove('hide')")
-    .logo-placeholder.hide {{ symbol.charAt(0) }}
+w-image.ticker-logo(
+  :src="`https://financialmodelingprep.com/image-stock/${symbol}.png`"
+  @error="(e, imgWrapEl) => imgWrapEl.querySelector('.hide').classList.remove('hide')"
+  :alt="symbol"
+  :class="sizeClass"
+  :width="sizes[size]"
+  lazy)
+  .logo-placeholder.hide {{ symbol.charAt(0) }}
 </template>
 
 <script setup>
@@ -21,6 +22,11 @@ const props = defineProps({
 })
 
 const sizeClass = computed(() => `ticker-logo--${props.size}`)
+const sizes = {
+  sm: 24,
+  md: 32,
+  lg: 48
+}
 </script>
 
 <style lang="scss">
@@ -32,7 +38,7 @@ const sizeClass = computed(() => `ticker-logo--${props.size}`)
   justify-content: center;
   border-radius: 100%;
   overflow: hidden;
-  background-color: rgba(255, 255, 255, 0.1);
+  border: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
 
   .logo-placeholder {
     width: 100%;

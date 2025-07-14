@@ -1,18 +1,29 @@
 <template lang="pug">
 .ticker-view
-  //- Header with back button
-  .w-flex.align-center.gap4.mb6
-    w-button.ml-2(@click="$router.push('/trading')" text round)
-      w-icon.mr2(rotate90) wi-arrow-down
-      | Back to Trading
+  w-button.mt2.ml8.pl2(@click="$router.push('/trading')" text round absolute left)
+    w-icon.mr2(rotate90) wi-arrow-down
+    | Back to Trading
 
-    .w-flex.align-center.gap4
-      ticker-logo(:symbol="symbol" size="lg")
-      div
-        w-tag.w-flex.gap2(round bg-color="info-dark4")
-          strong {{ symbol }}
-          span.bdrsr.pa1.bd1(:class="'red--bg'")
-        h1.title2 {{ stockData?.name || 'Loading...' }}
+  .w-flex.align-center.gap4
+    ticker-logo(:symbol="symbol" size="lg")
+    div
+      .w-flex.align-center.justify-space-between.gap2
+        w-tag.w-flex.gap2.pr1.no-grow(round bg-color="info-dark4")
+          strong.size--lg {{ symbol }}
+          .w-icon.size--xs(:class="marketStatusIcon")
+        .w-flex.align-center.gap4
+          .w-flex.align-center.gap2
+            span.size--sm(:class="marketStatusClass")
+              | {{ marketStatus.message }}
+            span.size--xs.op6(v-if="marketStatus.status === 'open' && marketStatus.nextClose")
+              | (closes at {{ new Date(marketStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
+            span.size--xs.op6(v-else-if="marketStatus.nextOpen")
+              | (opens {{ formatNextOpen(marketStatus.nextOpen) }})
+          .w-flex.align-center.gap2.mla
+            .w-icon.size--xs(:class="wsConnected ? 'success--bg' : 'yellow--bg'")
+            span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
+              | {{ wsConnected ? 'Live' : 'Delayed' }}
+      h1.title2 {{ stockData?.name || 'Loading...' }}
 
   //- Stock Details & Trading
   w-grid.gap6(:columns="{ xs: 1, lg: 2 }")
@@ -22,19 +33,6 @@
       .glass-box.pa6.mb4
         .w-flex.justify-between.align-center.mb4
           .title2 Current Price
-          .w-flex.align-center.gap4
-            .w-flex.align-center.gap2
-              .w-icon.size--xs(:class="wsConnected ? 'success--bg' : 'yellow--bg'")
-              span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
-                | {{ wsConnected ? 'Live' : 'Delayed' }}
-            .w-flex.align-center.gap2
-              .w-icon.size--xs(:class="marketStatusIcon")
-              span.size--sm(:class="marketStatusClass")
-                | {{ marketStatus.message }}
-              span.size--xs.op6(v-if="marketStatus.status === 'open' && marketStatus.nextClose")
-                | (closes at {{ new Date(marketStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
-              span.size--xs.op6(v-else-if="marketStatus.nextOpen")
-                | (opens {{ formatNextOpen(marketStatus.nextOpen) }})
 
         .w-flex.align-center.gap6
           .price-display
@@ -697,46 +695,38 @@ watch(() => props.symbol, async () => {
 }, { immediate: true })
 </script>
 
-<style lang="scss" scoped>
+<style lang="scss">
 .ticker-view {
   padding: 2rem;
   max-width: 1400px;
   margin: 0 auto;
-}
 
-.chart-container {
-  height: 400px;
-}
+  .chart-container {height: 400px;}
 
-.period-selector {
-  .period-btn {
-    background-color: rgba(255, 255, 255, 0.1);
+  .period-selector {
+    .period-btn {
+      background-color: rgba(255, 255, 255, 0.1);
 
-    &--active {
-      background-color: var(--w-primary-color);
+      &--active {background-color: var(--w-primary-color);}
     }
   }
-}
 
-.trade-item {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  .trade-item {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 
-  &:last-child {
-    border-bottom: none;
+    &:last-child {border-bottom: none;}
   }
-}
 
-.price-display {
-  .title1 {
+  .price-display .title1 {
     font-size: 3rem;
     line-height: 1;
   }
-}
 
-.price-change {
-  text-align: center;
-  padding: 1rem;
-  border-radius: 8px;
-  background-color: rgba(255, 255, 255, 0.05);
+  .price-change {
+    text-align: center;
+    padding: 1rem;
+    border-radius: 8px;
+    background-color: rgba(255, 255, 255, 0.05);
+  }
 }
 </style>

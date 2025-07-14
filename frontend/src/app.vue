@@ -1,7 +1,7 @@
 <template lang="pug">
 .w-flex.h-screen
   sidebar.grow
-  .ova.grow
+  .ova.grow.pos
     .w-flex.justify-end.pr2.py2.ovh
       w-switch(
         :model-value="$waveui.theme === 'dark'"

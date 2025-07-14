@@ -78,7 +78,7 @@ w-grid.gap-xl
                   ticker-logo.mr3(:symbol="stock.symbol")
                   .w-flex.gap2
                     span.text-bold {{ stock.symbol }}
-                    w-tag(sm round :class="stock.exchange === 'NYSE' ? 'teal-dark3--bg' : (stock.exchange === 'NASDAQ' ? 'primary-dark4--bg' : 'success-dark4--bg')")
+                    w-tag(sm round :style="`background-color: var(--${['NYSE', 'NASDAQ'].includes(stock.exchange) ? stock.exchange.toLowerCase() : 'other-se'}-color)`")
                       small {{ stock.exchange }}
               td.px2.py2
                 span {{ stock.name }}
