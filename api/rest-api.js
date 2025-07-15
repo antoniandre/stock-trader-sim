@@ -22,11 +22,15 @@ export function createRestApiRoutes() {
   app.get('/api/portfolio', (req, res) => {
     const stocks = Object.entries(state.portfolio).map(([symbol, data]) => {
       const lastTrade = data.history[data.history.length - 1] || {}
+      // Find stock data to get currency info.
+      const stockData = state.allStocks.find(s => s.symbol === symbol)
       return {
         symbol,
         qty: data.qty,
         price: lastTrade.price || 0,
-        lastSide: lastTrade.side || 'buy'
+        lastSide: lastTrade.side || 'buy',
+        currency: stockData?.currency || 'USD',
+        currencySymbol: stockData?.currencySymbol || '$'
       }
     })
 
@@ -173,7 +177,9 @@ export function createRestApiRoutes() {
       const stocksWithPrices = paginatedStocks.map(stock => ({
         ...stock,
         price: state.stockPrices[stock.symbol] || 0,
-        lastSide: 'buy'
+        lastSide: 'buy',
+        currency: stock.currency || 'USD',
+        currencySymbol: stock.currencySymbol || '$'
       }))
 
       res.json({
@@ -201,7 +207,14 @@ export function createRestApiRoutes() {
       // Cache the price for future WebSocket updates.
       if (price > 0) state.stockPrices[symbol] = price
 
-      res.json(createStandardResponse({ symbol, price }))
+      // Find stock data to get currency info.
+      const stockData = state.allStocks.find(s => s.symbol === symbol)
+      res.json(createStandardResponse({
+        symbol,
+        price,
+        currency: stockData?.currency || 'USD',
+        currencySymbol: stockData?.currencySymbol || '$'
+      }))
     }
     catch (error) {
       console.error(`Error fetching price for ${req.params.symbol}:`, error)
@@ -228,7 +241,9 @@ export function createRestApiRoutes() {
       res.json(createStandardResponse({
         ...stockData,
         price,
-        lastSide: 'buy'
+        lastSide: 'buy',
+        currency: stockData.currency || 'USD',
+        currencySymbol: stockData.currencySymbol || '$'
       }))
     }
     catch (error) {

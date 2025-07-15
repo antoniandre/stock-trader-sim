@@ -132,19 +132,29 @@ export function createWebSocketServer(server) {
 
     // Send initial stock data.
     if (IS_SIMULATION) {
-      const mockStocks = Object.entries(mockPrices).map(([symbol, price]) => ({
-        symbol,
-        price,
-        lastSide: 'buy'
-      }))
+      const mockStocks = Object.entries(mockPrices).map(([symbol, price]) => {
+        const stockData = state.allStocks.find(s => s.symbol === symbol)
+        return {
+          symbol,
+          price,
+          lastSide: 'buy',
+          currency: stockData?.currency || 'USD',
+          currencySymbol: stockData?.currencySymbol || '$'
+        }
+      })
       ws.send(JSON.stringify({ type: 'market-update', data: mockStocks }))
     }
     else {
-      const liveStocks = Object.entries(state.stockPrices).map(([symbol, price]) => ({
-        symbol,
-        price,
-        lastSide: 'buy'
-      }))
+      const liveStocks = Object.entries(state.stockPrices).map(([symbol, price]) => {
+        const stockData = state.allStocks.find(s => s.symbol === symbol)
+        return {
+          symbol,
+          price,
+          lastSide: 'buy',
+          currency: stockData?.currency || 'USD',
+          currencySymbol: stockData?.currencySymbol || '$'
+        }
+      })
       if (liveStocks.length > 0) {
         ws.send(JSON.stringify({ type: 'market-update', data: liveStocks }))
       }
@@ -218,10 +228,13 @@ export function connectAlpacaWebSocket() {
           console.log(`💰 Trade received: ${symbol} @ $${price}`)
           state.stockPrices[symbol] = price
 
+          const stockData = state.allStocks.find(s => s.symbol === symbol)
           broadcast({
             type: 'price',
             symbol,
             price,
+            currency: stockData?.currency || 'USD',
+            currencySymbol: stockData?.currencySymbol || '$',
             timestamp: new Date().toISOString()
           })
         }

@@ -1,5 +1,8 @@
 const API_BASE = 'http://localhost:3000/api'
 
+// Re-export utilities for convenience.
+export { formatCurrency, formatNumber, formatPercentage, getCurrencySymbol } from '@/utils/formatters'
+
 // Account & Portfolio.
 // --------------------------------------------------------
 export async function fetchAccount() {

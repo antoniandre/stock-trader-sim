@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { ALPACA_BASE_URL, HEADERS, IS_SIMULATION, state } from './config.js'
-import { getEasternTime, formatErrorResponse } from './utils.js'
+import { getEasternTime, formatErrorResponse, getCurrencyInfo } from './utils.js'
 import { getMockPrice, initializeMockPrices, getMockTradableStocks, generateMockHistoricalData } from './simulation.js'
 
 // Market Calendar Functions
@@ -261,13 +261,18 @@ export async function getAllTradableStocks() {
         asset.status === 'active' &&
         asset.tradable
       )
-      .map(asset => ({
-        symbol: asset.symbol,
-        name: asset.name,
-        exchange: asset.exchange,
-        status: asset.status,
-        tradable: asset.tradable
-      }))
+      .map(asset => {
+        const currencyInfo = getCurrencyInfo(asset)
+        return {
+          symbol: asset.symbol,
+          name: asset.name,
+          exchange: asset.exchange,
+          status: asset.status,
+          tradable: asset.tradable,
+          currency: currencyInfo.currency,
+          currencySymbol: currencyInfo.symbol
+        }
+      })
 
     console.log(`✅ Fetched ${state.allStocks.length} tradable stocks`)
     return state.allStocks

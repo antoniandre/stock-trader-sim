@@ -85,7 +85,9 @@ export function getMockTradableStocks() {
     name: symbol,
     exchange: 'NASDAQ',
     status: 'active',
-    tradable: true
+    tradable: true,
+    currency: 'USD',
+    currencySymbol: '$'
   }))
 }
 
@@ -338,11 +340,16 @@ export async function runSimulation() {
   }
 
   // Broadcast updated prices (will be handled by the caller).
-  const priceUpdates = Object.entries(state.stockPrices).map(([symbol, price]) => ({
-    symbol,
-    price,
-    lastSide: 'buy'
-  }))
+  const priceUpdates = Object.entries(state.stockPrices).map(([symbol, price]) => {
+    const stockData = state.allStocks.find(s => s.symbol === symbol)
+    return {
+      symbol,
+      price,
+      lastSide: 'buy',
+      currency: stockData?.currency || 'USD',
+      currencySymbol: stockData?.currencySymbol || '$'
+    }
+  })
 
   // Simple trading logic for demo (only for a few stocks).
   const demoStocks = ['AAPL', 'MSFT', 'TSLA']
