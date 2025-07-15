@@ -39,7 +39,8 @@ w-grid.gap-xl
         :key="stock.symbol"
         :symbol="stock.symbol"
         :price="stock.price"
-        :lastSide="stock.lastSide")
+        :last-side="stock.lastSide"
+        :status="stock.status")
 
     //- Loading State
     .w-flex.column.py12.align-center.justify-center(v-if="loading")
