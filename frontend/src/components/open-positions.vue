@@ -15,7 +15,7 @@
         .position-info.w-flex.align-center
           ticker-logo.mr3(:symbol="position.symbol")
           div
-            .symbol.title3.mb1 {{ position.symbol }}
+            router-link.symbol.title3.mb1.text-bold.hover-underline(:to="`/trading/${position.symbol}`") {{ position.symbol }}
             .qty.size--sm.op7 {{ position.qty }} share{{ position.qty > 1 ? 's' : '' }}
 
         .position-values

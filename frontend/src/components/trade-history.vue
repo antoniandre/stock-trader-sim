@@ -12,7 +12,7 @@
             td.px2.text-bold
               .w-flex.align-center
                 ticker-logo.mr3(:symbol="item.symbol" size="sm")
-                span {{ item.symbol }}
+                router-link.text-bold.hover-underline(:to="`/trading/${item.symbol}`") {{ item.symbol }}
             td.px2.text-center
               w-tag.px2.py1.text-bold(:class="item.side === 'buy' ? 'success--bg' : 'error--bg'" round xs)
                 | {{ item.side.toUpperCase() }}

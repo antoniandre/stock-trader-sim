@@ -95,6 +95,15 @@
 .market-open {color: var(--market-open-color);}
 .market-closed {color: var(--market-closed-color);}
 
+.hover-underline {
+  transition: color 0.25s;
+
+  &:hover {
+    color: var(--w-primary-color);
+    text-decoration: underline;
+  }
+}
+
 @keyframes rotate {
   0% {
     transform: translate(-50%, -50%) rotate(0deg) scale(1.07);
