@@ -26,35 +26,28 @@
       h1.title2 {{ stockData?.name || 'Loading...' }}
 
   //- Stock Details & Trading
-  w-grid.gap6(:columns="{ xs: 1, lg: 2 }")
+  w-grid.gap6.mt4(:columns="{ xs: 1, lg: 2 }")
     //- Left Column: Stock Details & Chart
-    .w-col
-      //- Price & Stats
-      .glass-box.pa6.mb4
-        .w-flex.justify-between.align-center.mb4
-          .title2 Current Price
-
-        .w-flex.align-center.gap6
-          .price-display
-            .title1.text-bold(v-if="currentPrice > 0")
-              span.op6.mr2 $
-              span {{ currentPrice.toFixed(2) }}
-            .title1.text-bold(v-else)
-              span.op6 Price Unavailable
-            .size--sm.mt1.op7 Last updated: {{ lastUpdate }}
-
-          .price-change(v-if="priceChange && currentPrice > 0" :class="priceChange >= 0 ? 'success-light3' : 'error'")
-            .text-bold
-              span {{ priceChange >= 0 ? '+' : '' }}${{ Math.abs(priceChange).toFixed(2) }}
-            .size--sm ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
-
-          .no-price-info(v-else-if="currentPrice === 0")
-            .text-bold.op6 Market data not available
-
+    div
       //- Price Chart
       .glass-box.pa6
         .w-flex.justify-space-between.align-center.mb4
-          .title2 Price Chart
+          .w-flex.align-center.gap6
+            .price-display
+              .title2.text-bold(v-if="currentPrice > 0")
+                span.op6.mr2 $
+                span {{ currentPrice.toFixed(2) }}
+              .title2.text-bold(v-else)
+                span.op6 Price Unavailable
+              .caption.mt1.op7 Last updated: {{ lastUpdate }}
+
+            .price-change(v-if="priceChange && currentPrice > 0" :class="priceChange >= 0 ? 'success-light3' : 'error'")
+              .text-bold
+                span {{ priceChange >= 0 ? '+' : '' }}${{ Math.abs(priceChange).toFixed(2) }}
+              .size--sm ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
+
+            .no-price-info(v-else-if="currentPrice === 0")
+              .text-bold.op6 Market data not available
           .period-selector.w-flex.gap2.no-grow
             w-button.period-btn(
               v-for="period in chartPeriods"
@@ -68,7 +61,7 @@
           Line(ref="chartRef" :data="chartData" :options="chartOptions")
 
     //- Right Column: Trading Interface
-    .w-col
+    div
       //- Trading Form
       .glass-box.pa6
         .title2.mb4 Place Order
@@ -717,8 +710,8 @@ watch(() => props.symbol, async () => {
     &:last-child {border-bottom: none;}
   }
 
-  .price-display .title1 {
-    font-size: 3rem;
+  .price-display .title2 {
+    font-size: 2.2rem;
     line-height: 1;
   }
 
