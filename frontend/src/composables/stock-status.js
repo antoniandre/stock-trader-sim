@@ -47,48 +47,7 @@ export function useStockStatus(stock, marketStatus = null) {
     return { status: 'closed', message: marketStatus?.value?.message || 'Status unavailable' }
   })
 
-  // CSS class for status styling
-  const statusClass = computed(() => {
-    switch (currentStatus.value.status) {
-      case 'open':
-        return 'success'
-      case 'premarket':
-      case 'afterhours':
-      case 'overnight':
-        return 'warning'
-      case 'closed':
-      default:
-        return 'error'
-    }
-  })
-
-  // Icon class for status indicator
-  const statusIcon = computed(() => {
-    switch (currentStatus.value.status) {
-      case 'open':
-        return 'success--bg'
-      case 'premarket':
-      case 'afterhours':
-      case 'overnight':
-        return 'warning--bg'
-      case 'closed':
-      default:
-        return 'error--bg'
-    }
-  })
-
-  // Legacy support for simple active/inactive status
-  const stockStatusClass = computed(() => {
-    if (!stock.value) return 'unknown'
-    return stock.value.tradable ?
-      (['active', 'inactive'].includes(stock.value.status) ? stock.value.status : 'unknown') :
-      'inactive'
-  })
-
   return {
-    currentStatus,
-    statusClass,
-    statusIcon,
-    stockStatusClass
+    currentStatus
   }
 }

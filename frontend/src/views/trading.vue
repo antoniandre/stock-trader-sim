@@ -3,20 +3,12 @@ w-grid.gap-xl
   .w-col-12
     .w-flex.align-center.justify-between
       .title1 Stock Trading
-      //- Connection Status & Market Status
-      .w-flex.align-center.gap4.mla.no-grow
-        .w-flex.align-center.gap2
-          .w-icon.size--xs.success--bg(v-if="wsConnected")
-          .w-icon.size--xs.yellow--bg(v-else)
-          span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
-            | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
-        .w-flex.align-center.gap2
-          .w-icon.size--xs(:class="marketStatusIcon")
-          span.size--sm(:class="marketStatusClass") {{ marketStatus.message }}
-          span.size--xs.op6(v-if="marketStatus.status === 'open' && marketStatus.nextClose")
-            | (closes at {{ new Date(marketStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
-          span.size--xs.op6(v-else-if="marketStatus.nextOpen")
-            | (opens {{ formatNextOpen(marketStatus.nextOpen) }})
+      //- Connection Status.
+      .w-flex.align-center.gap2.mla.no-grow
+        .w-icon.size--xs.success--bg(v-if="wsConnected")
+        .w-icon.size--xs.yellow--bg(v-else)
+        span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
+          | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
 
     w-input.w-input.light.my4.h-auto(
       v-model="searchQuery"

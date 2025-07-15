@@ -3,10 +3,12 @@
   .gradient-card__wrap
     .w-flex.justify-between.align-center.gap1
       .w-flex.align-center
-        ticker-logo.mr3(:symbol="stock.symbol")
+        w-badge.mr3(overlap bottom bg-color="" xs :badge-class="`market-status-indicator market-${currentStatus.status}`")
+          template(#badge)
+            span.pa1(:title="currentStatus.message")
+          ticker-logo(:symbol="stock.symbol")
         .w-flex.align-center.gap2
           .title2.text-bold {{ stock.symbol }}
-          .stock-status-indicator(:class="`stock-status--${stockStatusClass}`")
       .text-bold.mla.bd1.bdrsr.px2.py1.size--xs(:class="stock.lastSide === 'buy' ? 'success--bg' : 'error--bg'")
         | {{ stock.lastSide.toUpperCase() }}
 
@@ -16,38 +18,41 @@
 </template>
 
 <script setup>
+import { computed, toRef } from 'vue'
 import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from './ticker-logo.vue'
 
 const props = defineProps({
-  stock: {
-    type: Object,
-    required: true
-  }
+  stock: { type: Object, required: true },
+  marketStatus: { type: Object, default: null }
 })
 
-const stockStatusClass = computed(() => {
-  return props.stock.tradable ? (['active', 'inactive'].includes(props.stock.status) ? props.stock.status : 'unknown') : 'inactive'
-})
+// Use the reusable stock status composable with market status.
+const stockRef = toRef(props, 'stock')
+const marketStatusRef = toRef(props, 'marketStatus')
+const { currentStatus } = useStockStatus(stockRef, marketStatusRef)
 </script>
 
-<style lang="scss" scoped>
+<style lang="scss">
 .ticker-card {
   cursor: pointer;
   transition: transform 0.2s ease;
 
   &:hover {transform: translateY(-2px);}
   &:active {transform: translateY(0);}
-}
 
-.stock-status-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-
-  &.stock-status--active {background-color: var(--market-open-color);}
-  &.stock-status--inactive {background-color: var(--market-closed-color);}
-  &.stock-status--unknown {background-color: var(--market-premarket-color);}
+  .market-status-indicator {
+    background-color: currentColor !important;
+    cursor: help;
+    border: 1px solid var(--w-base-bg-color);
+    margin-bottom: 0;
+    margin-left: -10px;
+    width: 12px;
+    min-width: 12px;
+    height: 12px;
+    line-height: 1;
+    aspect-ratio: 1;
+    border-radius: 99em;
+  }
 }
 </style>
