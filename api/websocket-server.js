@@ -47,12 +47,18 @@ async function checkAndBroadcastMarketStatus() {
 }
 
 function startMarketStatusUpdates() {
+  // Don't start if already running
+  if (marketStatusInterval) {
+    console.log('📊 Market status monitoring already running')
+    return
+  }
+
   // Initial status check
   checkAndBroadcastMarketStatus()
 
-  // Check every 5 minutes (market status only changes 4x per day)
-  marketStatusInterval = setInterval(checkAndBroadcastMarketStatus, 5 * 60 * 1000)
-  console.log('📊 Market status monitoring started (5-minute intervals)')
+  // Check every 2 minutes (market status only changes 4x per day).
+  marketStatusInterval = setInterval(checkAndBroadcastMarketStatus, 2 * 60 * 1000)
+  console.log('📊 Market status monitoring started (2-minute intervals)')
 }
 
 function stopMarketStatusUpdates() {
@@ -111,6 +117,9 @@ export function createWebSocketServer(server) {
   wss.on('connection', (ws) => {
     console.log('🔌 New WebSocket client connected')
     state.wsClients.add(ws)
+
+    // Restart market status monitoring if this is the first client.
+    if (state.wsClients.size === 1) startMarketStatusUpdates()
 
     // Send initial market status to new client
     if (currentMarketStatus) {
