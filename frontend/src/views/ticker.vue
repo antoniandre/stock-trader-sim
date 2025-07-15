@@ -695,8 +695,6 @@ onMounted(async () => {
   await fetchMarketStatusData() // Fetch initial market status
   await fetchHistoricalData()
   connectWebSocket()
-
-  // No more polling interval - WebSocket handles updates
 })
 
 onUnmounted(() => {

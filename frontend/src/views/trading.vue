@@ -120,7 +120,7 @@ w-grid.gap-xl
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { fetchAllStocks, fetchMarketStatus } from '@/api'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
@@ -392,7 +392,7 @@ onMounted(async () => {
   }
 })
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
   if (ws) ws.close()
   if (pollInterval) clearInterval(pollInterval)
   if (searchTimeout) clearTimeout(searchTimeout)
