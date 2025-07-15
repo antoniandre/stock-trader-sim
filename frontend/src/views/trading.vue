@@ -36,13 +36,7 @@ w-grid.gap-xl
       ticker-card(
         v-for="stock in paginatedStocks.slice(0, 20)"
         :key="stock.symbol"
-        :symbol="stock.symbol"
-        :price="stock.price"
-        :last-side="stock.lastSide"
-        :status="stock.status"
-        :tradable="stock.tradable"
-        :currency="stock.currency"
-        :currency-symbol="stock.currencySymbol")
+        :stock="stock")
 
     //- Loading State
     .w-flex.column.py12.align-center.justify-center(v-if="loading")

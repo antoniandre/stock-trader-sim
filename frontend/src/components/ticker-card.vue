@@ -1,18 +1,18 @@
 <template lang="pug">
-.ticker-card.gradient-card(@click="$router.push(`/trading/${symbol}`)")
+.ticker-card.gradient-card(@click="$router.push(`/trading/${stock.symbol}`)")
   .gradient-card__wrap
     .w-flex.justify-between.align-center.gap1
       .w-flex.align-center
-        ticker-logo.mr3(:symbol="symbol")
+        ticker-logo.mr3(:symbol="stock.symbol")
         .w-flex.align-center.gap2
-          .title2.text-bold {{ symbol }}
+          .title2.text-bold {{ stock.symbol }}
           .stock-status-indicator(:class="`stock-status--${stockStatusClass}`")
-      .text-bold.mla.bd1.bdrsr.px2.py1.size--xs(:class="lastSide === 'buy' ? 'success--bg' : 'error--bg'")
-        | {{ lastSide.toUpperCase() }}
+      .text-bold.mla.bd1.bdrsr.px2.py1.size--xs(:class="stock.lastSide === 'buy' ? 'success--bg' : 'error--bg'")
+        | {{ stock.lastSide.toUpperCase() }}
 
     p.text-bold.mt2
-      span.op6.mr1 {{ currencySymbol }}
-      | {{ price.toFixed(2) }}
+      span.op6.mr1 {{ stock.currencySymbol }}
+      | {{ stock.price.toFixed(2) }}
 </template>
 
 <script setup>
@@ -20,17 +20,14 @@ import { computed } from 'vue'
 import TickerLogo from './ticker-logo.vue'
 
 const props = defineProps({
-  symbol: String,
-  price: Number,
-  lastSide: String,
-  status: String,
-  tradable: Boolean,
-  currency: String,
-  currencySymbol: String
+  stock: {
+    type: Object,
+    required: true
+  }
 })
 
 const stockStatusClass = computed(() => {
-  return props.tradable ? (['active', 'inactive'].includes(props.status) ? props.status : 'unknown') : 'inactive'
+  return props.stock.tradable ? (['active', 'inactive'].includes(props.stock.status) ? props.stock.status : 'unknown') : 'inactive'
 })
 </script>
 

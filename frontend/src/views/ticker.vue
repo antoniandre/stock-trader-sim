@@ -5,11 +5,11 @@
     | Back to Trading
 
   .w-flex.align-center.gap4
-    ticker-logo(:symbol="symbol" size="lg")
+    ticker-logo(:symbol="stock.symbol" size="lg")
     div
       .w-flex.align-center.justify-space-between.gap2
         w-tag.w-flex.gap2.pr1.no-grow(round bg-color="info-dark4")
-          strong.size--lg {{ symbol }}
+          strong.size--lg {{ stock.symbol }}
           .w-icon.size--xs(:title="currentStatus.message" :style="{ backgroundColor: `var(--market-${currentStatus.status}-color)` }")
         .w-flex.align-center.gap4
           .w-flex.align-center.gap2
@@ -22,7 +22,7 @@
             .w-icon.size--xs(:class="wsConnected ? 'success--bg' : 'yellow--bg'")
             span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
               | {{ wsConnected ? 'Live' : 'Delayed' }}
-      h1.title2 {{ stockData?.name || 'Loading...' }}
+      h1.title2 {{ stock.name || 'Loading...' }}
 
   //- Stock Details & Trading
   w-grid.gap6.mt4(:columns="{ xs: 1, lg: 2 }")
@@ -33,19 +33,19 @@
         .w-flex.justify-space-between.align-center.mb4
           .w-flex.align-center.gap6
             .price-display
-              .title2.text-bold(v-if="currentPrice > 0")
-                span.op6.mr2 {{ currencySymbol }}
-                span {{ currentPrice.toFixed(2) }}
+              .title2.text-bold(v-if="stock.price > 0")
+                span.op6.mr2 {{ stock.currencySymbol }}
+                span {{ stock.price.toFixed(2) }}
               .title2.text-bold(v-else)
                 span.op6 Price Unavailable
               .caption.mt1.op7 Last updated: {{ lastUpdate }}
 
-            .price-change(v-if="priceChange && currentPrice > 0" :class="priceChange >= 0 ? 'success-light3' : 'error'")
+            .price-change(v-if="priceChange && stock.price > 0" :class="priceChange >= 0 ? 'success-light3' : 'error'")
               .text-bold
-                span {{ priceChange >= 0 ? '+' : '' }}{{ currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
+                span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
               .size--sm ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
 
-            .no-price-info(v-else-if="currentPrice === 0")
+            .no-price-info(v-else-if="stock.price === 0")
               .text-bold.op6 Market data not available
           .period-selector.w-flex.gap2.no-grow
             w-button.period-btn(
@@ -106,13 +106,13 @@
                 outline)
 
             //- Order Value Display
-            .mb4.pa3.glass--bg.bdrs2(v-if="orderValue > 0 && currentPrice > 0")
+            .mb4.pa3.glass--bg.bdrs2(v-if="orderValue > 0 && stock.price > 0")
               .w-flex.justify-between
                 span.op7 Estimated Total:
-                span.text-bold {{ currencySymbol }}{{ orderValue.toFixed(2) }}
+                span.text-bold {{ stock.currencySymbol }}{{ orderValue.toFixed(2) }}
 
             //- No Price Data Warning
-            .mb4.pa3.error-dark4--bg.bdrs2(v-if="currentPrice === 0")
+            .mb4.pa3.error-dark4--bg.bdrs2(v-if="stock.price === 0")
               .w-flex.align-center.gap2
                 icon.w-icon.error(icon="mdi:alert-triangle")
                 span Trading disabled: No current market data available
@@ -131,14 +131,14 @@
           w-button.grow(
             @click="placeOrder('buy')"
             color="success"
-            :disabled="!isOrderValid || currentPrice === 0"
+            :disabled="!isOrderValid || stock.price === 0"
             large)
             strong BUY
 
           w-button.grow(
             @click="placeOrder('sell')"
             color="error"
-            :disabled="!isOrderValid || currentPrice === 0"
+            :disabled="!isOrderValid || stock.price === 0"
             large)
             strong SELL
 
@@ -154,7 +154,7 @@
                 | {{ trade.side.toUpperCase() }}
               span {{ trade.qty }} shares
             .text-right
-              .text-bold {{ currencySymbol }}{{ trade.price.toFixed(2) }}
+              .text-bold {{ stock.currencySymbol }}{{ trade.price.toFixed(2) }}
               .size--sm.op7 {{ new Date(trade.timestamp).toLocaleTimeString() }}
 </template>
 
@@ -172,16 +172,23 @@ const props = defineProps({
   symbol: { type: String, required: true }
 })
 
-// Reactive data
-const stockData = ref(null)
-const currentPrice = ref(0)
-const previousPrice = ref(0)
+// Consolidated stock object
+const stock = ref({
+  symbol: props.symbol,
+  name: '',
+  price: 0,
+  previousPrice: 0,
+  currency: 'USD',
+  currencySymbol: '$',
+  status: 'unknown',
+  tradable: true,
+  exchange: 'Unknown'
+})
+
 const priceHistory = ref([])
 const historicalData = ref([])
 const selectedPeriod = ref('1D')
 const recentTrades = ref([])
-const currency = ref('USD')
-const currencySymbol = ref('$')
 
 // Use composables for WebSocket and market status.
 const { wsConnected, lastUpdate, connect, addMessageHandler } = useWebSocket()
@@ -210,17 +217,22 @@ const orderTypes = [
 ]
 
 // Computed properties
+const currentPrice = computed(() => stock.value.price)
+const previousPrice = computed(() => stock.value.previousPrice)
+const currency = computed(() => stock.value.currency)
+const currencySymbol = computed(() => stock.value.currencySymbol)
+
 const priceChange = computed(() => {
-  return previousPrice.value > 0 ? currentPrice.value - previousPrice.value : 0
+  return stock.value.previousPrice > 0 ? stock.value.price - stock.value.previousPrice : 0
 })
 
 const priceChangePercent = computed(() => {
-  return previousPrice.value > 0 ? (priceChange.value / previousPrice.value) * 100 : 0
+  return stock.value.previousPrice > 0 ? (priceChange.value / stock.value.previousPrice) * 100 : 0
 })
 
 const orderValue = computed(() => {
   if (!orderForm.value.quantity) return 0
-  const price = orderForm.value.type === 'limit' ? orderForm.value.limitPrice : currentPrice.value
+  const price = orderForm.value.type === 'limit' ? orderForm.value.limitPrice : stock.value.price
   return price ? orderForm.value.quantity * price : 0
 })
 
@@ -232,10 +244,10 @@ const isOrderValid = computed(() => {
 
 const currentStatus = computed(() => {
   // Priority 1: Stock status (inactive/not tradable) - highest priority.
-  if (stockData.value?.status && stockData.value.status.toLowerCase() === 'inactive') {
+  if (stock.value.status && stock.value.status.toLowerCase() === 'inactive') {
     return { status: 'closed', message: 'Inactive Stock' }
   }
-  if (stockData.value?.tradable === false) {
+  if (stock.value.tradable === false) {
     return { status: 'closed', message: 'Not Tradable' }
   }
 
@@ -257,8 +269,8 @@ const currentStatus = computed(() => {
 
   // Priority 4: Market open + stock active - normal trading.
   if (marketStatus.value.status === 'open' &&
-      (!stockData.value?.status || stockData.value.status.toLowerCase() === 'active') &&
-      (stockData.value?.tradable !== false)) {
+      (!stock.value.status || stock.value.status.toLowerCase() === 'active') &&
+      (stock.value.tradable !== false)) {
     return { status: 'open', message: 'Open' }
   }
 
@@ -383,7 +395,7 @@ const chartOptions = {
         },
         label(context) {
           const value = context.parsed.y
-          return `${props.symbol}: ${currencySymbol.value}${value.toFixed(2)}`
+          return `${props.symbol}: ${stock.value.currencySymbol}${value.toFixed(2)}`
         }
       }
     }
@@ -394,7 +406,7 @@ const chartOptions = {
       grid: { color: 'rgba(255, 255, 255, 0.05)' },
       ticks: {
         color: '#C9D1D9',
-        callback: value => currencySymbol.value + value.toFixed(2)
+        callback: value => stock.value.currencySymbol + value.toFixed(2)
       }
     },
     x: {
@@ -433,13 +445,20 @@ async function fetchStockData() {
 
     // Fetch stock details and price
     const data = await fetchStock(props.symbol)
-    stockData.value = data
 
-    if (stockData.value) {
-      currentPrice.value = stockData.value.price
-      previousPrice.value = stockData.value.price
-      currency.value = stockData.value.currency || 'USD'
-      currencySymbol.value = stockData.value.currencySymbol || '$'
+    if (data) {
+      // Update stock object with fetched data
+      stock.value = {
+        symbol: data.symbol || props.symbol,
+        name: data.name || props.symbol,
+        price: data.price || 0,
+        previousPrice: data.price || 0,
+        currency: data.currency || 'USD',
+        currencySymbol: data.currencySymbol || '$',
+        status: data.status || 'unknown',
+        tradable: data.tradable !== false,
+        exchange: data.exchange || 'Unknown'
+      }
 
       // Subscribe to WebSocket updates for this stock
       try {
@@ -459,22 +478,18 @@ async function fetchStockData() {
       console.log(`📊 Trying to fetch price for ${props.symbol}...`)
       const priceData = await fetchStockPrice(props.symbol)
       if (priceData.price > 0) {
-        currentPrice.value = priceData.price
-        previousPrice.value = priceData.price
-
-        // Create basic stock data
-        stockData.value = {
+        // Update stock object with price data
+        stock.value = {
           symbol: props.symbol,
           name: props.symbol,
           price: priceData.price,
-          exchange: 'Unknown',
+          previousPrice: priceData.price,
           currency: priceData.currency || 'USD',
-          currencySymbol: priceData.currencySymbol || '$'
+          currencySymbol: priceData.currencySymbol || '$',
+          status: 'unknown',
+          tradable: true,
+          exchange: 'Unknown'
         }
-
-        // Update currency information
-        currency.value = priceData.currency || 'USD'
-        currencySymbol.value = priceData.currencySymbol || '$'
 
         // Subscribe to WebSocket updates
         try {
@@ -489,14 +504,17 @@ async function fetchStockData() {
     catch (priceError) {
       console.error('Error fetching stock price:', priceError)
       // Set default values
-      stockData.value = {
+      stock.value = {
         symbol: props.symbol,
         name: props.symbol,
         price: 0,
+        previousPrice: 0,
+        currency: 'USD',
+        currencySymbol: '$',
+        status: 'unknown',
+        tradable: true,
         exchange: 'Unknown'
       }
-      currentPrice.value = 0
-      previousPrice.value = 0
     }
   }
 }
@@ -505,12 +523,16 @@ async function fetchStockData() {
 function handlePriceUpdate(data) {
   if (data.symbol !== props.symbol) return
 
-  const oldPrice = currentPrice.value
-  currentPrice.value = data.price
+  const oldPrice = stock.value.price
 
-  // Update currency information if provided.
-  if (data.currency) currency.value = data.currency
-  if (data.currencySymbol) currencySymbol.value = data.currencySymbol
+  // Update stock object with new price data
+  stock.value = {
+    ...stock.value,
+    price: data.price,
+    previousPrice: oldPrice,
+    currency: data.currency || stock.value.currency,
+    currencySymbol: data.currencySymbol || stock.value.currencySymbol
+  }
 
   // Keep track of price history for the chart.
   priceHistory.value.push({
@@ -523,7 +545,7 @@ function handlePriceUpdate(data) {
     priceHistory.value = priceHistory.value.slice(-100)
   }
 
-  console.log(`📈 Price update: ${props.symbol} = ${currencySymbol.value}${data.price}`)
+  console.log(`📈 Price update: ${props.symbol} = ${stock.value.currencySymbol}${data.price}`)
 }
 
 function handleMarketStatus(data) {
@@ -554,9 +576,12 @@ function setupWebSocket() {
 }
 
 function updatePrice(newPrice) {
-  if (newPrice && newPrice !== currentPrice.value) {
-    previousPrice.value = currentPrice.value
-    currentPrice.value = newPrice
+  if (newPrice && newPrice !== stock.value.price) {
+    stock.value = {
+      ...stock.value,
+      previousPrice: stock.value.price,
+      price: newPrice
+    }
     lastUpdate.value = new Date().toLocaleTimeString()
 
     // Add to price history
