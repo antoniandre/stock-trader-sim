@@ -10,14 +10,13 @@
       .w-flex.align-center.justify-space-between.gap2
         w-tag.w-flex.gap2.pr1.no-grow(round bg-color="info-dark4")
           strong.size--lg {{ symbol }}
-          .w-icon.size--xs(:style="{ backgroundColor: marketStatusIcon }")
+          .w-icon.size--xs(:style="{ backgroundColor: `var(--market-${currentStatus.status}-color)` }")
         .w-flex.align-center.gap4
           .w-flex.align-center.gap2
-            span.size--sm(:class="marketStatusClass")
-              | {{ stockData?.status || `Market: ${marketStatus.message}` }}
-            span.size--xs.op6(v-if="!stockData?.status && marketStatus.status === 'open' && marketStatus.nextClose")
+            span.size--sm(:class="`market-${currentStatus.status}`") {{ currentStatus.message }}
+            span.size--xs.op6(v-if="marketStatus.status === 'open' && marketStatus.nextClose")
               | (closes at {{ new Date(marketStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
-            span.size--xs.op6(v-else-if="!stockData?.status && marketStatus.nextOpen")
+            span.size--xs.op6(v-else-if="marketStatus.nextOpen")
               | (opens {{ formatNextOpen(marketStatus.nextOpen) }})
           .w-flex.align-center.gap2.mla
             .w-icon.size--xs(:class="wsConnected ? 'success--bg' : 'yellow--bg'")
@@ -232,58 +231,40 @@ const isOrderValid = computed(() => {
   return true
 })
 
-const marketStatusClass = computed(() => {
-  // Use individual stock status instead of general market status.
-  if (stockData.value?.status) {
-    switch (stockData.value.status.toLowerCase()) {
-      case 'active':
-        return 'success'
-      case 'inactive':
-        return 'error'
-      default:
-        return 'warning'
-    }
+const currentStatus = computed(() => {
+  // Priority 1: Stock status (inactive/not tradable) - highest priority.
+  if (stockData.value?.status && stockData.value.status.toLowerCase() === 'inactive') {
+    return { status: 'closed', message: 'Stock is inactive' }
   }
-  // Fallback to market status if stock status unavailable.
-  switch (marketStatus.value.status) {
-    case 'open':
-      return 'success'
-    case 'premarket':
-    case 'afterhours':
-    case 'overnight':
-      return 'warning'
-    case 'closed':
-    default:
-      return 'error'
+  if (stockData.value?.tradable === false) {
+    return { status: 'closed', message: 'Stock is not tradable' }
   }
-})
 
-const marketStatusIcon = computed(() => {
-  // Use individual stock status instead of general market status.
-  if (stockData.value?.status) {
-    switch (stockData.value.status.toLowerCase()) {
-      case 'active':
-        return 'var(--market-open-color)'
-      case 'inactive':
-        return 'var(--market-closed-color)'
-      default:
-        return 'var(--market-premarket-color)'
-    }
+  // Priority 2: Market closed - stock can't be traded regardless of stock status.
+  if (marketStatus.value.status === 'closed') {
+    return { status: 'closed', message: marketStatus.value.message || 'Market is closed' }
   }
-  // Fallback to market status if stock status unavailable.
-  switch (marketStatus.value.status) {
-    case 'open':
-      return 'var(--market-open-color)'
-    case 'premarket':
-      return 'var(--market-premarket-color)'
-    case 'afterhours':
-      return 'var(--market-afterhours-color)'
-    case 'overnight':
-      return 'var(--market-overnight-color)'
-    case 'closed':
-    default:
-      return 'var(--market-closed-color)'
+
+  // Priority 3: Market premarket/afterhours/overnight - tradable but different conditions.
+  if (marketStatus.value.status === 'premarket') {
+    return { status: 'premarket', message: 'Pre-market trading (slower conditions)' }
   }
+  if (marketStatus.value.status === 'afterhours') {
+    return { status: 'afterhours', message: 'After-hours trading (slower conditions)' }
+  }
+  if (marketStatus.value.status === 'overnight') {
+    return { status: 'overnight', message: 'Overnight trading (slower conditions)' }
+  }
+
+  // Priority 4: Market open + stock active - normal trading.
+  if (marketStatus.value.status === 'open' &&
+      (!stockData.value?.status || stockData.value.status.toLowerCase() === 'active') &&
+      (stockData.value?.tradable !== false)) {
+    return { status: 'open', message: 'Market is open' }
+  }
+
+  // Default fallback.
+  return { status: 'closed', message: marketStatus.value.message || 'Status unavailable' }
 })
 
 // Chart data

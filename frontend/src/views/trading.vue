@@ -40,7 +40,8 @@ w-grid.gap-xl
         :symbol="stock.symbol"
         :price="stock.price"
         :last-side="stock.lastSide"
-        :status="stock.status")
+        :status="stock.status"
+        :tradable="stock.tradable")
 
     //- Loading State
     .w-flex.column.py12.align-center.justify-center(v-if="loading")
@@ -210,7 +211,11 @@ async function fetchStocks(resetPage = false) {
 
     const data = await fetchAllStocks(currentPage.value, itemsPerPage, searchQuery.value)
 
-    stocks.value = data.stocks || []
+    stocks.value = (data.stocks || []).map(stock => ({
+      ...stock,
+      status: stock.status.toLowerCase(),
+      tradable: stock.status.toLowerCase() === 'active' && stock.price > 0
+    }))
     totalStocks.value = data.pagination?.total || 0
     totalPages.value = data.pagination?.totalPages || 1
 

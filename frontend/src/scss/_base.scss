@@ -2,7 +2,7 @@
   // Market status colors.
   --market-premarket-color: #ff8c00;
   --market-open-color: #22c55e;
-  --market-afterhours-color: #a855f7;
+  --market-afterhours-color: #ec4899;
   --market-overnight-color: #3b82f6;
   --market-closed-color: #6b7280;
 
@@ -88,6 +88,12 @@
   box-shadow: 0 0 12px color-mix(in srgb, var(--w-base-bg-color) 100%, transparent);
   border-radius: 12px;
 }
+
+.market-premarket {color: var(--market-premarket-color);}
+.market-afterhours {color: var(--market-afterhours-color);}
+.market-overnight {color: var(--market-overnight-color);}
+.market-open {color: var(--market-open-color);}
+.market-closed {color: var(--market-closed-color);}
 
 @keyframes rotate {
   0% {

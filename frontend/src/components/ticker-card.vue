@@ -6,7 +6,7 @@
         ticker-logo.mr3(:symbol="symbol")
         .w-flex.align-center.gap2
           .title2.text-bold {{ symbol }}
-          .stock-status-indicator(:class="stockStatusClass")
+          .stock-status-indicator(:class="`stock-status--${stockStatusClass}`")
       .text-bold.mla.bd1.bdrsr.px2.py1.size--xs(:class="lastSide === 'buy' ? 'success--bg' : 'error--bg'")
         | {{ lastSide.toUpperCase() }}
 
@@ -23,21 +23,12 @@ const props = defineProps({
   symbol: String,
   price: Number,
   lastSide: String,
-  status: String
+  status: String,
+  tradable: Boolean
 })
 
 const stockStatusClass = computed(() => {
-  if (props.status) {
-    switch (props.status.toLowerCase()) {
-      case 'active':
-        return 'stock-status--active'
-      case 'inactive':
-        return 'stock-status--inactive'
-      default:
-        return 'stock-status--unknown'
-    }
-  }
-  return 'stock-status--active' // Default to active if no status provided
+  return props.tradable ? (['active', 'inactive'].includes(props.status) ? props.status : 'unknown') : 'inactive'
 })
 </script>
 
