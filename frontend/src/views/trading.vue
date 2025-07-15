@@ -118,8 +118,8 @@ w-grid.gap-xl
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { fetchAllStocks } from '@/api'
 import { formatNextOpen, normalizeStockData } from '@/utils/formatters'
-import { useWebSocket } from '@/composables/useWebSocket'
-import { useMarketStatus } from '@/composables/useMarketStatus'
+import { useWebSocket } from '@/composables/web-socket'
+import { useMarketStatus } from '@/composables/market-status'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
 

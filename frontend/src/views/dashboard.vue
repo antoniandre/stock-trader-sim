@@ -38,7 +38,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, provide, reactive } from 'vue'
 import { fetchPortfolio, fetchTradingHistory, fetchAccount, fetchPortfolioHistory } from '@/api'
-import { useWebSocket } from '@/composables/useWebSocket'
+import { useWebSocket } from '@/composables/web-socket'
 import PortfolioChart from '@/components/portfolio-chart.vue'
 import OpenPositions from '@/components/open-positions.vue'
 import TradeHistory from '@/components/trade-history.vue'

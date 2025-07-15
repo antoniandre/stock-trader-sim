@@ -164,8 +164,9 @@ import { Line } from 'vue-chartjs'
 import 'chart.js/auto'
 import { fetchStock, fetchStockPrice, subscribeToStock, fetchStockHistory } from '@/api'
 import { formatNextOpen, formatPriceChange, formatPriceChangePercent } from '@/utils/formatters'
-import { useWebSocket } from '@/composables/useWebSocket'
-import { useMarketStatus } from '@/composables/useMarketStatus'
+import { useWebSocket } from '@/composables/web-socket'
+import { useMarketStatus } from '@/composables/market-status'
+import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from '@/components/ticker-logo.vue'
 
 const props = defineProps({

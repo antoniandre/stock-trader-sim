@@ -16,7 +16,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from './ticker-logo.vue'
 
 const props = defineProps({
