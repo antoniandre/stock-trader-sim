@@ -34,7 +34,7 @@
           .w-flex.align-center.gap6
             .price-display
               .title2.text-bold(v-if="currentPrice > 0")
-                span.op6.mr2 $
+                span.op6.mr2 {{ currencySymbol }}
                 span {{ currentPrice.toFixed(2) }}
               .title2.text-bold(v-else)
                 span.op6 Price Unavailable
@@ -42,7 +42,7 @@
 
             .price-change(v-if="priceChange && currentPrice > 0" :class="priceChange >= 0 ? 'success-light3' : 'error'")
               .text-bold
-                span {{ priceChange >= 0 ? '+' : '' }}${{ Math.abs(priceChange).toFixed(2) }}
+                span {{ priceChange >= 0 ? '+' : '' }}{{ currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
               .size--sm ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
 
             .no-price-info(v-else-if="currentPrice === 0")
@@ -109,7 +109,7 @@
             .mb4.pa3.glass--bg.bdrs2(v-if="orderValue > 0 && currentPrice > 0")
               .w-flex.justify-between
                 span.op7 Estimated Total:
-                span.text-bold ${{ orderValue.toFixed(2) }}
+                span.text-bold {{ currencySymbol }}{{ orderValue.toFixed(2) }}
 
             //- No Price Data Warning
             .mb4.pa3.error-dark4--bg.bdrs2(v-if="currentPrice === 0")
@@ -154,7 +154,7 @@
                 | {{ trade.side.toUpperCase() }}
               span {{ trade.qty }} shares
             .text-right
-              .text-bold ${{ trade.price.toFixed(2) }}
+              .text-bold {{ currencySymbol }}{{ trade.price.toFixed(2) }}
               .size--sm.op7 {{ new Date(trade.timestamp).toLocaleTimeString() }}
 </template>
 
@@ -162,7 +162,10 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Line } from 'vue-chartjs'
 import 'chart.js/auto'
-import { fetchStock, fetchStockPrice, subscribeToStock, fetchMarketStatus, fetchStockHistory } from '@/api'
+import { fetchStock, fetchStockPrice, subscribeToStock, fetchStockHistory } from '@/api'
+import { formatNextOpen, formatPriceChange, formatPriceChangePercent } from '@/utils/formatters'
+import { useWebSocket } from '@/composables/useWebSocket'
+import { useMarketStatus } from '@/composables/useMarketStatus'
 import TickerLogo from '@/components/ticker-logo.vue'
 
 const props = defineProps({
@@ -175,18 +178,14 @@ const currentPrice = ref(0)
 const previousPrice = ref(0)
 const priceHistory = ref([])
 const historicalData = ref([])
-const wsConnected = ref(false)
-const lastUpdate = ref('Never')
 const selectedPeriod = ref('1D')
 const recentTrades = ref([])
-const marketStatus = ref({
-  status: 'closed',
-  message: 'Loading...',
-  isWeekend: false
-})
+const currency = ref('USD')
+const currencySymbol = ref('$')
 
-// WebSocket
-let ws = null
+// Use composables for WebSocket and market status.
+const { wsConnected, lastUpdate, connect, addMessageHandler } = useWebSocket()
+const { marketStatus, fetchMarketStatusData, updateMarketStatus } = useMarketStatus()
 
 // Chart periods
 const chartPeriods = [
@@ -384,7 +383,7 @@ const chartOptions = {
         },
         label(context) {
           const value = context.parsed.y
-          return `${props.symbol}: $${value.toFixed(2)}`
+          return `${props.symbol}: ${currencySymbol.value}${value.toFixed(2)}`
         }
       }
     }
@@ -395,7 +394,7 @@ const chartOptions = {
       grid: { color: 'rgba(255, 255, 255, 0.05)' },
       ticks: {
         color: '#C9D1D9',
-        callback: value => '$' + value.toFixed(2)
+        callback: value => currencySymbol.value + value.toFixed(2)
       }
     },
     x: {
@@ -405,21 +404,8 @@ const chartOptions = {
   }
 }
 
-// Methods
-async function fetchMarketStatusData() {
-  try {
-    const status = await fetchMarketStatus()
-    marketStatus.value = status
-  }
-  catch (error) {
-    console.error('Error fetching market status:', error)
-    marketStatus.value = {
-      status: 'closed',
-      message: 'Unable to determine market status',
-      isWeekend: false
-    }
-  }
-}
+// Methods.
+// fetchMarketStatusData is now handled by the composable.
 
 async function fetchHistoricalData() {
   try {
@@ -452,6 +438,8 @@ async function fetchStockData() {
     if (stockData.value) {
       currentPrice.value = stockData.value.price
       previousPrice.value = stockData.value.price
+      currency.value = stockData.value.currency || 'USD'
+      currencySymbol.value = stockData.value.currencySymbol || '$'
 
       // Subscribe to WebSocket updates for this stock
       try {
@@ -479,8 +467,14 @@ async function fetchStockData() {
           symbol: props.symbol,
           name: props.symbol,
           price: priceData.price,
-          exchange: 'Unknown'
+          exchange: 'Unknown',
+          currency: priceData.currency || 'USD',
+          currencySymbol: priceData.currencySymbol || '$'
         }
+
+        // Update currency information
+        currency.value = priceData.currency || 'USD'
+        currencySymbol.value = priceData.currencySymbol || '$'
 
         // Subscribe to WebSocket updates
         try {
@@ -507,92 +501,56 @@ async function fetchStockData() {
   }
 }
 
-function connectWebSocket() {
-  try {
-    console.log(`🔌 Connecting to WebSocket for ${props.symbol}...`)
+// WebSocket message handlers.
+function handlePriceUpdate(data) {
+  if (data.symbol !== props.symbol) return
 
-    if (ws) {
-      ws.close()
-    }
+  const oldPrice = currentPrice.value
+  currentPrice.value = data.price
 
-    ws = new WebSocket(`ws://localhost:3000`)
+  // Update currency information if provided.
+  if (data.currency) currency.value = data.currency
+  if (data.currencySymbol) currencySymbol.value = data.currencySymbol
 
-    ws.onopen = () => {
-      console.log(`✅ WebSocket connected for ${props.symbol}`)
-      wsConnected.value = true
-    }
+  // Keep track of price history for the chart.
+  priceHistory.value.push({
+    timestamp: new Date(data.timestamp).getTime(),
+    price: data.price
+  })
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-
-        if (data.type === 'price' && data.symbol === props.symbol) {
-          const oldPrice = currentPrice.value
-          currentPrice.value = data.price
-
-          // Keep track of price history for the chart
-          priceHistory.value.push({
-            timestamp: new Date(data.timestamp).getTime(),
-            price: data.price
-          })
-
-          // Keep only the last 100 price points for performance
-          if (priceHistory.value.length > 100) {
-            priceHistory.value = priceHistory.value.slice(-100)
-          }
-
-          // Update last update time
-          lastUpdate.value = new Date().toLocaleTimeString()
-
-          console.log(`📈 Price update: ${props.symbol} = $${data.price}`)
-        }
-
-        // Handle market status updates
-        if (data.type === 'market-status') {
-          console.log('📊 Market status update:', data.data)
-          marketStatus.value = data.data
-        }
-
-        // Handle recent trades
-        if (data.type === 'trade') {
-          recentTrades.value.unshift({
-            symbol: data.symbol,
-            side: data.side,
-            quantity: data.qty,
-            price: data.price,
-            timestamp: data.timestamp
-          })
-
-          // Keep only the last 50 trades
-          if (recentTrades.value.length > 50) {
-            recentTrades.value = recentTrades.value.slice(0, 50)
-          }
-        }
-      }
-      catch (error) {
-        console.error('Error parsing WebSocket message:', error)
-      }
-    }
-
-    ws.onclose = async () => {
-      console.log(`🔌 WebSocket disconnected for ${props.symbol}`)
-      wsConnected.value = false
-
-      // Reconnect after 3 seconds.
-      await setTimeout(() => {
-        if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket()
-      }, 3000)
-    }
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error)
-      wsConnected.value = false
-    }
+  // Keep only the last 100 price points for performance.
+  if (priceHistory.value.length > 100) {
+    priceHistory.value = priceHistory.value.slice(-100)
   }
-  catch (error) {
-    console.error('Error connecting to WebSocket:', error)
-    wsConnected.value = false
+
+  console.log(`📈 Price update: ${props.symbol} = ${currencySymbol.value}${data.price}`)
+}
+
+function handleMarketStatus(data) {
+  console.log('📊 Market status update:', data.data)
+  updateMarketStatus(data.data)
+}
+
+function handleTrade(data) {
+  recentTrades.value.unshift({
+    symbol: data.symbol,
+    side: data.side,
+    quantity: data.qty,
+    price: data.price,
+    timestamp: data.timestamp
+  })
+
+  // Keep only the last 50 trades.
+  if (recentTrades.value.length > 50) {
+    recentTrades.value = recentTrades.value.slice(0, 50)
   }
+}
+
+// Set up WebSocket handlers.
+function setupWebSocket() {
+  addMessageHandler('price', handlePriceUpdate)
+  addMessageHandler('market-status', handleMarketStatus)
+  addMessageHandler('trade', handleTrade)
 }
 
 function updatePrice(newPrice) {
@@ -631,17 +589,7 @@ async function changePeriod(period) {
   await fetchHistoricalData()
 }
 
-function formatNextOpen(nextOpenISO) {
-  const nextOpen = new Date(nextOpenISO)
-  const now = new Date()
-  const diffMs = nextOpen - now
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-  const diffDays = Math.floor(diffHours / 24)
-
-  if (diffDays > 0) return `in ${diffDays} day${diffDays > 1 ? 's' : ''}`
-  if (diffHours > 0) return `in ${diffHours} hour${diffHours > 1 ? 's' : ''}`
-  return 'soon'
-}
+// formatNextOpen is now imported from utilities.
 
 async function placeOrder(side) {
   try {
@@ -686,14 +634,12 @@ onMounted(async () => {
   await fetchStockData()
   await fetchMarketStatusData()
   await fetchHistoricalData()
-  connectWebSocket()
+  setupWebSocket()
+  connect()
 })
 
 onUnmounted(() => {
-  if (ws) {
-    ws.close()
-    ws = null
-  }
+  // WebSocket cleanup is handled by the composable.
 })
 
 // Watch for symbol changes.

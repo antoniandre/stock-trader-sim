@@ -22,24 +22,24 @@
           .market-value.title3.mb1.w-flex.gap1.align-center
             small.op6 @
             span.op6 $
-            span {{ formatCurrency(position.market_value) }}
+            span {{ formatNumber(position.market_value) }}
 
           .unrealized-pl(
             :class="parseFloat(position.unrealized_pl) >= 0 ? 'success-light3' : 'error'")
             span.op6.mr1 $
-            span {{ formatCurrency(position.unrealized_pl) }}
+            span {{ formatNumber(position.unrealized_pl) }}
             span.mx1 ({{ formatPercentage(position.unrealized_plpc) }}%)
             small P/L
 
         .price-info.text-right.ml4
           .current-price.title3.mb1
             span.op6.mr1 $
-            span {{ formatCurrency(position.current_price) }}
+            span {{ formatNumber(position.current_price) }}
 
           .price-change.size--sm(
             :class="parseFloat(position.change_today || 0) >= 0 ? 'success-light3' : 'error'")
             span.op6.mr1 $
-            span {{ formatCurrency(position.change_today || 0) }}
+            span {{ formatNumber(position.change_today || 0) }}
 
   .empty-state.text-center.py12.op5(v-else-if="!loading")
     icon.w-icon.op1(icon="mdi:information-outline" size="48")
@@ -54,23 +54,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { fetchPositions } from '@/api'
+import { formatNumber, formatPercentage } from '@/utils/formatters'
 import TickerLogo from './ticker-logo.vue'
 
 const positions = ref([])
 const loading = ref(false)
 
-function formatCurrency(value) {
-  const num = parseFloat(value)
-  return isNaN(num) ? '0.00' : num.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  })
-}
-
-function formatPercentage(value) {
-  const num = parseFloat(value) * 100
-  return isNaN(num) ? '0.00' : num.toFixed(2)
-}
+// formatPercentage is now imported from utilities.
 
 async function refreshPositions() {
   try {

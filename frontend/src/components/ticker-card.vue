@@ -11,7 +11,7 @@
         | {{ lastSide.toUpperCase() }}
 
     p.text-bold.mt2
-      span.op6.mr1 $
+      span.op6.mr1 {{ currencySymbol }}
       | {{ price.toFixed(2) }}
 </template>
 
@@ -24,7 +24,9 @@ const props = defineProps({
   price: Number,
   lastSide: String,
   status: String,
-  tradable: Boolean
+  tradable: Boolean,
+  currency: String,
+  currencySymbol: String
 })
 
 const stockStatusClass = computed(() => {

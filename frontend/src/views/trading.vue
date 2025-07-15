@@ -12,8 +12,7 @@ w-grid.gap-xl
             | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
         .w-flex.align-center.gap2
           .w-icon.size--xs(:class="marketStatusIcon")
-          span.size--sm(:class="marketStatusClass")
-            | {{ marketStatus.message }}
+          span.size--sm(:class="marketStatusClass") {{ marketStatus.message }}
           span.size--xs.op6(v-if="marketStatus.status === 'open' && marketStatus.nextClose")
             | (closes at {{ new Date(marketStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
           span.size--xs.op6(v-else-if="marketStatus.nextOpen")
@@ -41,7 +40,9 @@ w-grid.gap-xl
         :price="stock.price"
         :last-side="stock.lastSide"
         :status="stock.status"
-        :tradable="stock.tradable")
+        :tradable="stock.tradable"
+        :currency="stock.currency"
+        :currency-symbol="stock.currencySymbol")
 
     //- Loading State
     .w-flex.column.py12.align-center.justify-center(v-if="loading")
@@ -86,7 +87,7 @@ w-grid.gap-xl
                 span {{ stock.name }}
               td.px2.py2.text-right
                 .w-flex.align-center.justify-end.gap1(v-if="stock.price > 0")
-                  span.text-bold ${{ stock.price.toFixed(2) }}
+                  span.text-bold {{ stock.currencySymbol || '$' }}{{ stock.price.toFixed(2) }}
                 .w-flex.align-center.justify-end.gap1(v-else)
                   span.op5 Fetching...
               td.px2.py2.text-center
@@ -121,7 +122,10 @@ w-grid.gap-xl
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
-import { fetchAllStocks, fetchMarketStatus } from '@/api'
+import { fetchAllStocks } from '@/api'
+import { formatNextOpen, normalizeStockData } from '@/utils/formatters'
+import { useWebSocket } from '@/composables/useWebSocket'
+import { useMarketStatus } from '@/composables/useMarketStatus'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
 
@@ -129,21 +133,16 @@ const stocks = ref([])
 const searchQuery = ref('')
 const loading = ref(true)
 const error = ref(null)
-const wsConnected = ref(false)
-const lastUpdate = ref('Never')
 const currentPage = ref(1)
 const itemsPerPage = 50
 const totalStocks = ref(0)
 const totalPages = ref(1)
 const fetchingPrices = ref(false)
-const marketStatus = ref({
-  status: 'closed',
-  message: 'Loading...',
-  isWeekend: false
-})
-let ws = null
-let pollInterval = null
 let searchTimeout = null
+
+// Use composables for WebSocket and market status.
+const { wsConnected, lastUpdate, connect, addMessageHandler } = useWebSocket()
+const { marketStatus, marketStatusClass, marketStatusIcon, fetchMarketStatusData, updateMarketStatus } = useMarketStatus()
 
 const filteredStocks = computed(() => {
   return stocks.value
@@ -160,46 +159,7 @@ const tableHeaders = [
   { key: 'actions', label: 'Actions', align: 'center' }
 ]
 
-const marketStatusClass = computed(() => {
-  switch (marketStatus.value.status) {
-    case 'open':
-      return 'success'
-    case 'premarket':
-    case 'afterhours':
-      return 'warning'
-    case 'closed':
-    default:
-      return 'error'
-  }
-})
-
-const marketStatusIcon = computed(() => {
-  switch (marketStatus.value.status) {
-    case 'open':
-      return 'success--bg'
-    case 'premarket':
-    case 'afterhours':
-      return 'warning--bg'
-    case 'closed':
-    default:
-      return 'error--bg'
-  }
-})
-
-async function fetchMarketStatusData() {
-  try {
-    const status = await fetchMarketStatus()
-    marketStatus.value = status
-  }
-  catch (error) {
-    console.error('Error fetching market status:', error)
-    marketStatus.value = {
-      status: 'closed',
-      message: 'Unable to determine market status',
-      isWeekend: false
-    }
-  }
-}
+// Market status is now handled by the composable.
 
 async function fetchStocks(resetPage = false) {
   try {
@@ -211,11 +171,7 @@ async function fetchStocks(resetPage = false) {
 
     const data = await fetchAllStocks(currentPage.value, itemsPerPage, searchQuery.value)
 
-    stocks.value = (data.stocks || []).map(stock => ({
-      ...stock,
-      status: stock.status.toLowerCase(),
-      tradable: stock.status.toLowerCase() === 'active' && stock.price > 0
-    }))
+    stocks.value = (data.stocks || []).map(normalizeStockData)
     totalStocks.value = data.pagination?.total || 0
     totalPages.value = data.pagination?.totalPages || 1
 
@@ -264,21 +220,7 @@ async function prevPage() {
   await goToPage(currentPage.value - 1)
 }
 
-function formatNextOpen(nextOpenISO) {
-  const nextOpen = new Date(nextOpenISO)
-  const now = new Date()
-  const diffMs = nextOpen - now
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-  const diffDays = Math.floor(diffHours / 24)
-
-  if (diffDays > 0) {
-    return `in ${diffDays} day${diffDays > 1 ? 's' : ''}`
-  } else if (diffHours > 0) {
-    return `in ${diffHours} hour${diffHours > 1 ? 's' : ''}`
-  } else {
-    return 'soon'
-  }
-}
+// formatNextOpen is now imported from utilities.
 
 async function placeOrder(symbol, qty, side) {
   try {
@@ -292,91 +234,58 @@ async function placeOrder(symbol, qty, side) {
   }
 }
 
-function connectWebSocket() {
-  try {
-    loading.value = true
-    error.value = null
+// WebSocket message handlers.
+function handleMarketUpdate(data) {
+  console.log('📊 Market update received:', data.data.length, 'stocks')
 
-    if (ws) ws.close()
-
-    console.log('🔌 Connecting to WebSocket...')
-    ws = new WebSocket('ws://localhost:3000')
-
-    ws.onopen = () => {
-      console.log('✅ WebSocket connected')
-      wsConnected.value = true
-      loading.value = false
+  // Update existing stocks with new prices.
+  data.data.forEach(stock => {
+    const existingStock = stocks.value.find(s => s.symbol === stock.symbol)
+    if (existingStock) {
+      existingStock.price = stock.price
+      existingStock.lastSide = stock.lastSide
+      existingStock.currency = stock.currency || 'USD'
+      existingStock.currencySymbol = stock.currencySymbol || '$'
     }
+  })
+}
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
+function handleMarketStatus(data) {
+  console.log('📊 Market status update:', data.data)
+  updateMarketStatus(data.data)
+}
 
-        if (data.type === 'market-update') {
-          console.log('📊 Market update received:', data.data.length, 'stocks')
-
-          // Update existing stocks with new prices
-          data.data.forEach(stock => {
-            const existingStock = stocks.value.find(s => s.symbol === stock.symbol)
-            if (existingStock) {
-              existingStock.price = stock.price
-              existingStock.lastSide = stock.lastSide
-            }
-          })
-
-          lastUpdate.value = new Date().toLocaleTimeString()
-        }
-
-        // Handle market status updates
-        if (data.type === 'market-status') {
-          console.log('📊 Market status update:', data.data)
-          marketStatus.value = data.data
-        }
-
-        if (data.type === 'price') {
-          const existingStock = stocks.value.find(s => s.symbol === data.symbol)
-          if (existingStock) {
-            existingStock.price = data.price
-            existingStock.lastSide = data.lastSide || 'buy'
-          }
-
-          lastUpdate.value = new Date().toLocaleTimeString()
-        }
-
-        if (data.type === 'trade') {
-          console.log('📈 New trade received in trading view:', data)
-          // Update the price of the traded stock if it's visible
-          const stockIndex = stocks.value.findIndex(s => s.symbol === data.symbol)
-          if (stockIndex !== -1) {
-            stocks.value[stockIndex].price = data.price
-          }
-        }
-
-        if (data.type === 'trading-history-update') {
-          console.log('📊 Trading history updated:', data.history.length, 'trades')
-          // You can update any trading-related UI here
-        }
-      }
-      catch (error) {
-        console.error('Error parsing WebSocket message:', error)
-      }
-    }
-
-    ws.onerror = (err) => {
-      console.error('❌ WebSocket error:', err)
-      wsConnected.value = false
-    }
-
-    ws.onclose = () => {
-      console.log('🔌 WebSocket disconnected')
-      wsConnected.value = false
-    }
+function handlePriceUpdate(data) {
+  const existingStock = stocks.value.find(s => s.symbol === data.symbol)
+  if (existingStock) {
+    existingStock.price = data.price
+    existingStock.lastSide = data.lastSide || 'buy'
+    existingStock.currency = data.currency || 'USD'
+    existingStock.currencySymbol = data.currencySymbol || '$'
   }
-  catch (err) {
-    console.error('Failed to create WebSocket:', err)
-    error.value = 'Could not connect to the server.'
-    loading.value = false
+}
+
+function handleTrade(data) {
+  console.log('📈 New trade received in trading view:', data)
+  // Update the price of the traded stock if it's visible.
+  const stockIndex = stocks.value.findIndex(s => s.symbol === data.symbol)
+  if (stockIndex !== -1) {
+    stocks.value[stockIndex].price = data.price
   }
+}
+
+function handleTradingHistoryUpdate(data) {
+  console.log('📊 Trading history updated:', data.history.length, 'trades')
+  // You can update any trading-related UI here.
+}
+
+// Set up WebSocket handlers.
+function setupWebSocket() {
+  addMessageHandler('market-update', handleMarketUpdate)
+  addMessageHandler('market-status', handleMarketStatus)
+  addMessageHandler('price', handlePriceUpdate)
+  addMessageHandler('trade', handleTrade)
+  addMessageHandler('trading-history-update', handleTradingHistoryUpdate)
 }
 
 onMounted(async () => {
@@ -384,17 +293,16 @@ onMounted(async () => {
 
   try {
     await fetchStocks()
-    connectWebSocket()
-  }
-  catch (error) {
+    await fetchMarketStatusData()
+    setupWebSocket()
+    connect()
+  } catch (error) {
     console.error('Error during initialization:', error)
     loading.value = false
   }
 })
 
 onBeforeUnmount(() => {
-  if (ws) ws.close()
-  if (pollInterval) clearInterval(pollInterval)
   if (searchTimeout) clearTimeout(searchTimeout)
 })
 </script>

@@ -38,11 +38,11 @@
 <script setup>
 import { ref, onMounted, onUnmounted, provide, reactive } from 'vue'
 import { fetchPortfolio, fetchTradingHistory, fetchAccount, fetchPortfolioHistory } from '@/api'
+import { useWebSocket } from '@/composables/useWebSocket'
 import PortfolioChart from '@/components/portfolio-chart.vue'
 import OpenPositions from '@/components/open-positions.vue'
 import TradeHistory from '@/components/trade-history.vue'
 
-let ws = null
 const account = ref(null)
 const portfolio = reactive({
   history: [],
@@ -50,6 +50,9 @@ const portfolio = reactive({
   trades: [],
   loading: false
 })
+
+// Use WebSocket composable.
+const { connect, addMessageHandler } = useWebSocket()
 
 async function fetchPortfolioData() {
   try {
@@ -111,51 +114,25 @@ async function fetchAccountData() {
   }
 }
 
-function connectWebSocket() {
-  try {
-    console.log('🔌 Connecting to WebSocket for dashboard updates...')
-    ws = new WebSocket('ws://localhost:3000')
+// WebSocket message handlers.
+function handleAccountUpdate(data) {
+  console.log('📊 Account update received:', data)
+  // Refresh account data when updates are received.
+  fetchAccountData()
+  fetchPortfolioHistoryData()
+}
 
-    ws.onopen = () => {
-      console.log('✅ Dashboard WebSocket connected')
-    }
+function handleTrade(data) {
+  console.log('📈 New trade received:', data)
+  // Refresh trading history when new trades occur.
+  fetchHistory()
+  fetchPortfolioHistoryData()
+}
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-
-        if (data.type === 'account-update') {
-          console.log('📊 Account update received:', data)
-          // Refresh account data when updates are received.
-          fetchAccountData()
-          fetchPortfolioHistoryData()
-        }
-
-        if (data.type === 'trade') {
-          console.log('📈 New trade received:', data)
-          // Refresh trading history when new trades occur.
-          fetchHistory()
-          fetchPortfolioHistoryData()
-        }
-      }
-      catch (err) {
-        console.error('Error parsing WebSocket message:', err)
-      }
-    }
-
-    ws.onerror = (err) => {
-      console.error('❌ Dashboard WebSocket error:', err)
-    }
-
-    ws.onclose = () => {
-      console.log('🔌 Dashboard WebSocket disconnected')
-      // Reconnect after 5 seconds.
-      setTimeout(connectWebSocket, 5000)
-    }
-  }
-  catch (err) {
-    console.error('Failed to create WebSocket:', err)
-  }
+// Set up WebSocket handlers.
+function setupWebSocket() {
+  addMessageHandler('account-update', handleAccountUpdate)
+  addMessageHandler('trade', handleTrade)
 }
 
 provide('fetchHistory', () => {
@@ -167,13 +144,11 @@ onMounted(() => {
   fetchPortfolioData()
   fetchPortfolioHistoryData()
   fetchAccountData()
-  connectWebSocket() // WS for real-time market data only.
+  setupWebSocket()
+  connect() // WS for real-time market data only.
 })
 
 onUnmounted(() => {
-  if (ws) {
-    ws.close()
-    ws = null
-  }
+  // WebSocket cleanup is handled by the composable.
 })
 </script>
