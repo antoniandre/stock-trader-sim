@@ -3,22 +3,85 @@ import { ALPACA_BASE_URL, HEADERS, IS_SIMULATION, state } from './config.js'
 import { getEasternTime, formatErrorResponse } from './utils.js'
 import { getMockPrice, initializeMockPrices, getMockTradableStocks, generateMockHistoricalData } from './simulation.js'
 
+// Market Calendar Functions
+// --------------------------------------------------------
+let marketCalendar = null
+let marketClockData = null
+
+export async function fetchMarketCalendar(startDate, endDate) {
+  if (IS_SIMULATION) return null
+
+  try {
+    const start = startDate || new Date().toISOString().split('T')[0]
+    const end = endDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+    const url = `${ALPACA_BASE_URL}/v2/calendar?start=${start}&end=${end}`
+    console.log('📅 Fetching market calendar from Alpaca...')
+
+    const { data } = await axios.get(url, { headers: HEADERS })
+    marketCalendar = data
+
+    console.log(`✅ Fetched ${data.length} market calendar entries`)
+    return data
+  }
+  catch (error) {
+    console.error('❌ Error fetching market calendar:', error.message)
+    return null
+  }
+}
+
+export async function fetchMarketClock() {
+  if (IS_SIMULATION) return null
+
+  try {
+    const url = `${ALPACA_BASE_URL}/v2/clock`
+    console.log('🕐 Fetching market clock from Alpaca...')
+
+    const { data } = await axios.get(url, { headers: HEADERS })
+    marketClockData = data
+
+    console.log(`✅ Market clock: ${data.is_open ? 'OPEN' : 'CLOSED'} - Next ${data.is_open ? 'close' : 'open'}: ${data.is_open ? data.next_close : data.next_open}`)
+    return data
+  }
+  catch (error) {
+    console.error('❌ Error fetching market clock:', error.message)
+    return null
+  }
+}
+
+async function isMarketTradingDay(date) {
+  if (IS_SIMULATION) return true
+
+  // Fetch calendar if not already cached or if date is outside current range.
+  if (!marketCalendar || marketCalendar.length === 0) {
+    await fetchMarketCalendar()
+  }
+
+  if (!marketCalendar) return true // Fallback to assume trading day if API fails.
+
+  const dateStr = date.toISOString().split('T')[0]
+  return marketCalendar.some(entry => entry.date === dateStr)
+}
+
 // Market Status Functions
 // --------------------------------------------------------
-export function getMarketStatus() {
+export async function getMarketStatus() {
   const easternTime = getEasternTime()
   const day = easternTime.getDay() // 0 = Sunday, 6 = Saturday.
   const hours = easternTime.getHours()
   const minutes = easternTime.getMinutes()
   const currentTimeMinutes = hours * 60 + minutes
 
-  // Weekend check.
-  if (day === 0 || day === 6) {
+  // Check if today is a trading day according to Alpaca calendar.
+  const isTradingDay = await isMarketTradingDay(easternTime)
+
+  // If not a trading day (weekend or holiday), market is closed.
+  if (!isTradingDay) {
     return {
       status: 'closed',
-      message: 'Market is closed - Weekend',
+      message: 'Market is closed - Holiday or Weekend',
       nextOpen: getNextMarketOpen(easternTime),
-      isWeekend: true
+      isWeekend: day === 0 || day === 6
     }
   }
 
@@ -30,8 +93,8 @@ export function getMarketStatus() {
 
   if (currentTimeMinutes < preMarketStart) {
     return {
-      status: 'closed',
-      message: 'Market is closed - Before premarket',
+      status: 'overnight',
+      message: 'Overnight trading',
       nextOpen: getNextMarketOpen(easternTime),
       isWeekend: false
     }
@@ -65,8 +128,8 @@ export function getMarketStatus() {
   }
 
   return {
-    status: 'closed',
-    message: 'Market is closed - After hours ended',
+    status: 'overnight',
+    message: 'Overnight trading',
     nextOpen: getNextMarketOpen(easternTime),
     isWeekend: false
   }
@@ -299,4 +362,23 @@ function getPeriodParameters(period) {
         startDate: new Date(easternTime.getTime() - 24 * 60 * 60 * 1000)
       }
   }
+}
+
+export async function initializeMarketData() {
+  if (IS_SIMULATION) {
+    initializeMockPrices()
+    return
+  }
+
+  console.log('📅 Initializing market data...')
+
+  // Fetch market calendar and clock data in parallel with stock prices.
+  const [calendarData, clockData, _] = await Promise.all([
+    fetchMarketCalendar(),
+    fetchMarketClock(),
+    initializeStockPrices()
+  ])
+
+  console.log('✅ Market data initialization complete')
+  return { calendar: calendarData, clock: clockData }
 }

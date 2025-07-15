@@ -1,11 +1,15 @@
 import WebSocket, { WebSocketServer } from 'ws'
 import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state } from './config.js'
-import { getPrice } from './market-data.js'
+import { getPrice, getMarketStatus } from './market-data.js'
 import { placeOrder } from './alpaca-account.js'
 import { runSimulation, mockPrices } from './simulation.js'
 
 // Track subscribed stocks dynamically - start with empty set.
 const subscribedStocks = new Set()
+
+// Market status tracking
+let currentMarketStatus = null
+let marketStatusInterval = null
 
 // WebSocket Management
 // --------------------------------------------------------
@@ -14,6 +18,49 @@ export function broadcast(data) {
   state.wsClients.forEach(client => {
     if (client.readyState === 1) client.send(message) // WebSocket.OPEN.
   })
+}
+
+// Market Status Broadcasting
+// --------------------------------------------------------
+async function checkAndBroadcastMarketStatus() {
+  try {
+    const newStatus = await getMarketStatus()
+
+    // Only broadcast if status changed
+    if (!currentMarketStatus ||
+        currentMarketStatus.status !== newStatus.status ||
+        currentMarketStatus.message !== newStatus.message) {
+
+      console.log(`📊 Market status changed: ${currentMarketStatus?.status || 'initial'} → ${newStatus.status}`)
+      currentMarketStatus = newStatus
+
+      broadcast({
+        type: 'market-status',
+        data: newStatus,
+        timestamp: new Date().toISOString()
+      })
+    }
+  }
+  catch (error) {
+    console.error('❌ Error checking market status:', error)
+  }
+}
+
+function startMarketStatusUpdates() {
+  // Initial status check
+  checkAndBroadcastMarketStatus()
+
+  // Check every 5 minutes (market status only changes 4x per day)
+  marketStatusInterval = setInterval(checkAndBroadcastMarketStatus, 5 * 60 * 1000)
+  console.log('📊 Market status monitoring started (5-minute intervals)')
+}
+
+function stopMarketStatusUpdates() {
+  if (marketStatusInterval) {
+    clearInterval(marketStatusInterval)
+    marketStatusInterval = null
+    console.log('📊 Market status monitoring stopped')
+  }
 }
 
 // Function to subscribe to a new stock.
@@ -58,18 +105,30 @@ export function unsubscribeFromStock(symbol) {
 export function createWebSocketServer(server) {
   const wss = new WebSocketServer({ server })
 
+  // Start market status monitoring when server starts
+  startMarketStatusUpdates()
+
   wss.on('connection', (ws) => {
     console.log('🔌 New WebSocket client connected')
     state.wsClients.add(ws)
 
-    // Send initial data.
+    // Send initial market status to new client
+    if (currentMarketStatus) {
+      ws.send(JSON.stringify({
+        type: 'market-status',
+        data: currentMarketStatus,
+        timestamp: new Date().toISOString()
+      }))
+    }
+
+    // Send initial stock data.
     if (IS_SIMULATION) {
       const mockStocks = Object.entries(mockPrices).map(([symbol, price]) => ({
         symbol,
         price,
         lastSide: 'buy'
       }))
-      broadcast({ type: 'market-update', data: mockStocks })
+      ws.send(JSON.stringify({ type: 'market-update', data: mockStocks }))
     }
     else {
       const liveStocks = Object.entries(state.stockPrices).map(([symbol, price]) => ({
@@ -78,13 +137,18 @@ export function createWebSocketServer(server) {
         lastSide: 'buy'
       }))
       if (liveStocks.length > 0) {
-        broadcast({ type: 'market-update', data: liveStocks })
+        ws.send(JSON.stringify({ type: 'market-update', data: liveStocks }))
       }
     }
 
     ws.on('close', () => {
       console.log('🔌 WebSocket client disconnected')
       state.wsClients.delete(ws)
+
+      // Stop market status updates if no clients connected
+      if (state.wsClients.size === 0) {
+        stopMarketStatusUpdates()
+      }
     })
 
     ws.on('error', (error) => {
@@ -212,4 +276,15 @@ export async function runSimulationWrapper() {
 
   // Broadcast trades.
   trades.forEach(trade => broadcast(trade))
+}
+
+// Export current market status for API endpoints
+export function getCurrentMarketStatus() {
+  return currentMarketStatus
+}
+
+// Cleanup function for server shutdown
+export function cleanupWebSocketServer() {
+  stopMarketStatusUpdates()
+  console.log('🔌 WebSocket server cleaned up')
 }

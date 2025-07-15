@@ -10,14 +10,14 @@
       .w-flex.align-center.justify-space-between.gap2
         w-tag.w-flex.gap2.pr1.no-grow(round bg-color="info-dark4")
           strong.size--lg {{ symbol }}
-          .w-icon.size--xs(:class="marketStatusIcon")
+          .w-icon.size--xs(:style="{ backgroundColor: marketStatusIcon }")
         .w-flex.align-center.gap4
           .w-flex.align-center.gap2
             span.size--sm(:class="marketStatusClass")
-              | {{ marketStatus.message }}
-            span.size--xs.op6(v-if="marketStatus.status === 'open' && marketStatus.nextClose")
+              | {{ stockData?.status || `Market: ${marketStatus.message}` }}
+            span.size--xs.op6(v-if="!stockData?.status && marketStatus.status === 'open' && marketStatus.nextClose")
               | (closes at {{ new Date(marketStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
-            span.size--xs.op6(v-else-if="marketStatus.nextOpen")
+            span.size--xs.op6(v-else-if="!stockData?.status && marketStatus.nextOpen")
               | (opens {{ formatNextOpen(marketStatus.nextOpen) }})
           .w-flex.align-center.gap2.mla
             .w-icon.size--xs(:class="wsConnected ? 'success--bg' : 'yellow--bg'")
@@ -233,11 +233,24 @@ const isOrderValid = computed(() => {
 })
 
 const marketStatusClass = computed(() => {
+  // Use individual stock status instead of general market status.
+  if (stockData.value?.status) {
+    switch (stockData.value.status.toLowerCase()) {
+      case 'active':
+        return 'success'
+      case 'inactive':
+        return 'error'
+      default:
+        return 'warning'
+    }
+  }
+  // Fallback to market status if stock status unavailable.
   switch (marketStatus.value.status) {
     case 'open':
       return 'success'
     case 'premarket':
     case 'afterhours':
+    case 'overnight':
       return 'warning'
     case 'closed':
     default:
@@ -246,15 +259,30 @@ const marketStatusClass = computed(() => {
 })
 
 const marketStatusIcon = computed(() => {
+  // Use individual stock status instead of general market status.
+  if (stockData.value?.status) {
+    switch (stockData.value.status.toLowerCase()) {
+      case 'active':
+        return 'var(--market-open-color)'
+      case 'inactive':
+        return 'var(--market-closed-color)'
+      default:
+        return 'var(--market-premarket-color)'
+    }
+  }
+  // Fallback to market status if stock status unavailable.
   switch (marketStatus.value.status) {
     case 'open':
-      return 'success--bg'
+      return 'var(--market-open-color)'
     case 'premarket':
+      return 'var(--market-premarket-color)'
     case 'afterhours':
-      return 'warning--bg'
+      return 'var(--market-afterhours-color)'
+    case 'overnight':
+      return 'var(--market-overnight-color)'
     case 'closed':
     default:
-      return 'error--bg'
+      return 'var(--market-closed-color)'
   }
 })
 
@@ -498,12 +526,14 @@ function connectWebSocket() {
   try {
     console.log(`🔌 Connecting to WebSocket for ${props.symbol}...`)
 
-    if (ws) ws.close()
+    if (ws) {
+      ws.close()
+    }
 
-    ws = new WebSocket('ws://localhost:3000')
+    ws = new WebSocket(`ws://localhost:3000`)
 
     ws.onopen = () => {
-      console.log('✅ WebSocket connected for ticker view')
+      console.log(`✅ WebSocket connected for ${props.symbol}`)
       wsConnected.value = true
     }
 
@@ -511,29 +541,46 @@ function connectWebSocket() {
       try {
         const data = JSON.parse(event.data)
 
-        if (data.type === 'market-update') {
-          const stockUpdate = data.data?.find(stock => stock.symbol === props.symbol)
-          if (stockUpdate) {
-            updatePrice(stockUpdate.price)
-          }
-        }
-
         if (data.type === 'price' && data.symbol === props.symbol) {
-          updatePrice(data.price)
+          const oldPrice = currentPrice.value
+          currentPrice.value = data.price
+
+          // Keep track of price history for the chart
+          priceHistory.value.push({
+            timestamp: new Date(data.timestamp).getTime(),
+            price: data.price
+          })
+
+          // Keep only the last 100 price points for performance
+          if (priceHistory.value.length > 100) {
+            priceHistory.value = priceHistory.value.slice(-100)
+          }
+
+          // Update last update time
+          lastUpdate.value = new Date().toLocaleTimeString()
+
+          console.log(`📈 Price update: ${props.symbol} = $${data.price}`)
         }
 
-        if (data.type === 'trade' && data.symbol === props.symbol) {
-          console.log(`📈 New trade for ${props.symbol}:`, data)
+        // Handle market status updates
+        if (data.type === 'market-status') {
+          console.log('📊 Market status update:', data.data)
+          marketStatus.value = data.data
+        }
+
+        // Handle recent trades
+        if (data.type === 'trade') {
           recentTrades.value.unshift({
+            symbol: data.symbol,
             side: data.side,
-            qty: data.qty,
+            quantity: data.qty,
             price: data.price,
             timestamp: data.timestamp
           })
 
-          // Keep only last 10 trades
-          if (recentTrades.value.length > 10) {
-            recentTrades.value = recentTrades.value.slice(0, 10)
+          // Keep only the last 50 trades
+          if (recentTrades.value.length > 50) {
+            recentTrades.value = recentTrades.value.slice(0, 50)
           }
         }
       }
@@ -542,20 +589,26 @@ function connectWebSocket() {
       }
     }
 
-    ws.onerror = (error) => {
-      console.error('❌ WebSocket error:', error)
+    ws.onclose = () => {
+      console.log(`🔌 WebSocket disconnected for ${props.symbol}`)
       wsConnected.value = false
+
+      // Reconnect after 3 seconds
+      setTimeout(() => {
+        if (!ws || ws.readyState === WebSocket.CLOSED) {
+          connectWebSocket()
+        }
+      }, 3000)
     }
 
-    ws.onclose = () => {
-      console.log('🔌 WebSocket disconnected')
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error)
       wsConnected.value = false
-      // Reconnect after 5 seconds
-      setTimeout(connectWebSocket, 5000)
     }
   }
   catch (error) {
-    console.error('Failed to create WebSocket:', error)
+    console.error('Error connecting to WebSocket:', error)
+    wsConnected.value = false
   }
 }
 
@@ -658,17 +711,11 @@ async function placeOrder(side) {
 // Lifecycle
 onMounted(async () => {
   await fetchStockData()
-  await fetchMarketStatusData()
+  await fetchMarketStatusData() // Fetch initial market status
   await fetchHistoricalData()
   connectWebSocket()
 
-  // Update market status every 30 seconds
-  const statusInterval = setInterval(fetchMarketStatusData, 30000)
-
-  // Clean up interval on unmount
-  onUnmounted(() => {
-    clearInterval(statusInterval)
-  })
+  // No more polling interval - WebSocket handles updates
 })
 
 onUnmounted(() => {
@@ -720,6 +767,14 @@ watch(() => props.symbol, async () => {
     padding: 1rem;
     border-radius: 8px;
     background-color: rgba(255, 255, 255, 0.05);
+  }
+
+  // Stock status indicator styling
+  .w-icon.size--xs {
+    border-radius: 50%;
+    min-width: 8px;
+    min-height: 8px;
+    display: inline-block;
   }
 }
 </style>

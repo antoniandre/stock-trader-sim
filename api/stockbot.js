@@ -1,7 +1,7 @@
 import { createServer } from 'http'
 import { IS_SIMULATION, ALPACA_KEY } from './config.js'
 import { createRestApiRoutes } from './rest-api.js'
-import { getAllTradableStocks, initializeStockPrices } from './market-data.js'
+import { getAllTradableStocks, initializeMarketData } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities } from './alpaca-account.js'
 import { connectAlpacaSSE } from './sse-client.js'
 import { createWebSocketServer, connectAlpacaWebSocket, runSimulationWrapper, broadcast } from './websocket-server.js'
@@ -27,7 +27,7 @@ async function startServer() {
 
     // Initialize stock data.
     await getAllTradableStocks()
-    await initializeStockPrices()
+    await initializeMarketData()
 
     if (IS_SIMULATION) {
       console.log('🧪 Demo mode: Running simulation every 1 second')

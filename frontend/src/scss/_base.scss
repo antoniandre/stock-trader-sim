@@ -1,4 +1,11 @@
 :root {
+  // Market status colors.
+  --market-premarket-color: #ff8c00;
+  --market-open-color: #22c55e;
+  --market-afterhours-color: #a855f7;
+  --market-overnight-color: #3b82f6;
+  --market-closed-color: #6b7280;
+
   &[data-theme="dark"] .w-app {
     --w-base-bg-color: #0d1117;
     --bg-gradient-stop1: #161B22;

@@ -1,7 +1,7 @@
 import express from 'express'
 import { state } from './config.js'
-import { subscribeToStock } from './websocket-server.js'
-import { getMarketStatus, getPrice, getAllTradableStocks, initializeStockPrices, getStockHistoricalData } from './market-data.js'
+import { subscribeToStock, getCurrentMarketStatus } from './websocket-server.js'
+import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, placeOrder } from './alpaca-account.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse } from './utils.js'
@@ -268,9 +268,13 @@ export function createRestApiRoutes() {
   })
 
   // Market status endpoint.
-  app.get('/api/market-status', (req, res) => {
+  app.get('/api/market-status', async (req, res) => {
     try {
-      const marketStatus = getMarketStatus()
+      let marketStatus = getCurrentMarketStatus()
+
+      // Fallback to direct API call if cached status not available yet.
+      if (!marketStatus) marketStatus = await getMarketStatus()
+
       res.json(createStandardResponse(marketStatus))
     }
     catch (error) {
@@ -305,7 +309,7 @@ export {
   getMarketStatus,
   getPrice,
   getAllTradableStocks,
-  initializeStockPrices,
+  initializeMarketData,
   getStockHistoricalData,
   getAlpacaAccount,
   getAlpacaAccountActivities,

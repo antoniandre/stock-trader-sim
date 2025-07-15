@@ -308,30 +308,34 @@ function connectWebSocket() {
         const data = JSON.parse(event.data)
 
         if (data.type === 'market-update') {
-          // Update prices for stocks currently displayed on this page
-          if (data.data?.length && stocks.value.length) {
-            const priceMap = {}
-            data.data.forEach(stock => {
-              priceMap[stock.symbol] = stock.price
-            })
+          console.log('📊 Market update received:', data.data.length, 'stocks')
 
-            // Update prices for currently displayed stocks
-            stocks.value = stocks.value.map(stock => ({
-              ...stock,
-              price: priceMap[stock.symbol] || stock.price
-            }))
+          // Update existing stocks with new prices
+          data.data.forEach(stock => {
+            const existingStock = stocks.value.find(s => s.symbol === stock.symbol)
+            if (existingStock) {
+              existingStock.price = stock.price
+              existingStock.lastSide = stock.lastSide
+            }
+          })
 
-            lastUpdate.value = new Date().toLocaleTimeString()
-          }
+          lastUpdate.value = new Date().toLocaleTimeString()
+        }
+
+        // Handle market status updates
+        if (data.type === 'market-status') {
+          console.log('📊 Market status update:', data.data)
+          marketStatus.value = data.data
         }
 
         if (data.type === 'price') {
-          // Update specific stock price if it's currently displayed
-          const stockIndex = stocks.value.findIndex(s => s.symbol === data.symbol)
-          if (stockIndex !== -1) {
-            stocks.value[stockIndex].price = data.price
-            lastUpdate.value = new Date().toLocaleTimeString()
+          const existingStock = stocks.value.find(s => s.symbol === data.symbol)
+          if (existingStock) {
+            existingStock.price = data.price
+            existingStock.lastSide = data.lastSide || 'buy'
           }
+
+          lastUpdate.value = new Date().toLocaleTimeString()
         }
 
         if (data.type === 'trade') {
@@ -348,8 +352,8 @@ function connectWebSocket() {
           // You can update any trading-related UI here
         }
       }
-      catch (err) {
-        console.error('Error parsing WebSocket message:', err)
+      catch (error) {
+        console.error('Error parsing WebSocket message:', error)
       }
     }
 
@@ -371,12 +375,16 @@ function connectWebSocket() {
 }
 
 onMounted(async () => {
-  await fetchStocks()
-  await fetchMarketStatusData()
-  connectWebSocket()
+  loading.value = true
 
-  // Update market status every 30 seconds
-  setInterval(fetchMarketStatusData, 30000)
+  try {
+    await fetchStocks()
+    connectWebSocket()
+  }
+  catch (error) {
+    console.error('Error during initialization:', error)
+    loading.value = false
+  }
 })
 
 onUnmounted(() => {
