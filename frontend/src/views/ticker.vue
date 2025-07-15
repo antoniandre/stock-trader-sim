@@ -10,10 +10,10 @@
       .w-flex.align-center.justify-space-between.gap2
         w-tag.w-flex.gap2.pr1.no-grow(round bg-color="info-dark4")
           strong.size--lg {{ symbol }}
-          .w-icon.size--xs(:style="{ backgroundColor: `var(--market-${currentStatus.status}-color)` }")
+          .w-icon.size--xs(:title="currentStatus.message" :style="{ backgroundColor: `var(--market-${currentStatus.status}-color)` }")
         .w-flex.align-center.gap4
           .w-flex.align-center.gap2
-            span.size--sm(:class="`market-${currentStatus.status}`") {{ currentStatus.message }}
+            span.size--xs.text-upper(:class="`market-${currentStatus.status}`") {{ currentStatus.message }}
             span.size--xs.op6(v-if="marketStatus.status === 'open' && marketStatus.nextClose")
               | (closes at {{ new Date(marketStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
             span.size--xs.op6(v-else-if="marketStatus.nextOpen")
@@ -234,33 +234,33 @@ const isOrderValid = computed(() => {
 const currentStatus = computed(() => {
   // Priority 1: Stock status (inactive/not tradable) - highest priority.
   if (stockData.value?.status && stockData.value.status.toLowerCase() === 'inactive') {
-    return { status: 'closed', message: 'Stock is inactive' }
+    return { status: 'closed', message: 'Inactive Stock' }
   }
   if (stockData.value?.tradable === false) {
-    return { status: 'closed', message: 'Stock is not tradable' }
+    return { status: 'closed', message: 'Not Tradable' }
   }
 
   // Priority 2: Market closed - stock can't be traded regardless of stock status.
   if (marketStatus.value.status === 'closed') {
-    return { status: 'closed', message: marketStatus.value.message || 'Market is closed' }
+    return { status: 'closed', message: marketStatus.value.message || 'Market Closed' }
   }
 
   // Priority 3: Market premarket/afterhours/overnight - tradable but different conditions.
   if (marketStatus.value.status === 'premarket') {
-    return { status: 'premarket', message: 'Pre-market trading (slower conditions)' }
+    return { status: 'premarket', message: 'Pre-market' }
   }
   if (marketStatus.value.status === 'afterhours') {
-    return { status: 'afterhours', message: 'After-hours trading (slower conditions)' }
+    return { status: 'afterhours', message: 'After-hours' }
   }
   if (marketStatus.value.status === 'overnight') {
-    return { status: 'overnight', message: 'Overnight trading (slower conditions)' }
+    return { status: 'overnight', message: 'Overnight' }
   }
 
   // Priority 4: Market open + stock active - normal trading.
   if (marketStatus.value.status === 'open' &&
       (!stockData.value?.status || stockData.value.status.toLowerCase() === 'active') &&
       (stockData.value?.tradable !== false)) {
-    return { status: 'open', message: 'Market is open' }
+    return { status: 'open', message: 'Open' }
   }
 
   // Default fallback.
@@ -429,7 +429,8 @@ async function fetchHistoricalData() {
     if (data.data && data.data.length > 0) {
       historicalData.value = data.data
       console.log(`✅ Loaded ${data.data.length} historical data points for ${props.symbol}`)
-    } else {
+    }
+    else {
       console.warn(`⚠️ No historical data available for ${props.symbol}`)
       historicalData.value = []
     }
@@ -456,7 +457,8 @@ async function fetchStockData() {
       try {
         await subscribeToStock(props.symbol)
         console.log(`📡 Subscribed to ${props.symbol} updates`)
-      } catch (subscribeError) {
+      }
+      catch (subscribeError) {
         console.warn(`⚠️ Failed to subscribe to ${props.symbol}:`, subscribeError)
       }
     }
@@ -484,11 +486,13 @@ async function fetchStockData() {
         try {
           await subscribeToStock(props.symbol)
           console.log(`📡 Subscribed to ${props.symbol} updates`)
-        } catch (subscribeError) {
+        }
+        catch (subscribeError) {
           console.warn(`⚠️ Failed to subscribe to ${props.symbol}:`, subscribeError)
         }
       }
-    } catch (priceError) {
+    }
+    catch (priceError) {
       console.error('Error fetching stock price:', priceError)
       // Set default values
       stockData.value = {
@@ -570,15 +574,13 @@ function connectWebSocket() {
       }
     }
 
-    ws.onclose = () => {
+    ws.onclose = async () => {
       console.log(`🔌 WebSocket disconnected for ${props.symbol}`)
       wsConnected.value = false
 
-      // Reconnect after 3 seconds
-      setTimeout(() => {
-        if (!ws || ws.readyState === WebSocket.CLOSED) {
-          connectWebSocket()
-        }
+      // Reconnect after 3 seconds.
+      await setTimeout(() => {
+        if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket()
       }, 3000)
     }
 
@@ -600,10 +602,7 @@ function updatePrice(newPrice) {
     lastUpdate.value = new Date().toLocaleTimeString()
 
     // Add to price history
-    priceHistory.value.push({
-      timestamp: Date.now(),
-      price: newPrice
-    })
+    priceHistory.value.push({ timestamp: Date.now(), price: newPrice })
 
     // Keep only last 100 price points
     if (priceHistory.value.length > 100) {
@@ -612,10 +611,7 @@ function updatePrice(newPrice) {
 
     // For 1D period, also update historical data with live prices
     if (selectedPeriod.value === '1D' && historicalData.value.length > 0) {
-      historicalData.value.push({
-        timestamp: Date.now(),
-        price: newPrice
-      })
+      historicalData.value.push({ timestamp: Date.now(), price: newPrice })
 
       // Keep only relevant data for the period
       const cutoff = Date.now() - (24 * 60 * 60 * 1000)  // 24 hours ago
@@ -642,13 +638,9 @@ function formatNextOpen(nextOpenISO) {
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
   const diffDays = Math.floor(diffHours / 24)
 
-  if (diffDays > 0) {
-    return `in ${diffDays} day${diffDays > 1 ? 's' : ''}`
-  } else if (diffHours > 0) {
-    return `in ${diffHours} hour${diffHours > 1 ? 's' : ''}`
-  } else {
-    return 'soon'
-  }
+  if (diffDays > 0) return `in ${diffDays} day${diffDays > 1 ? 's' : ''}`
+  if (diffHours > 0) return `in ${diffHours} hour${diffHours > 1 ? 's' : ''}`
+  return 'soon'
 }
 
 async function placeOrder(side) {
@@ -678,7 +670,7 @@ async function placeOrder(side) {
 
     alert(`Order placed: ${confirmationText}`)
 
-    // Reset form
+    // Reset form.
     orderForm.value.quantity = 1
     orderForm.value.limitPrice = null
     orderForm.value.stopLoss = null
@@ -689,10 +681,10 @@ async function placeOrder(side) {
   }
 }
 
-// Lifecycle
+// Lifecycle.
 onMounted(async () => {
   await fetchStockData()
-  await fetchMarketStatusData() // Fetch initial market status
+  await fetchMarketStatusData()
   await fetchHistoricalData()
   connectWebSocket()
 })
@@ -704,7 +696,7 @@ onUnmounted(() => {
   }
 })
 
-// Watch for symbol changes
+// Watch for symbol changes.
 watch(() => props.symbol, async () => {
   await fetchStockData()
   await fetchHistoricalData()
