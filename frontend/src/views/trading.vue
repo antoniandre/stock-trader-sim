@@ -111,7 +111,6 @@ import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { fetchAllStocks } from '@/api'
 import { formatNextOpen, normalizeStockData } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
-import { useMarketStatus } from '@/composables/market-status'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
 
@@ -128,7 +127,6 @@ let searchTimeout = null
 
 // Use composables for WebSocket and market status.
 const { wsConnected, lastUpdate, connect, addMessageHandler } = useWebSocket()
-const { marketStatus, marketStatusClass, marketStatusIcon, fetchMarketStatusData, updateMarketStatus } = useMarketStatus()
 
 const filteredStocks = computed(() => {
   return stocks.value
@@ -236,10 +234,7 @@ function handleMarketUpdate(data) {
   })
 }
 
-function handleMarketStatus(data) {
-  console.log('📊 Market status update:', data.data)
-  updateMarketStatus(data.data)
-}
+
 
 function handlePriceUpdate(data) {
   const existingStock = stocks.value.find(s => s.symbol === data.symbol)
@@ -268,7 +263,6 @@ function handleTradingHistoryUpdate(data) {
 // Set up WebSocket handlers.
 function setupWebSocket() {
   addMessageHandler('market-update', handleMarketUpdate)
-  addMessageHandler('market-status', handleMarketStatus)
   addMessageHandler('price', handlePriceUpdate)
   addMessageHandler('trade', handleTrade)
   addMessageHandler('trading-history-update', handleTradingHistoryUpdate)
@@ -279,7 +273,6 @@ onMounted(async () => {
 
   try {
     await fetchStocks()
-    await fetchMarketStatusData()
     setupWebSocket()
     connect()
   } catch (error) {

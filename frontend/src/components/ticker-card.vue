@@ -23,14 +23,12 @@ import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from './ticker-logo.vue'
 
 const props = defineProps({
-  stock: { type: Object, required: true },
-  marketStatus: { type: Object, default: null }
+  stock: { type: Object, required: true }
 })
 
-// Use the reusable stock status composable with market status.
+// Use the reusable stock status composable.
 const stockRef = toRef(props, 'stock')
-const marketStatusRef = toRef(props, 'marketStatus')
-const { currentStatus } = useStockStatus(stockRef, marketStatusRef)
+const { currentStatus } = useStockStatus(stockRef)
 </script>
 
 <style lang="scss">
