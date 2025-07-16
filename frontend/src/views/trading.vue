@@ -1,15 +1,15 @@
 <template lang="pug">
 w-grid.gap-xl
   .w-col-12
-    .w-flex.align-center.justify-between
+    .w-flex.align-center.justify-between.gap3
       .title1 Stock Trading
+      span.op5.size--sm.mt1 Last Update: {{ lastUpdate }}
       //- Connection Status.
       .w-flex.align-center.gap2.mla.no-grow
         .w-icon.size--xs.success--bg(v-if="wsConnected")
         .w-icon.size--xs.yellow--bg(v-else)
         span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
           | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
-
     w-input.w-input.light.my4.h-auto(
       v-model="searchQuery"
       @input="handleSearchChange"
@@ -42,21 +42,6 @@ w-grid.gap-xl
 
     //- Content
     div(v-else)
-      //- Stats
-      .w-flex.gap4.my4
-        .w-card.dark2--bg.bdrs2.pa4
-          span.op5.text-upper.size--sm Total Stocks
-          .title2 {{ totalStocks }}
-        .w-card.dark2--bg.bdrs2.pa4
-          span.op5.text-upper.size--sm Showing
-          .title2 {{ stocks.length }}
-        .w-card.dark2--bg.bdrs2.pa4
-          span.op5.text-upper.size--sm With Prices
-          .title2 {{ stocks.filter(s => s.price > 0).length }}
-        .w-card.dark2--bg.bdrs2.pa4
-          span.op5.text-upper.size--sm Last Update
-          .lg {{ lastUpdate }}
-
       //- Stocks Table
       .glass-box.ova.pa4
         w-table.bd0(:headers="tableHeaders" :items="paginatedStocks")
@@ -64,7 +49,12 @@ w-grid.gap-xl
             tr.clickable-row(@click="$router.push(`/trading/${stock.symbol}`)")
               td.px2.py2
                 .w-flex.align-center
-                  ticker-logo.mr3(:symbol="stock.symbol")
+                  w-badge.mr3(overlap bottom bg-color="" xs :badge-class="`market-status-indicator market-${stock.currentStatus.status}`")
+                    template(#badge)
+                      span.pa1(:title="stock.currentStatus.message")
+                    ticker-logo(:symbol="stock.symbol")
+
+                  //- ticker-logo.mr3(:symbol="stock.symbol")
                   .w-flex.gap2
                     span.text-bold {{ stock.symbol }}
                     w-tag(sm round :style="`background-color: var(--${['NYSE', 'NASDAQ'].includes(stock.exchange) ? stock.exchange.toLowerCase() : 'other-se'}-color)`")
@@ -158,7 +148,7 @@ async function fetchStocks(resetPage = false) {
     stocks.value = (data.stocks || []).map(normalizeStockData)
     totalStocks.value = data.pagination?.total || 0
     totalPages.value = data.pagination?.totalPages || 1
-
+    debugger
     loading.value = false
     fetchingPrices.value = false
     lastUpdate.value = new Date().toLocaleTimeString()

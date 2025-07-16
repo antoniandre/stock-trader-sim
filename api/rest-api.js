@@ -229,9 +229,7 @@ export function createRestApiRoutes() {
       const stocks = await getAllTradableStocks()
       const stockData = stocks.find(stock => stock.symbol === symbol)
 
-      if (!stockData) {
-        return res.status(404).json({ error: `Stock ${symbol} not found` })
-      }
+      if (!stockData) return res.status(404).json({ error: `Stock ${symbol} not found` })
 
       const price = await getPrice(symbol)
 

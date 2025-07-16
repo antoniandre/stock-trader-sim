@@ -14,10 +14,10 @@
         .w-flex.align-center.gap4
           .w-flex.align-center.gap2
             span.size--xs.text-upper(:class="`market-${currentStatus.status}`") {{ currentStatus.message }}
-            span.size--xs.op6(v-if="marketStatus.status === 'open' && marketStatus.nextClose")
-              | (closes at {{ new Date(marketStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
-            span.size--xs.op6(v-else-if="marketStatus.nextOpen")
-              | (opens {{ formatNextOpen(marketStatus.nextOpen) }})
+            span.size--xs.op6(v-if="currentStatus.status === 'open' && currentStatus.nextClose")
+              | (closes at {{ new Date(currentStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
+            span.size--xs.op6(v-else-if="currentStatus.nextOpen")
+              | (opens {{ formatNextOpenTime }})
           .w-flex.align-center.gap2.mla
             .w-icon.size--xs(:class="wsConnected ? 'success--bg' : 'yellow--bg'")
             span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
@@ -163,9 +163,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Line } from 'vue-chartjs'
 import 'chart.js/auto'
 import { fetchStock, fetchStockPrice, subscribeToStock, fetchStockHistory } from '@/api'
-import { formatNextOpen, formatPriceChange, formatPriceChangePercent } from '@/utils/formatters'
+import { formatPriceChange, formatPriceChangePercent } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
-import { useMarketStatus } from '@/composables/market-status'
 import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from '@/components/ticker-logo.vue'
 
@@ -191,10 +190,9 @@ const historicalData = ref([])
 const selectedPeriod = ref('1D')
 const recentTrades = ref([])
 
-// Use composables for WebSocket and market status.
+// Use composables for WebSocket and stock status.
 const { wsConnected, lastUpdate, connect, addMessageHandler } = useWebSocket()
-const { marketStatus, fetchMarketStatusData, updateMarketStatus } = useMarketStatus()
-const { currentStatus } = useStockStatus(stock, marketStatus)
+const { currentStatus, formatNextOpenTime } = useStockStatus(stock)
 
 // Chart periods
 const chartPeriods = [
@@ -516,10 +514,7 @@ function handlePriceUpdate(data) {
   console.log(`📈 Price update: ${props.symbol} = ${stock.value.currencySymbol}${data.price}`)
 }
 
-function handleMarketStatus(data) {
-  console.log('📊 Market status update:', data.data)
-  updateMarketStatus(data.data)
-}
+
 
 function handleTrade(data) {
   recentTrades.value.unshift({
@@ -539,7 +534,6 @@ function handleTrade(data) {
 // Set up WebSocket handlers.
 function setupWebSocket() {
   addMessageHandler('price', handlePriceUpdate)
-  addMessageHandler('market-status', handleMarketStatus)
   addMessageHandler('trade', handleTrade)
 }
 
@@ -625,7 +619,6 @@ async function placeOrder(side) {
 // Lifecycle.
 onMounted(async () => {
   await fetchStockData()
-  await fetchMarketStatusData()
   await fetchHistoricalData()
   setupWebSocket()
   connect()

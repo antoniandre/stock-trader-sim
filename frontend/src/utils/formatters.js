@@ -1,3 +1,5 @@
+import { useStockStatus } from '@/composables/stock-status'
+
 // Date and time formatting utilities.
 export function formatNextOpen(nextOpenISO) {
   const nextOpen = new Date(nextOpenISO)
@@ -68,6 +70,7 @@ export function normalizeStockData(stock) {
   return {
     ...stock,
     status: stock.status.toLowerCase(),
+    currentStatus: useStockStatus(stock).currentStatus,
     tradable: stock.status.toLowerCase() === 'active' && stock.price > 0,
     currency: stock.currency || 'USD',
     currencySymbol: stock.currencySymbol || '$'
