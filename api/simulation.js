@@ -94,8 +94,22 @@ export function getMockTradableStocks() {
 // Mock Price Generation
 // --------------------------------------------------------
 export function getMockPrice(symbol) {
-  const basePrice = mockPrices[symbol]
-  if (!basePrice) return 0
+  let basePrice = mockPrices[symbol]
+
+  // If no base price is set, generate one based on the symbol
+  if (!basePrice) {
+    // Use a simple hash of the symbol to generate a consistent base price
+    let hash = 0
+    for (let i = 0; i < symbol.length; i++) {
+      hash = ((hash << 5) - hash) + symbol.charCodeAt(i)
+      hash = hash & hash // Convert to 32-bit integer
+    }
+    // Generate a price between $1 and $500 based on the hash
+    basePrice = Math.abs(hash % 500) + 1
+
+    // Cache the base price for consistency
+    mockPrices[symbol] = basePrice
+  }
 
   const timeVariation = Math.sin(Date.now() / 10000) * 0.02
   const randomVariation = (Math.random() - 0.5) * 0.01

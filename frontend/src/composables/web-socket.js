@@ -54,6 +54,25 @@ export function useWebSocket(url = 'ws://localhost:3000') {
     }
   }
 
+  function send(message) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(message))
+      return true
+    }
+    else {
+      console.warn('WebSocket not connected, cannot send message:', message)
+      return false
+    }
+  }
+
+  function subscribeToStock(symbol) {
+    return send({ type: 'subscribe', symbol })
+  }
+
+  function unsubscribeFromStock(symbol) {
+    return send({ type: 'unsubscribe', symbol })
+  }
+
   function addMessageHandler(type, handler) {
     if (!messageHandlers.has(type)) messageHandlers.set(type, [])
     messageHandlers.get(type).push(handler)
@@ -66,27 +85,18 @@ export function useWebSocket(url = 'ws://localhost:3000') {
     if (index > -1) handlers.splice(index, 1)
   }
 
-  function disconnect() {
-    if (reconnectTimeout) {
-      clearTimeout(reconnectTimeout)
-      reconnectTimeout = null
-    }
-    if (ws) {
-      ws.close()
-      ws = null
-    }
-    wsConnected.value = false
-  }
-
   onBeforeUnmount(() => {
-    disconnect()
+    if (ws) ws.close()
+    if (reconnectTimeout) clearTimeout(reconnectTimeout)
   })
 
   return {
     wsConnected,
     lastUpdate,
     connect,
-    disconnect,
+    send,
+    subscribeToStock,
+    unsubscribeFromStock,
     addMessageHandler,
     removeMessageHandler
   }

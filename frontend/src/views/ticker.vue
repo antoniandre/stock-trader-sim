@@ -162,8 +162,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Line } from 'vue-chartjs'
 import 'chart.js/auto'
-import { fetchStock, fetchStockPrice, subscribeToStock, fetchStockHistory } from '@/api'
-import { formatPriceChange, formatPriceChangePercent } from '@/utils/formatters'
+import { fetchStock, fetchStockPrice, fetchStockHistory } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from '@/components/ticker-logo.vue'
@@ -195,7 +194,7 @@ const selectedPeriod = ref('1D')
 const recentTrades = ref([])
 
 // Use composables for WebSocket and stock status.
-const { wsConnected, lastUpdate, connect, addMessageHandler } = useWebSocket()
+const { wsConnected, lastUpdate, connect, addMessageHandler, subscribeToStock } = useWebSocket()
 const { currentStatus, formatNextOpenTime } = useStockStatus(stock)
 
 // Chart periods
@@ -435,13 +434,7 @@ async function fetchStockData() {
       }
 
       // Subscribe to WebSocket updates for this stock
-      try {
-        await subscribeToStock(props.symbol)
-        console.log(`📡 Subscribed to ${props.symbol} updates`)
-      }
-      catch (subscribeError) {
-        console.warn(`⚠️ Failed to subscribe to ${props.symbol}:`, subscribeError)
-      }
+      subscribeToStockUpdates()
     }
   }
   catch (error) {
@@ -470,13 +463,7 @@ async function fetchStockData() {
         }
 
         // Subscribe to WebSocket updates
-        try {
-          await subscribeToStock(props.symbol)
-          console.log(`📡 Subscribed to ${props.symbol} updates`)
-        }
-        catch (subscribeError) {
-          console.warn(`⚠️ Failed to subscribe to ${props.symbol}:`, subscribeError)
-        }
+        subscribeToStockUpdates()
       }
     }
     catch (priceError) {
@@ -555,6 +542,20 @@ function handleTrade(data) {
 function setupWebSocket() {
   addMessageHandler('price', handlePriceUpdate)
   addMessageHandler('trade', handleTrade)
+}
+
+// Subscribe to stock updates via WebSocket
+function subscribeToStockUpdates() {
+  // Wait for WebSocket to be connected before subscribing
+  const checkConnection = () => {
+    if (wsConnected.value) {
+      const success = subscribeToStock(props.symbol)
+      if (success) console.log(`📡 Subscribed to ${props.symbol} updates via WebSocket`)
+      else console.warn(`⚠️ Failed to subscribe to ${props.symbol} via WebSocket`)
+    }
+    else setTimeout(checkConnection, 100)
+  }
+  checkConnection()
 }
 
 function updatePrice(newPrice) {

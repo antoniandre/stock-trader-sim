@@ -309,7 +309,10 @@ export async function getPrice(symbol) {
   if (IS_SIMULATION) return getMockPrice(symbol)
 
   // Use cached price from WebSocket if available.
-  if (state.stockPrices[symbol]) return state.stockPrices[symbol]
+  if (state.stockPrices[symbol]) {
+    console.log(`💰 Using cached price for ${symbol}: $${state.stockPrices[symbol]}`)
+    return state.stockPrices[symbol]
+  }
 
   // Try multiple Alpaca endpoints for price data.
   const endpoints = [

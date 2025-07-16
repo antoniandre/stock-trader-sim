@@ -132,24 +132,7 @@ export async function fetchStockPrice(symbol) {
   }
 }
 
-// Subscribe to a stock's WebSocket updates
-export async function subscribeToStock(symbol) {
-  try {
-    const response = await fetch(`${API_BASE}/stocks/${symbol}/subscribe`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-
-    return await response.json()
-  }
-  catch (error) {
-    console.error('API Error:', error)
-    throw error
-  }
-}
+// Note: Stock subscription is now handled via WebSocket directly in the useWebSocket composable
 
 // Get market status
 export async function fetchMarketStatus() {
