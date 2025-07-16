@@ -135,6 +135,114 @@ export async function getMarketStatus() {
   }
 }
 
+/**
+ * Get market status for a specific stock based on its exchange
+ * @param {Object} stock - Stock object with exchange property
+ * @returns {Object} Market status object
+ */
+export async function getStockMarketStatus(stock) {
+  const easternTime = getEasternTime()
+  const day = easternTime.getDay() // 0 = Sunday, 6 = Saturday.
+  const hours = easternTime.getHours()
+  const minutes = easternTime.getMinutes()
+  const currentTimeMinutes = hours * 60 + minutes
+
+  // Priority 1: Stock status (inactive/not tradable) - highest priority
+  if (stock.status && stock.status.toLowerCase() === 'inactive') {
+    return {
+      status: 'closed',
+      message: 'Inactive Stock',
+      nextOpen: null,
+      nextClose: null
+    }
+  }
+  if (stock.tradable === false) {
+    return {
+      status: 'closed',
+      message: 'Not Tradable',
+      nextOpen: null,
+      nextClose: null
+    }
+  }
+
+  // Check if today is a trading day according to Alpaca calendar.
+  const isTradingDay = await isMarketTradingDay(easternTime)
+
+  // If not a trading day (weekend or holiday), market is closed.
+  if (!isTradingDay) {
+    return {
+      status: 'closed',
+      message: 'Market closed - Holiday or Weekend',
+      nextOpen: getNextMarketOpen(easternTime),
+      nextClose: null
+    }
+  }
+
+  // US market hours (all US exchanges use same hours)
+  const usExchanges = ['NYSE', 'NASDAQ', 'AMEX', 'BATS', 'IEX']
+  const exchange = stock.exchange || 'Unknown'
+
+  if (usExchanges.includes(exchange)) {
+    // Market hours in minutes since midnight ET.
+    const preMarketStart = 4 * 60 // 4:00 AM ET.
+    const marketOpen = 9 * 60 + 30 // 9:30 AM ET.
+    const marketClose = 16 * 60 // 4:00 PM ET.
+    const afterHoursEnd = 20 * 60 // 8:00 PM ET.
+
+    if (currentTimeMinutes < preMarketStart) {
+      return {
+        status: 'overnight',
+        message: 'Overnight',
+        nextOpen: getNextMarketOpen(easternTime),
+        nextClose: null
+      }
+    }
+
+    if (currentTimeMinutes >= preMarketStart && currentTimeMinutes < marketOpen) {
+      return {
+        status: 'premarket',
+        message: 'Pre-market',
+        nextOpen: getNextMarketOpen(easternTime),
+        nextClose: null
+      }
+    }
+
+    if (currentTimeMinutes >= marketOpen && currentTimeMinutes < marketClose) {
+      return {
+        status: 'open',
+        message: 'Market Open',
+        nextOpen: null,
+        nextClose: getNextMarketClose(easternTime)
+      }
+    }
+
+    if (currentTimeMinutes >= marketClose && currentTimeMinutes < afterHoursEnd) {
+      return {
+        status: 'afterhours',
+        message: 'After-hours',
+        nextOpen: getNextMarketOpen(easternTime),
+        nextClose: null
+      }
+    }
+
+    return {
+      status: 'overnight',
+      message: 'Overnight',
+      nextOpen: getNextMarketOpen(easternTime),
+      nextClose: null
+    }
+  }
+
+  // For other exchanges, assume closed for now
+  // This can be expanded to support international exchanges
+  return {
+    status: 'closed',
+    message: 'Market status unavailable',
+    nextOpen: null,
+    nextClose: null
+  }
+}
+
 function getNextMarketOpen(easternTime) {
   const nextOpen = new Date(easternTime)
 

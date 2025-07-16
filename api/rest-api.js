@@ -1,7 +1,7 @@
 import express from 'express'
 import { state } from './config.js'
 import { subscribeToStock, getCurrentMarketStatus } from './websocket-server.js'
-import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData } from './market-data.js'
+import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockMarketStatus } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, placeOrder } from './alpaca-account.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse } from './utils.js'
@@ -143,44 +143,62 @@ export function createRestApiRoutes() {
       const endIndex = startIndex + limitNum
       const paginatedStocks = filteredStocks.slice(startIndex, endIndex)
 
-      // Fetch prices for stocks on current page that don't have prices yet
-      console.log(`💰 Fetching prices for ${paginatedStocks.length} stocks on page ${pageNum}...`)
-      const stocksToFetch = paginatedStocks.filter(stock => !state.stockPrices[stock.symbol])
+      // Fetch comprehensive data for all stocks on current page
+      console.log(`💰 Fetching comprehensive data for ${paginatedStocks.length} stocks on page ${pageNum}...`)
 
-      if (stocksToFetch.length > 0) {
-        console.log(`📊 Need to fetch prices for: ${stocksToFetch.map(s => s.symbol).join(', ')}`)
-
-        // Fetch prices in parallel, but limit concurrent requests to avoid overwhelming Alpaca
-        const batchSize = 5
-        for (let i = 0; i < stocksToFetch.length; i += batchSize) {
-          const batch = stocksToFetch.slice(i, i + batchSize)
-          await Promise.all(batch.map(async stock => {
-            try {
-              const price = await getPrice(stock.symbol)
-              if (price > 0) {
-                state.stockPrices[stock.symbol] = price
-                console.log(`💲 Fetched ${stock.symbol}: $${price.toFixed(2)}`)
-              }
+      // Fetch prices and market status in parallel
+      const comprehensiveStocks = await Promise.all(paginatedStocks.map(async (stock) => {
+        try {
+          // Get price (use cached if available, otherwise fetch)
+          let price = state.stockPrices[stock.symbol] || 0
+          if (price === 0) {
+            price = await getPrice(stock.symbol)
+            if (price > 0) {
+              state.stockPrices[stock.symbol] = price
+              console.log(`💲 Fetched ${stock.symbol}: $${price.toFixed(2)}`)
             }
-            catch (error) {
-              console.warn(`⚠️ Failed to fetch price for ${stock.symbol}: ${error.message}`)
-            }
-          }))
+          }
 
-          // Small delay between batches to be nice to the API
-          if (i + batchSize < stocksToFetch.length) {
-            await new Promise(resolve => setTimeout(resolve, 100))
+          // Get market status for this specific stock
+          const marketStatus = await getStockMarketStatus(stock)
+
+          return {
+            symbol: stock.symbol,
+            name: stock.name,
+            exchange: stock.exchange,
+            status: stock.status,
+            tradable: stock.tradable,
+            price,
+            lastSide: 'buy',
+            currency: stock.currency || 'USD',
+            currencySymbol: stock.currencySymbol || '$',
+            marketState: marketStatus.status,
+            marketMessage: marketStatus.message,
+            nextOpen: marketStatus.nextOpen,
+            nextClose: marketStatus.nextClose
           }
         }
-      }
-
-      const stocksWithPrices = paginatedStocks.map(stock => ({
-        ...stock,
-        price: state.stockPrices[stock.symbol] || 0,
-        lastSide: 'buy',
-        currency: stock.currency || 'USD',
-        currencySymbol: stock.currencySymbol || '$'
+        catch (error) {
+          console.warn(`⚠️ Failed to fetch comprehensive data for ${stock.symbol}: ${error.message}`)
+          return {
+            symbol: stock.symbol,
+            name: stock.name,
+            exchange: stock.exchange,
+            status: stock.status,
+            tradable: stock.tradable,
+            price: 0,
+            lastSide: 'buy',
+            currency: stock.currency || 'USD',
+            currencySymbol: stock.currencySymbol || '$',
+            marketState: 'closed',
+            marketMessage: 'Data unavailable',
+            nextOpen: null,
+            nextClose: null
+          }
+        }
       }))
+
+      const stocksWithPrices = comprehensiveStocks
 
       res.json({
         stocks: stocksWithPrices,
@@ -236,12 +254,23 @@ export function createRestApiRoutes() {
       // Cache the price for future WebSocket updates.
       if (price > 0) state.stockPrices[symbol] = price
 
+      // Get market status for this specific stock
+      const marketStatus = await getStockMarketStatus(stockData)
+
       res.json(createStandardResponse({
-        ...stockData,
+        symbol: stockData.symbol,
+        name: stockData.name,
+        exchange: stockData.exchange,
+        status: stockData.status,
+        tradable: stockData.tradable,
         price,
         lastSide: 'buy',
         currency: stockData.currency || 'USD',
-        currencySymbol: stockData.currencySymbol || '$'
+        currencySymbol: stockData.currencySymbol || '$',
+        marketState: marketStatus.status,
+        marketMessage: marketStatus.message,
+        nextOpen: marketStatus.nextOpen,
+        nextClose: marketStatus.nextClose
       }))
     }
     catch (error) {

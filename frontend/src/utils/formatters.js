@@ -65,17 +65,7 @@ export function formatPriceChangePercent(changePercent, decimals = 2) {
   return `${sign}${changePercent.toFixed(decimals)}%`
 }
 
-// Stock status utilities.
-export function normalizeStockData(stock) {
-  return {
-    ...stock,
-    status: stock.status.toLowerCase(),
-    currentStatus: useStockStatus(stock).currentStatus,
-    tradable: stock.status.toLowerCase() === 'active' && stock.price > 0,
-    currency: stock.currency || 'USD',
-    currencySymbol: stock.currencySymbol || '$'
-  }
-}
+// Removed normalizeStockData function - no longer needed with comprehensive backend data
 
 // Loading state utilities.
 export function createLoadingState() {

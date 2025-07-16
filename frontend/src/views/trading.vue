@@ -49,9 +49,9 @@ w-grid.gap-xl
             tr.clickable-row(@click="$router.push(`/trading/${stock.symbol}`)")
               td.px2.py2
                 .w-flex.align-center
-                  w-badge.mr3(overlap bottom bg-color="" xs :badge-class="`market-status-indicator market-${stock.currentStatus.status}`")
+                  w-badge.mr3(overlap bottom bg-color="" xs :badge-class="`market-status-indicator market-${stock.marketState}`")
                     template(#badge)
-                      span.pa1(:title="stock.currentStatus.message")
+                      span.pa1(:title="stock.marketMessage")
                     ticker-logo(:symbol="stock.symbol")
 
                   //- ticker-logo.mr3(:symbol="stock.symbol")
@@ -99,7 +99,6 @@ w-grid.gap-xl
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { fetchAllStocks } from '@/api'
-import { formatNextOpen, normalizeStockData } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
@@ -145,10 +144,9 @@ async function fetchStocks(resetPage = false) {
 
     const data = await fetchAllStocks(currentPage.value, itemsPerPage, searchQuery.value)
 
-    stocks.value = (data.stocks || []).map(normalizeStockData)
+    stocks.value = data.stocks || []
     totalStocks.value = data.pagination?.total || 0
     totalPages.value = data.pagination?.totalPages || 1
-    debugger
     loading.value = false
     fetchingPrices.value = false
     lastUpdate.value = new Date().toLocaleTimeString()
@@ -217,7 +215,7 @@ function handleMarketUpdate(data) {
     const existingStock = stocks.value.find(s => s.symbol === stock.symbol)
     if (existingStock) {
       existingStock.price = stock.price
-      existingStock.lastSide = stock.lastSide
+      existingStock.lastSide = stock.lastSide || 'buy'
       existingStock.currency = stock.currency || 'USD'
       existingStock.currencySymbol = stock.currencySymbol || '$'
     }
@@ -233,6 +231,14 @@ function handlePriceUpdate(data) {
     existingStock.lastSide = data.lastSide || 'buy'
     existingStock.currency = data.currency || 'USD'
     existingStock.currencySymbol = data.currencySymbol || '$'
+
+    // Update market state if provided
+    if (data.marketState) {
+      existingStock.marketState = data.marketState
+      existingStock.marketMessage = data.marketMessage
+      existingStock.nextOpen = data.nextOpen
+      existingStock.nextClose = data.nextClose
+    }
   }
 }
 

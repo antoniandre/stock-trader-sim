@@ -1,6 +1,6 @@
 import WebSocket, { WebSocketServer } from 'ws'
 import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state } from './config.js'
-import { getPrice, getMarketStatus } from './market-data.js'
+import { getMarketStatus, getStockMarketStatus } from './market-data.js'
 import { placeOrder } from './alpaca-account.js'
 import { runSimulation, mockPrices } from './simulation.js'
 
@@ -229,14 +229,33 @@ export function connectAlpacaWebSocket() {
           state.stockPrices[symbol] = price
 
           const stockData = state.allStocks.find(s => s.symbol === symbol)
-          broadcast({
-            type: 'price',
-            symbol,
-            price,
-            currency: stockData?.currency || 'USD',
-            currencySymbol: stockData?.currencySymbol || '$',
-            timestamp: new Date().toISOString()
-          })
+          if (stockData) {
+            // Get market status for this stock
+            getStockMarketStatus(stockData).then(marketStatus => {
+              broadcast({
+                type: 'price',
+                symbol,
+                price,
+                currency: stockData.currency || 'USD',
+                currencySymbol: stockData.currencySymbol || '$',
+                marketState: marketStatus.status,
+                marketMessage: marketStatus.message,
+                nextOpen: marketStatus.nextOpen,
+                nextClose: marketStatus.nextClose,
+                timestamp: new Date().toISOString()
+              })
+            }).catch(error => {
+              console.warn(`⚠️ Failed to get market status for ${symbol}:`, error)
+              broadcast({
+                type: 'price',
+                symbol,
+                price,
+                currency: stockData.currency || 'USD',
+                currencySymbol: stockData.currencySymbol || '$',
+                timestamp: new Date().toISOString()
+              })
+            })
+          }
         }
 
         if (message.T === 'quote') {
@@ -246,12 +265,34 @@ export function connectAlpacaWebSocket() {
             console.log(`📈 Quote received: ${symbol} @ $${price}`)
             state.stockPrices[symbol] = price
 
-            broadcast({
-              type: 'price',
-              symbol,
-              price,
-              timestamp: new Date().toISOString()
-            })
+            const stockData = state.allStocks.find(s => s.symbol === symbol)
+            if (stockData) {
+              // Get market status for this stock
+              getStockMarketStatus(stockData).then(marketStatus => {
+                broadcast({
+                  type: 'price',
+                  symbol,
+                  price,
+                  currency: stockData.currency || 'USD',
+                  currencySymbol: stockData.currencySymbol || '$',
+                  marketState: marketStatus.status,
+                  marketMessage: marketStatus.message,
+                  nextOpen: marketStatus.nextOpen,
+                  nextClose: marketStatus.nextClose,
+                  timestamp: new Date().toISOString()
+                })
+              }).catch(error => {
+                console.warn(`⚠️ Failed to get market status for ${symbol}:`, error)
+                broadcast({
+                  type: 'price',
+                  symbol,
+                  price,
+                  currency: stockData.currency || 'USD',
+                  currencySymbol: stockData.currencySymbol || '$',
+                  timestamp: new Date().toISOString()
+                })
+              })
+            }
           }
         }
 
