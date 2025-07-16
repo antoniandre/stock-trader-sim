@@ -80,7 +80,7 @@ export async function getMarketStatus() {
     return {
       status: 'closed',
       message: 'Market is closed - Holiday or Weekend',
-      nextOpen: getNextMarketOpen(easternTime),
+      nextOpen: getNextMarketOpen(),
       isWeekend: day === 0 || day === 6
     }
   }
@@ -95,7 +95,7 @@ export async function getMarketStatus() {
     return {
       status: 'overnight',
       message: 'Overnight trading',
-      nextOpen: getNextMarketOpen(easternTime),
+      nextOpen: getNextMarketOpen(),
       isWeekend: false
     }
   }
@@ -104,7 +104,7 @@ export async function getMarketStatus() {
     return {
       status: 'premarket',
       message: 'Pre-market trading',
-      nextOpen: getNextMarketOpen(easternTime),
+      nextOpen: getNextMarketOpen(),
       isWeekend: false
     }
   }
@@ -113,7 +113,7 @@ export async function getMarketStatus() {
     return {
       status: 'open',
       message: 'Market is open',
-      nextClose: getNextMarketClose(easternTime),
+      nextClose: getNextMarketClose(),
       isWeekend: false
     }
   }
@@ -122,7 +122,7 @@ export async function getMarketStatus() {
     return {
       status: 'afterhours',
       message: 'After-hours trading',
-      nextOpen: getNextMarketOpen(easternTime),
+      nextOpen: getNextMarketOpen(),
       isWeekend: false
     }
   }
@@ -130,7 +130,7 @@ export async function getMarketStatus() {
   return {
     status: 'overnight',
     message: 'Overnight trading',
-    nextOpen: getNextMarketOpen(easternTime),
+    nextOpen: getNextMarketOpen(),
     isWeekend: false
   }
 }
@@ -173,7 +173,7 @@ export async function getStockMarketStatus(stock) {
     return {
       status: 'closed',
       message: 'Market closed - Holiday or Weekend',
-      nextOpen: getNextMarketOpen(easternTime),
+      nextOpen: getNextMarketOpen(),
       nextClose: null
     }
   }
@@ -193,7 +193,7 @@ export async function getStockMarketStatus(stock) {
       return {
         status: 'overnight',
         message: 'Overnight',
-        nextOpen: getNextMarketOpen(easternTime),
+        nextOpen: getNextMarketOpen(),
         nextClose: null
       }
     }
@@ -202,7 +202,7 @@ export async function getStockMarketStatus(stock) {
       return {
         status: 'premarket',
         message: 'Pre-market',
-        nextOpen: getNextMarketOpen(easternTime),
+        nextOpen: getNextMarketOpen(),
         nextClose: null
       }
     }
@@ -212,7 +212,7 @@ export async function getStockMarketStatus(stock) {
         status: 'open',
         message: 'Market Open',
         nextOpen: null,
-        nextClose: getNextMarketClose(easternTime)
+        nextClose: getNextMarketClose()
       }
     }
 
@@ -220,7 +220,7 @@ export async function getStockMarketStatus(stock) {
       return {
         status: 'afterhours',
         message: 'After-hours',
-        nextOpen: getNextMarketOpen(easternTime),
+        nextOpen: getNextMarketOpen(),
         nextClose: null
       }
     }
@@ -228,7 +228,7 @@ export async function getStockMarketStatus(stock) {
     return {
       status: 'overnight',
       message: 'Overnight',
-      nextOpen: getNextMarketOpen(easternTime),
+      nextOpen: getNextMarketOpen(),
       nextClose: null
     }
   }
@@ -243,8 +243,9 @@ export async function getStockMarketStatus(stock) {
   }
 }
 
-function getNextMarketOpen(easternTime) {
-  const nextOpen = new Date(easternTime)
+function getNextMarketOpen() {
+  const today = new Date()
+  let nextOpen = new Date(today)
 
   // If it's Friday after market close, next open is Monday.
   if (nextOpen.getDay() === 5 && nextOpen.getHours() >= 16) {
@@ -263,24 +264,49 @@ function getNextMarketOpen(easternTime) {
     nextOpen.setDate(nextOpen.getDate() + 1)
   }
 
-  // Set to 9:30 AM ET.
-  nextOpen.setHours(9, 30, 0, 0)
-  return nextOpen.toISOString()
+  // Create a proper date for 9:30 AM Eastern Time
+  const year = nextOpen.getFullYear()
+  const month = nextOpen.getMonth()
+  const date = nextOpen.getDate()
+
+  // Check if we're in DST on the target date
+  const targetDate = new Date(year, month, date)
+  const july = new Date(year, 6, 1) // July 1st
+  const january = new Date(year, 0, 1) // January 1st
+  const isDST = targetDate.getTimezoneOffset() < Math.max(july.getTimezoneOffset(), january.getTimezoneOffset())
+
+  // EDT is UTC-4, EST is UTC-5
+  // 9:30 AM EDT = 13:30 UTC, 9:30 AM EST = 14:30 UTC
+  const utcHour = isDST ? 13 : 14
+  const utcMinute = 30
+
+  return new Date(Date.UTC(year, month, date, utcHour, utcMinute, 0, 0)).toISOString()
 }
 
-function getNextMarketClose(easternTime) {
-  const nextClose = new Date(easternTime)
-  // Set to 4:00 PM ET today.
-  nextClose.setHours(16, 0, 0, 0)
-  return nextClose.toISOString()
+function getNextMarketClose() {
+  // Create a date for 4:00 PM Eastern Time today
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = today.getMonth()
+  const date = today.getDate()
+
+  // Check if we're in DST on the target date
+  const targetDate = new Date(year, month, date)
+  const july = new Date(year, 6, 1) // July 1st
+  const january = new Date(year, 0, 1) // January 1st
+  const isDST = targetDate.getTimezoneOffset() < Math.max(july.getTimezoneOffset(), january.getTimezoneOffset())
+
+  // EDT is UTC-4, EST is UTC-5
+  // 4:00 PM EDT = 20:00 UTC, 4:00 PM EST = 21:00 UTC
+  const utcHour = isDST ? 20 : 21
+
+  return new Date(Date.UTC(year, month, date, utcHour, 0, 0, 0)).toISOString()
 }
 
 // Price Data Functions
 // --------------------------------------------------------
 export async function getPrice(symbol) {
-  if (IS_SIMULATION) {
-    return getMockPrice(symbol)
-  }
+  if (IS_SIMULATION) return getMockPrice(symbol)
 
   // Use cached price from WebSocket if available.
   if (state.stockPrices[symbol]) return state.stockPrices[symbol]

@@ -1,5 +1,3 @@
-import { useStockStatus } from '@/composables/stock-status'
-
 // Date and time formatting utilities.
 export function formatNextOpen(nextOpenISO) {
   const nextOpen = new Date(nextOpenISO)
@@ -63,14 +61,4 @@ export function formatPriceChangePercent(changePercent, decimals = 2) {
   if (changePercent === null || changePercent === undefined) return null
   const sign = changePercent >= 0 ? '+' : ''
   return `${sign}${changePercent.toFixed(decimals)}%`
-}
-
-// Removed normalizeStockData function - no longer needed with comprehensive backend data
-
-// Loading state utilities.
-export function createLoadingState() {
-  return {
-    loading: false,
-    error: null
-  }
 }
