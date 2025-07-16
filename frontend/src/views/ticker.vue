@@ -182,7 +182,11 @@ const stock = ref({
   currencySymbol: '$',
   status: 'unknown',
   tradable: true,
-  exchange: 'Unknown'
+  exchange: 'Unknown',
+  marketState: 'unknown',
+  marketMessage: 'Loading...',
+  nextOpen: null,
+  nextClose: null
 })
 
 const priceHistory = ref([])
@@ -423,7 +427,11 @@ async function fetchStockData() {
         currencySymbol: data.currencySymbol || '$',
         status: data.status || 'unknown',
         tradable: data.tradable !== false,
-        exchange: data.exchange || 'Unknown'
+        exchange: data.exchange || 'Unknown',
+        marketState: data.marketState || 'unknown',
+        marketMessage: data.marketMessage || 'Loading...',
+        nextOpen: data.nextOpen,
+        nextClose: data.nextClose
       }
 
       // Subscribe to WebSocket updates for this stock
@@ -454,7 +462,11 @@ async function fetchStockData() {
           currencySymbol: priceData.currencySymbol || '$',
           status: 'unknown',
           tradable: true,
-          exchange: 'Unknown'
+          exchange: 'Unknown',
+          marketState: 'unknown',
+          marketMessage: 'Market status unavailable',
+          nextOpen: null,
+          nextClose: null
         }
 
         // Subscribe to WebSocket updates
@@ -479,7 +491,11 @@ async function fetchStockData() {
         currencySymbol: '$',
         status: 'unknown',
         tradable: true,
-        exchange: 'Unknown'
+        exchange: 'Unknown',
+        marketState: 'unknown',
+        marketMessage: 'Market data unavailable',
+        nextOpen: null,
+        nextClose: null
       }
     }
   }
@@ -497,7 +513,11 @@ function handlePriceUpdate(data) {
     price: data.price,
     previousPrice: oldPrice,
     currency: data.currency || stock.value.currency,
-    currencySymbol: data.currencySymbol || stock.value.currencySymbol
+    currencySymbol: data.currencySymbol || stock.value.currencySymbol,
+    marketState: data.marketState || stock.value.marketState,
+    marketMessage: data.marketMessage || stock.value.marketMessage,
+    nextOpen: data.nextOpen || stock.value.nextOpen,
+    nextClose: data.nextClose || stock.value.nextClose
   }
 
   // Keep track of price history for the chart.
