@@ -8,9 +8,9 @@
     ticker-logo(:symbol="stock.symbol" size="lg")
     div
       .w-flex.align-center.justify-space-between.gap2
-        w-tag.w-flex.gap2.pr1.no-grow(round bg-color="info-dark4")
+        w-tag.w-flex.gap2.pr1.no-grow(round :bg-color="$waveui.theme === 'dark' ? 'info-dark4' : 'info-light5'")
           strong.size--lg {{ stock.symbol }}
-          .w-icon.status-icon.size--xs(:title="currentStatus.message" :class="`market-${currentStatus.status}`")
+          icon(:icon="currentStatus.icon" :class="`market-${currentStatus.status}`" style="width: 15px;height: 15px" :title="currentStatus.message")
         .w-flex.align-center.gap4
           .w-flex.align-center.gap2
             span.size--xs.text-upper(:class="`market-${currentStatus.status}`") {{ currentStatus.message }}
@@ -38,7 +38,8 @@
                 .title2.text-bold(v-if="stock.price > 0")
                   span.op6.mr2 {{ stock.currencySymbol }}
                   span {{ stock.price.toFixed(2) }}
-                .title2.text-bold(v-else)
+                .title3(v-else)
+                  w-icon.mr2.op4(size="1.4rem") wi-info-circle
                   span.op6 Price Unavailable
                 .caption.mt1.op7 Last updated: {{ lastUpdate }}
 
@@ -46,9 +47,6 @@
                 .text-bold
                   span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
                 .size--sm ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
-
-              .no-price-info(v-else-if="stock.price === 0")
-                .text-bold.op6 Market data not available
 
             .chart-selectors.w-flex.gap2
               //- Chart Type Toggle
@@ -804,8 +802,6 @@ async function placeOrder(side) {
 
 // Lifecycle.
 onMounted(async () => {
-  await fetchStockData()
-  await fetchHistoricalData()
   setupWebSocket()
   connect()
 })
@@ -902,8 +898,5 @@ watch(() => props.symbol, async () => {
     border-radius: 8px;
     background-color: rgba(255, 255, 255, 0.05);
   }
-
-  // Stock status indicator styling.
-  .status-icon {background-color: currentColor;}
 }
 </style>

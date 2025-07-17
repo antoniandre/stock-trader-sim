@@ -1,5 +1,12 @@
 import { computed } from 'vue'
 
+const marketIcons = {
+  open: 'ic:round-lens',
+  premarket: 'bi:sun-fill',
+  afterhours: 'bi:sun-fill',
+  overnight: 'clarity:moon-solid',
+  closed: 'ic:round-lens'
+}
 /**
  * Format next open time for display.
  *
@@ -56,6 +63,7 @@ export function useStockStatus(stock) {
     if (!stock.value) return {
       status: 'unknown',
       message: 'Loading...',
+      icon: '',
       nextOpen: null,
       nextClose: null
     }
@@ -63,6 +71,7 @@ export function useStockStatus(stock) {
     return {
       status: stock.value.marketState || 'unknown',
       message: stock.value.marketMessage || 'Loading...',
+      icon: marketIcons[stock.value.marketState] || '',
       nextOpen: stock.value.nextOpen,
       nextClose: stock.value.nextClose
     }
