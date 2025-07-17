@@ -10,7 +10,7 @@
       .w-flex.align-center.justify-space-between.gap2
         w-tag.w-flex.gap2.pr1.no-grow(round :bg-color="$waveui.theme === 'dark' ? 'info-dark4' : 'info-light5'")
           strong.size--lg {{ stock.symbol }}
-          icon(:icon="currentStatus.icon" :class="`market-${currentStatus.status}`" style="width: 15px;height: 15px" :title="currentStatus.message")
+          icon(:icon="currentStatus.icon" :class="`market-${currentStatus.status}`" :title="currentStatus.message" style="width: 15px")
         .w-flex.align-center.gap4
           .w-flex.align-center.gap2
             span.size--xs.text-upper(:class="`market-${currentStatus.status}`") {{ currentStatus.message }}
@@ -35,15 +35,24 @@
           .chart-controls.w-flex.justify-between.align-center.mb4
             .chart-info.w-flex.align-center.gap6
               .price-display
-                .title2.text-bold(v-if="stock.price > 0")
+                .title2.text-bold(v-if="stock.price")
                   span.op6.mr2 {{ stock.currencySymbol }}
                   span {{ stock.price.toFixed(2) }}
+                  w-button.pa0.ml3(
+                    width="24"
+                    height="24"
+                    @click="refreshPrice"
+                    :loading="isRefreshing"
+                    tooltip="Refresh Price"
+                    :tooltip-props="{ sm: true }"
+                    round)
+                    icon.w-icon(icon="mdi:refresh" style="width: 18px")
                 .title3(v-else)
                   w-icon.mr2.op4(size="1.4rem") wi-info-circle
                   span.op6 Price Unavailable
-                .caption.mt1.op7 Last updated: {{ lastUpdate }}
+                .caption.mt1.op7.poa Last updated: {{ lastUpdate }}
 
-              .price-change(v-if="priceChange && stock.price > 0" :class="priceChange >= 0 ? 'success-light3' : 'error'")
+              .price-change.text-center(v-if="priceChange && stock.price" :class="priceChange >= 0 ? 'success-light3' : 'error'")
                 .text-bold
                   span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
                 .size--sm ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
@@ -68,7 +77,7 @@
                   tooltip="Candles"
                   :tooltip-props="{ sm: true }"
                   round)
-                  icon.w-icon(icon="material-symbols-light:candlestick-chart-outline-rounded" style="width: 28px; height: 28px")
+                  icon.w-icon(icon="material-symbols-light:candlestick-chart-outline-rounded" style="width: 28px")
 
               //- Period Selector
               .period-selector.w-flex.gap1.no-grow.mla
@@ -85,12 +94,40 @@
                 w-select.timeframe-btn(
                   v-model="selectedTimeframe"
                   :items="availableTimeframes"
+                  @input="changeTimeframe"
                   outline)
 
           //- Chart Display
-          .chart-display.h-60.relative
-            Line(v-if="chartType === 'line'" ref="lineChartRef" :data="lineChartData" :options="lineChartOptions")
-            CandlestickChart(v-else ref="candleChartRef" :data="candlestickChartData" :options="candlestickChartOptions")
+          .chart.relative(:class="`chart--${chartType}`")
+            //- Loading state
+            .chart-loading.poa.w-flex.align-center.justify-center(v-if="isLoadingHistoricalData")
+              w-progress(circular)
+              span.text-info Loading chart data...
+
+            //- Charts
+            Line(
+              v-else-if="chartType === 'line'"
+              ref="lineChartRef"
+              :data="lineChartData"
+              :options="lineChartOptions")
+            CandlestickChart(
+              v-else ref="candleChartRef"
+              :data="candlestickChartData"
+              :options="candlestickChartOptions")
+
+            //- Chart Controls Helper
+            .chart-controls-helper.absolute.bottom-2.right-2.op6(v-if="!isLoadingHistoricalData")
+              .w-flex.align-center.gap2.size--xs
+                icon.w-icon(icon="mdi:mouse" style="width: 14px")
+                span Ctrl+Wheel to zoom • Shift+Drag to pan
+                w-button.pa0.ml2(
+                  width="20"
+                  height="20"
+                  @click="resetZoom"
+                  tooltip="Reset Zoom"
+                  :tooltip-props="{ sm: true }"
+                  round)
+                    icon.w-icon(icon="mdi:refresh" style="width: 16px")
 
     //- Right Column: Trading Interface
     div
@@ -194,14 +231,19 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Line } from 'vue-chartjs'
+import { Chart } from 'chart.js'
 import 'chart.js/auto'
 import 'chartjs-chart-financial'
 import 'chartjs-adapter-luxon'
+import zoomPlugin from 'chartjs-plugin-zoom'
 import { fetchStock, fetchStockPrice, fetchStockHistory } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from '@/components/ticker-logo.vue'
 import CandlestickChart from '@/components/candlestick-chart.vue'
+
+// Register zoom plugin
+Chart.register(zoomPlugin)
 
 const props = defineProps({
   symbol: { type: String, required: true }
@@ -226,10 +268,15 @@ const stock = ref({
 
 const priceHistory = ref([])
 const historicalData = ref([])
+const realtimeOHLC = ref([]) // Real-time OHLC data for candlestick chart
 const selectedPeriod = ref('1D')
 const selectedTimeframe = ref('1Min')
 const chartType = ref('candlestick')
 const recentTrades = ref([])
+const lineChartRef = ref(null)
+const candleChartRef = ref(null)
+const isRefreshing = ref(false)
+const isLoadingHistoricalData = ref(false)
 
 // Use composables for WebSocket and stock status.
 const { wsConnected, lastUpdate, connect, addMessageHandler, subscribeToStock } = useWebSocket()
@@ -315,10 +362,9 @@ const isOrderValid = computed(() => {
   return true
 })
 
-
-
 // Chart data for line chart
 const lineChartData = computed(() => {
+  // Use historical data if available, otherwise use real-time price history.
   const dataToUse = historicalData.value.length > 0 ? historicalData.value : priceHistory.value
 
   if (!dataToUse.length) {
@@ -362,7 +408,8 @@ const lineChartData = computed(() => {
 
 // Chart data for candlestick chart
 const candlestickChartData = computed(() => {
-  const dataToUse = historicalData.value.length > 0 ? historicalData.value : priceHistory.value
+  // Use real-time OHLC data if available, otherwise use historical data.
+  const dataToUse = realtimeOHLC.value.length > 0 ? realtimeOHLC.value : historicalData.value
 
   if (!dataToUse.length) {
     return {
@@ -406,10 +453,7 @@ const lineChartOptions = {
   responsive: true,
   maintainAspectRatio: false,
   animation: false,
-  interaction: {
-    mode: 'index',
-    intersect: false
-  },
+  interaction: { mode: 'index', intersect: false },
   plugins: {
     legend: { display: false },
     tooltip: {
@@ -435,6 +479,19 @@ const lineChartOptions = {
           const value = context.parsed.y
           return `${props.symbol}: ${stock.value.currencySymbol}${value.toFixed(2)}`
         }
+      }
+    },
+    zoom: {
+      zoom: {
+        wheel: { enabled: true, modifierKey: 'ctrl' },
+        pinch: { enabled: true },
+        mode: 'xy',
+        scaleMode: 'xy'
+      },
+      pan: {
+        enabled: true,
+        mode: 'xy',
+        modifierKey: 'shift'
       }
     }
   },
@@ -500,6 +557,22 @@ const candlestickChartOptions = {
           ]
         }
       }
+    },
+    zoom: {
+      zoom: {
+        wheel: {
+          enabled: true,
+          modifierKey: 'ctrl'
+        },
+        pinch: { enabled: true },
+        mode: 'xy',
+        scaleMode: 'xy'
+      },
+      pan: {
+        enabled: true,
+        mode: 'xy',
+        modifierKey: 'shift'
+      }
     }
   },
   scales: {
@@ -529,7 +602,54 @@ const candlestickChartOptions = {
 // Methods.
 // fetchMarketStatusData is now handled by the composable.
 
+// Build OHLC data from price updates
+function updateOHLCData(price, timestamp) {
+  const now = new Date(timestamp)
+  const intervalMs = 60000 // 1 minute intervals
+  const intervalStart = Math.floor(now.getTime() / intervalMs) * intervalMs
+
+  // Find existing OHLC bar for this interval
+  const existingBarIndex = realtimeOHLC.value.findIndex(bar =>
+    Math.floor(bar.timestamp / intervalMs) * intervalMs === intervalStart
+  )
+
+  if (existingBarIndex !== -1) {
+    // Update existing bar
+    const bar = realtimeOHLC.value[existingBarIndex]
+    realtimeOHLC.value[existingBarIndex] = {
+      ...bar,
+      high: Math.max(bar.high, price),
+      low: Math.min(bar.low, price),
+      close: price,
+      timestamp: now.getTime() // Update timestamp to latest
+    }
+  }
+  else {
+    // Create new bar
+    const newBar = {
+      timestamp: now.getTime(),
+      open: price,
+      high: price,
+      low: price,
+      close: price,
+      price: price // For backward compatibility
+    }
+
+    // Add to realtime OHLC data
+    realtimeOHLC.value.push(newBar)
+
+    // Sort by timestamp
+    realtimeOHLC.value.sort((a, b) => a.timestamp - b.timestamp)
+
+    // Keep only last 200 bars for performance
+    if (realtimeOHLC.value.length > 200) {
+      realtimeOHLC.value = realtimeOHLC.value.slice(-200)
+    }
+  }
+}
+
 async function fetchHistoricalData() {
+  isLoadingHistoricalData.value = true
   try {
     console.log(`📊 Fetching historical data for ${props.symbol} (${selectedPeriod.value}, ${selectedTimeframe.value})...`)
     const data = await fetchStockHistory(props.symbol, selectedPeriod.value, selectedTimeframe.value)
@@ -544,8 +664,11 @@ async function fetchHistoricalData() {
     }
   }
   catch (error) {
-    console.error('Error fetching historical data:', error)
+    console.error('❌ Error fetching historical data:', error)
     historicalData.value = []
+  }
+  finally {
+    isLoadingHistoricalData.value = false
   }
 }
 
@@ -579,7 +702,7 @@ async function fetchStockData() {
     }
   }
   catch (error) {
-    console.error('Error fetching stock data:', error)
+    console.error('❌ Error fetching stock data:', error)
 
     // If the stock is not found, still try to get price data
     try {
@@ -608,7 +731,7 @@ async function fetchStockData() {
       }
     }
     catch (priceError) {
-      console.error('Error fetching stock price:', priceError)
+      console.error('❌ Error fetching stock price:', priceError)
       // Set default values
       stock.value = {
         symbol: props.symbol,
@@ -634,6 +757,7 @@ function handlePriceUpdate(data) {
   if (data.symbol !== props.symbol) return
 
   const oldPrice = stock.value.price
+  const timestamp = new Date(data.timestamp).getTime()
 
   // Update stock object with new price data
   stock.value = {
@@ -648,9 +772,9 @@ function handlePriceUpdate(data) {
     nextClose: data.nextClose || stock.value.nextClose
   }
 
-  // Keep track of price history for the chart.
+  // Keep track of price history for line chart
   priceHistory.value.push({
-    timestamp: new Date(data.timestamp).getTime(),
+    timestamp: timestamp,
     price: data.price
   })
 
@@ -659,10 +783,11 @@ function handlePriceUpdate(data) {
     priceHistory.value = priceHistory.value.slice(-100)
   }
 
+  // Update OHLC data for candlestick chart
+  updateOHLCData(data.price, timestamp)
+
   console.log(`📈 Price update: ${props.symbol} = ${stock.value.currencySymbol}${data.price}`)
 }
-
-
 
 function handleTrade(data) {
   recentTrades.value.unshift({
@@ -674,9 +799,7 @@ function handleTrade(data) {
   })
 
   // Keep only the last 50 trades.
-  if (recentTrades.value.length > 50) {
-    recentTrades.value = recentTrades.value.slice(0, 50)
-  }
+  if (recentTrades.value.length > 50) recentTrades.value = recentTrades.value.slice(0, 50)
 }
 
 // Set up WebSocket handlers.
@@ -701,6 +824,8 @@ function subscribeToStockUpdates() {
 
 function updatePrice(newPrice) {
   if (newPrice && newPrice !== stock.value.price) {
+    const timestamp = Date.now()
+
     stock.value = {
       ...stock.value,
       previousPrice: stock.value.price,
@@ -708,17 +833,20 @@ function updatePrice(newPrice) {
     }
     lastUpdate.value = new Date().toLocaleTimeString()
 
-    // Add to price history
-    priceHistory.value.push({ timestamp: Date.now(), price: newPrice })
+    // Add to price history for line chart
+    priceHistory.value.push({ timestamp: timestamp, price: newPrice })
 
     // Keep only last 100 price points
     if (priceHistory.value.length > 100) {
       priceHistory.value = priceHistory.value.slice(-100)
     }
 
+    // Update OHLC data for candlestick chart
+    updateOHLCData(newPrice, timestamp)
+
     // For 1D period, also update historical data with live prices
     if (selectedPeriod.value === '1D' && historicalData.value.length > 0) {
-      historicalData.value.push({ timestamp: Date.now(), price: newPrice })
+      historicalData.value.push({ timestamp: timestamp, price: newPrice })
 
       // Keep only relevant data for the period
       const cutoff = Date.now() - (24 * 60 * 60 * 1000)  // 24 hours ago
@@ -745,6 +873,9 @@ async function changePeriod(period) {
   }
   selectedTimeframe.value = defaultTimeframes[period] || '1Min'
 
+  // Clear real-time OHLC data when changing periods
+  realtimeOHLC.value = []
+
   await fetchHistoricalData()
 }
 
@@ -760,7 +891,62 @@ function changeChartType(type) {
   chartType.value = type
 }
 
-// formatNextOpen is now imported from utilities.
+function resetZoom() {
+  // Reset zoom for both chart types
+  if (chartType.value === 'line' && lineChartRef.value?.chart) {
+    lineChartRef.value.chart.resetZoom()
+  } else if (chartType.value === 'candlestick' && candleChartRef.value?.chart) {
+    candleChartRef.value.chart().resetZoom()
+  }
+}
+
+async function refreshPrice() {
+  if (isRefreshing.value) return
+
+  isRefreshing.value = true
+  try {
+    console.log(`🔄 Refreshing price for ${props.symbol}...`)
+
+    // Fetch fresh price from API
+    const response = await fetch(`http://localhost:3000/api/stocks/${props.symbol}/price?fresh=true`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+    const data = await response.json()
+    if (data.price > 0) {
+      // Update stock price
+      const oldPrice = stock.value.price
+      stock.value.price = data.price
+      stock.value.previousPrice = oldPrice
+
+      console.log(`✅ Price refreshed: ${props.symbol} = $${data.price.toFixed(2)}`)
+
+      // Update timestamp
+      lastUpdate.value = new Date().toLocaleTimeString()
+
+      const timestamp = Date.now()
+
+      // Add to price history for line chart
+      priceHistory.value.push({
+        timestamp: timestamp,
+        price: data.price
+      })
+
+      // Keep only last 100 price points
+      if (priceHistory.value.length > 100) {
+        priceHistory.value = priceHistory.value.slice(-100)
+      }
+
+      // Update OHLC data for candlestick chart
+      updateOHLCData(data.price, timestamp)
+    }
+  }
+  catch (error) {
+    console.error(`❌ Error refreshing price for ${props.symbol}:`, error)
+  }
+  finally {
+    isRefreshing.value = false
+  }
+}
 
 async function placeOrder(side) {
   try {
@@ -795,29 +981,54 @@ async function placeOrder(side) {
     orderForm.value.stopLoss = null
   }
   catch (error) {
-    console.error('Error placing order:', error)
+    console.error('❌ Error placing order:', error)
     alert('Failed to place order')
   }
 }
 
 // Lifecycle.
 onMounted(async () => {
+  console.log(`🔄 Component mounted for ${props.symbol}`)
   setupWebSocket()
   connect()
+
+  // Wait for both stock data and historical data to load
+  await Promise.all([
+    fetchStockData(),
+    fetchHistoricalData()
+  ])
+
+  console.log(`✅ Component ready for ${props.symbol}`)
 })
 
 onUnmounted(() => {
   // WebSocket cleanup is handled by the composable.
+  console.log(`🔄 Component unmounted for ${props.symbol}`)
 })
 
 // Watch for symbol changes.
-watch(() => props.symbol, async () => {
-  await fetchStockData()
-  await fetchHistoricalData()
+watch(() => props.symbol, async (newSymbol, oldSymbol) => {
+  if (newSymbol === oldSymbol) return
+
+  console.log(`🔄 Symbol changed from ${oldSymbol} to ${newSymbol}`)
+
+  // Clear existing data
   priceHistory.value = []
   historicalData.value = []
+  realtimeOHLC.value = []
   recentTrades.value = []
-}, { immediate: true })
+
+  // Fetch new data
+  await Promise.all([
+    fetchStockData(),
+    fetchHistoricalData()
+  ])
+}, { immediate: false })
+
+// Watch for period/timeframe changes
+watch([selectedPeriod, selectedTimeframe], async () => {
+  await fetchHistoricalData()
+})
 </script>
 
 <style lang="scss">
@@ -874,11 +1085,33 @@ watch(() => props.symbol, async () => {
     }
   }
 
-  .chart-display {
+  .chart {
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
     padding: 1rem;
     background: rgba(0, 0, 0, 0.2);
+
+    &--line {height: 450px;}
+    &--candlestick {height: 450px;}
+  }
+
+  .chart-loading {
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 8px;
+    backdrop-filter: blur(10px);
+    z-index: 10;
+  }
+
+  .chart-controls-helper {
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 6px;
+    padding: 6px 10px;
+    backdrop-filter: blur(10px);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 11px;
+    transition: opacity 0.3s ease;
+
+    &:hover {opacity: 1;}
   }
 
   .trade-item {
@@ -890,13 +1123,6 @@ watch(() => props.symbol, async () => {
   .price-display .title2 {
     font-size: 2.2rem;
     line-height: 1;
-  }
-
-  .price-change {
-    text-align: center;
-    padding: 1rem;
-    border-radius: 8px;
-    background-color: rgba(255, 255, 255, 0.05);
   }
 }
 </style>

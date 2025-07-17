@@ -12,12 +12,12 @@
   nav.grow.py6
     router-link.w-flex.align-center.px4.py2(to="/" active-class="primary")
       //- Dashboard Icon
-      icon.w-icon.mr3(icon="material-symbols-light:dashboard-outline-rounded" style="width: 1.3em; height: 1.3em")
+      icon.size--xl.w-icon.mr3(icon="material-symbols-light:dashboard-outline-rounded")
       .title3 Dashboard
 
     router-link.w-flex.align-center.px4.py2(to="/trading" active-class="primary")
       //- Trading Icon
-      icon.w-icon.mr2(icon="hugeicons:trade-up" style="width: 1.5em; height: 1.5em")
+      icon.size--xl.w-icon.mr2(icon="hugeicons:trade-up")
       .title3 Trading
 
   //- User Profile

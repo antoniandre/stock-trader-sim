@@ -105,6 +105,17 @@ html div.w-app .primary--bg {color: white;}
   }
 }
 
+.w-app .iconify {
+  font-size: 1.15em;
+  line-height: 1em;
+
+  &.size--xs {font-size: 0.95em;}
+  &.size--sm {font-size: 1em;}
+  &.size--md {font-size: 1.15em;}
+  &.size--lg {font-size: 1.5em;}
+  &.size--xl {font-size: 2em;}
+}
+
 @keyframes rotate {
   0% {
     transform: translate(-50%, -50%) rotate(0deg) scale(1.07);
