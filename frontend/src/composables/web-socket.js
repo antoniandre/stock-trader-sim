@@ -9,6 +9,9 @@ export function useWebSocket(url = 'ws://localhost:3000') {
 
   function connect() {
     try {
+      // Don't create a new connection if one already exists and is open.
+      if (ws?.readyState === WebSocket.OPEN) return
+      // Close existing connection if it exists.
       if (ws) ws.close()
 
       console.log('🔌 Connecting to WebSocket...')

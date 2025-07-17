@@ -7,12 +7,28 @@ import { runSimulation, mockPrices } from './simulation.js'
 // Track subscribed stocks dynamically - start with empty set.
 const subscribedStocks = new Set()
 
-// WebSocket authentication tracking
+// WebSocket authentication tracking.
 let isAuthenticated = false
+let reconnectAttempts = 0
+const MAX_RECONNECT_ATTEMPTS = 5
+const RECONNECT_DELAY = 30000 // 30 seconds.
 
-// Market status tracking
+// Market status tracking.
 let currentMarketStatus = null
 let marketStatusInterval = null
+
+// Connection cleanup function.
+function cleanupAlpacaConnection() {
+  if (state.alpacaWebSocket) {
+    state.alpacaWebSocket.removeAllListeners()
+    if (state.alpacaWebSocket.readyState === WebSocket.OPEN) {
+      state.alpacaWebSocket.close()
+    }
+    state.alpacaWebSocket = null
+  }
+  isAuthenticated = false
+  console.log('🧹 Alpaca WebSocket connection cleaned up')
+}
 
 // WebSocket Management
 // --------------------------------------------------------
@@ -92,7 +108,7 @@ export function subscribeToStock(symbol) {
       console.log(`📡 ${symbol} queued for subscription (WebSocket not ready or not authenticated)`)
     }
   } else {
-    console.log(`📡 ${symbol} already subscribed`)
+    console.log(`📡 ${symbol} already subscribed - skipping duplicate`)
   }
 }
 
@@ -239,6 +255,7 @@ export function connectAlpacaWebSocket() {
             if (message.T === 'success' && message.msg === 'authenticated') {
               console.log('✅ Authenticated with Alpaca WebSocket')
               isAuthenticated = true
+              reconnectAttempts = 0 // Reset reconnection attempts on successful auth
 
               // Only subscribe if we have stocks that have been explicitly requested.
               if (subscribedStocks.size > 0) {
@@ -334,10 +351,16 @@ export function connectAlpacaWebSocket() {
             if (message.T === 'error') {
               console.error(`❌ Alpaca WebSocket error: ${message.code} - ${message.msg}`)
               if (message.code === 406) {
-                console.error('💡 Connection limit exceeded. Try closing other connections or wait before reconnecting.')
+                console.error('💡 Connection limit exceeded. Waiting 60 seconds before retry...')
+                // Close the connection and wait longer before reconnecting
+                cleanupAlpacaConnection()
+                setTimeout(connectAlpacaWebSocket, 60000) // Wait 60 seconds for connection limit to reset
+                return
               }
               if (message.code === 401) {
                 console.error('💡 Authentication failed. Check your ALPACA_KEY and ALPACA_SECRET.')
+                cleanupAlpacaConnection()
+                return
               }
             }
 
@@ -358,10 +381,19 @@ export function connectAlpacaWebSocket() {
       console.error('❌ Alpaca WebSocket error:', error)
     })
 
-    state.alpacaWebSocket.on('close', () => {
-      console.log('🔌 Alpaca WebSocket disconnected, reconnecting in 10 seconds...')
-      isAuthenticated = false
-      setTimeout(connectAlpacaWebSocket, 10000)
+    state.alpacaWebSocket.on('close', (code, reason) => {
+      console.log(`🔌 Alpaca WebSocket disconnected (code: ${code}, reason: ${reason || 'Unknown'})`)
+      cleanupAlpacaConnection()
+
+      // Only reconnect if we haven't exceeded max attempts
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        reconnectAttempts++
+        console.log(`🔄 Reconnecting in ${RECONNECT_DELAY/1000} seconds... (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
+        setTimeout(connectAlpacaWebSocket, RECONNECT_DELAY)
+      } else {
+        console.error('❌ Max reconnection attempts reached. Manual restart required.')
+        reconnectAttempts = 0 // Reset for potential manual restart
+      }
     })
   }
   catch (error) {
@@ -370,11 +402,8 @@ export function connectAlpacaWebSocket() {
 }
 
 export function disconnectAlpacaWebSocket() {
-  if (state.alpacaWebSocket) {
-    console.log('🔌 Disconnecting from Alpaca WebSocket...')
-    state.alpacaWebSocket.close()
-    state.alpacaWebSocket = null
-  }
+  console.log('🔌 Disconnecting from Alpaca WebSocket...')
+  cleanupAlpacaConnection()
 }
 
 // Simulation Mode
