@@ -17,7 +17,7 @@ import {
 import { CandlestickController, CandlestickElement } from 'chartjs-chart-financial'
 import 'chartjs-adapter-luxon'
 
-// Register chart components
+// Register chart components.
 Chart.register(
   CategoryScale,
   LinearScale,
@@ -83,10 +83,10 @@ function destroyChart() {
   }
 }
 
-// Watch for data changes
+// Watch for data changes.
 watch(() => props.data, () => updateChart(), { deep: true })
 
-// Watch for options changes
+// Watch for options changes.
 watch(() => props.options, () => updateChart(), { deep: true })
 
 onMounted(async () => {
@@ -98,7 +98,7 @@ onBeforeUnmount(() => {
   destroyChart()
 })
 
-// Expose methods for parent component
+// Expose methods for parent component.
 defineExpose({
   chart: () => chartInstance,
   update: updateChart
