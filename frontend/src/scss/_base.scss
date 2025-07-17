@@ -3,7 +3,7 @@
   --market-premarket-color: #ff8c00;
   --market-open-color: #22c55e;
   --market-afterhours-color: #ec4899;
-  --market-overnight-color: #3b82f6;
+  --market-overnight-color: #5868df;
   --market-closed-color: #6b7280;
 
   &[data-theme="dark"] .w-app {
@@ -33,6 +33,7 @@
 
   a {color: inherit;}
 }
+html div.w-app .primary--bg {color: white;}
 
 .gradient-card {
   position: relative;
