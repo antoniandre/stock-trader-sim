@@ -15,6 +15,7 @@ import {
   Legend
 } from 'chart.js'
 import { CandlestickController, CandlestickElement } from 'chartjs-chart-financial'
+import zoomPlugin from 'chartjs-plugin-zoom'
 import 'chartjs-adapter-luxon'
 
 // Register chart components.
@@ -26,7 +27,8 @@ Chart.register(
   Tooltip,
   Legend,
   CandlestickController,
-  CandlestickElement
+  CandlestickElement,
+  zoomPlugin
 )
 
 const props = defineProps({
