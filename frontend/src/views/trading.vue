@@ -36,9 +36,11 @@ w-grid.gap-xl
       p.op5.mt4 Loading stocks...
 
     //- Error State
-    w-alert.bdrs2(v-else-if="error")
-      p.error {{ error }}
-      w-button(@click="connectWebSocket") Try again
+    .error-message.w-flex.column.py12.align-center.justify-center(v-else-if="error")
+      w-icon(color="error" size="4rem") wi-info-circle
+      h2.title2.error.mt4.mb2 Oops!
+      p.mb4 {{ error }}
+      w-button(@click="connectWebSocket" text bg-color="error" round) Try again
 
     //- Content
     div(v-else)
