@@ -31,31 +31,31 @@
       //- Price Chart
       .glass-box.pa6
         .chart-container
-          //- Chart Controls
-          .chart-controls.w-flex.justify-between.align-center.mb4
-            .chart-info.w-flex.align-center.gap6
-              .price-display
-                .title2.text-bold(v-if="stock.price")
-                  span.op6.mr2 {{ stock.currencySymbol }}
-                  span {{ stock.price.toFixed(2) }}
-                  w-button.pa0.ml3(
-                    width="24"
-                    height="24"
-                    @click="refreshPrice"
-                    :loading="isRefreshing"
-                    tooltip="Refresh Price"
-                    :tooltip-props="{ sm: true }"
-                    round)
-                    icon.w-icon(icon="mdi:refresh" style="width: 18px")
-                .title3(v-else)
-                  w-icon.mr2.op4(size="1.4rem") wi-info-circle
-                  span.op6 Price Unavailable
-                .caption.mt1.op7.poa Last updated: {{ lastUpdate }}
+          .chart-info.w-flex.align-center.gap6
+            .price-display
+              .title2.text-bold(v-if="stock.price")
+                span.op6.mr2 {{ stock.currencySymbol }}
+                span {{ stock.price.toFixed(2) }}
+              .title3(v-else)
+                w-icon.mr2.op4(size="1.4rem") wi-info-circle
+                span.op6 Price Unavailable
+              .caption.mt1.op7.poa Last updated: {{ lastUpdate }}
 
-              .price-change.text-center(v-if="priceChange && stock.price" :class="priceChange >= 0 ? 'success-light3' : 'error'")
-                .text-bold
-                  span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
-                .size--sm ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
+            .price-change.text-center(v-if="priceChange && stock.price" :class="priceChange >= 0 ? 'success-light3' : 'error'")
+              .text-bold
+                span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
+              .size--xs ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
+            w-button.pa0.mla(
+              width="24"
+              height="24"
+              @click="refreshPrice"
+              :loading="isRefreshing"
+              tooltip="Refresh Price"
+              :tooltip-props="{ sm: true }"
+              round)
+              icon.w-icon(icon="mdi:refresh" style="width: 18px")
+          //- Chart Controls
+          .chart-controls.w-flex.justify-between.align-center.mt6.mb2
 
             .chart-selectors.w-flex.gap2
               //- Chart Type Toggle
@@ -98,10 +98,10 @@
                   outline)
 
           //- Chart Display
-          .chart.relative(:class="`chart--${chartType}`")
+          .chart.por.align-center.justify-center(:class="`chart--${chartType}`")
             //- Loading state
-            .chart-loading.poa.w-flex.align-center.justify-center(v-if="isLoadingHistoricalData")
-              w-progress(circular)
+            .w-flex.column.align-center.justify-center(v-if="isLoadingHistoricalData")
+              w-progress.mb4(circle)
               span.text-info Loading chart data...
 
             //- Charts
@@ -127,7 +127,7 @@
                   tooltip="Reset Zoom"
                   :tooltip-props="{ sm: true }"
                   round)
-                    icon.w-icon(icon="mdi:refresh" style="width: 16px")
+                  icon.w-icon(icon="mdi:refresh" style="width: 16px")
 
     //- Right Column: Trading Interface
     div
@@ -452,7 +452,8 @@ const candlestickChartData = computed(() => {
 const lineChartOptions = {
   responsive: true,
   maintainAspectRatio: false,
-  animation: false,
+  // Disable animations for real-time updates
+  animation: { duration: 0 },
   interaction: { mode: 'index', intersect: false },
   plugins: {
     legend: { display: false },
@@ -502,11 +503,16 @@ const lineChartOptions = {
         displayFormats: {
           minute: 'HH:mm',
           hour: 'HH:mm',
-          day: 'MMM dd'
+          day: 'MMM dd',
+          week: 'MMM dd',
+          month: 'MMM yyyy'
         }
       },
       grid: { display: false },
-      ticks: { color: '#C9D1D9' }
+      ticks: {
+        color: '#C9D1D9',
+        maxTicksLimit: 8 // Limit number of ticks for better readability
+      }
     },
     y: {
       beginAtZero: false,
@@ -582,11 +588,16 @@ const candlestickChartOptions = {
         displayFormats: {
           minute: 'HH:mm',
           hour: 'HH:mm',
-          day: 'MMM dd'
+          day: 'MMM dd',
+          week: 'MMM dd',
+          month: 'MMM yyyy'
         }
       },
       grid: { display: false },
-      ticks: { color: '#C9D1D9' }
+      ticks: {
+        color: '#C9D1D9',
+        maxTicksLimit: 8 // Limit number of ticks for better readability
+      }
     },
     y: {
       beginAtZero: false,
@@ -789,6 +800,19 @@ function handlePriceUpdate(data) {
   console.log(`📈 Price update: ${props.symbol} = ${stock.value.currencySymbol}${data.price}`)
 }
 
+function handleMarketStatusUpdate(data) {
+  // Update stock object with new market status
+  stock.value = {
+    ...stock.value,
+    marketState: data.status,
+    marketMessage: data.message,
+    nextOpen: data.nextOpen,
+    nextClose: data.nextClose
+  }
+
+  console.log(`📊 Market status update: ${data.status} - ${data.message}`)
+}
+
 function handleTrade(data) {
   recentTrades.value.unshift({
     symbol: data.symbol,
@@ -806,6 +830,7 @@ function handleTrade(data) {
 function setupWebSocket() {
   addMessageHandler('price', handlePriceUpdate)
   addMessageHandler('trade', handleTrade)
+  addMessageHandler('market-status', handleMarketStatusUpdate)
 }
 
 // Subscribe to stock updates via WebSocket
@@ -948,6 +973,49 @@ async function refreshPrice() {
   }
 }
 
+async function refreshMarketStatus() {
+  try {
+    console.log('🔄 Refreshing market status...')
+
+    // Fetch fresh market status from API
+    const response = await fetch('http://localhost:3000/api/market-status')
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+    const data = await response.json()
+
+    // Update stock object with new market status
+    stock.value = {
+      ...stock.value,
+      marketState: data.status,
+      marketMessage: data.message,
+      nextOpen: data.nextOpen,
+      nextClose: data.nextClose
+    }
+
+    console.log(`✅ Market status refreshed: ${data.status} - ${data.message}`)
+  }
+  catch (error) {
+    console.error('❌ Error refreshing market status:', error)
+  }
+}
+
+function startMarketStatusMonitoring() {
+  // Don't start if already running
+  if (marketStatusInterval) return
+
+  // Check market status every 5 minutes as a fallback
+  marketStatusInterval = setInterval(refreshMarketStatus, 5 * 60 * 1000)
+  console.log('📊 Market status monitoring started (5-minute intervals)')
+}
+
+function stopMarketStatusMonitoring() {
+  if (marketStatusInterval) {
+    clearInterval(marketStatusInterval)
+    marketStatusInterval = null
+    console.log('📊 Market status monitoring stopped')
+  }
+}
+
 async function placeOrder(side) {
   try {
     const order = {
@@ -992,17 +1060,23 @@ onMounted(async () => {
   setupWebSocket()
   connect()
 
-  // Wait for both stock data and historical data to load
+  // Wait for stock data, historical data, and market status to load
   await Promise.all([
     fetchStockData(),
-    fetchHistoricalData()
+    fetchHistoricalData(),
+    refreshMarketStatus()
   ])
+
+  // Start periodic market status monitoring
+  startMarketStatusMonitoring()
 
   console.log(`✅ Component ready for ${props.symbol}`)
 })
 
 onUnmounted(() => {
   // WebSocket cleanup is handled by the composable.
+  // Stop market status monitoring
+  stopMarketStatusMonitoring()
   console.log(`🔄 Component unmounted for ${props.symbol}`)
 })
 
@@ -1093,13 +1167,6 @@ watch([selectedPeriod, selectedTimeframe], async () => {
 
     &--line {height: 450px;}
     &--candlestick {height: 450px;}
-  }
-
-  .chart-loading {
-    background: rgba(0, 0, 0, 0.8);
-    border-radius: 8px;
-    backdrop-filter: blur(10px);
-    z-index: 10;
   }
 
   .chart-controls-helper {
