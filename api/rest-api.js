@@ -1,6 +1,6 @@
 import express from 'express'
 import { state } from './config.js'
-import { subscribeToStock, getCurrentMarketStatus } from './websocket-server.js'
+import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
 import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockMarketStatus } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, placeOrder } from './alpaca-account.js'
 import { recordTrade } from './simulation.js'
@@ -220,7 +220,17 @@ export function createRestApiRoutes() {
   app.get('/api/stocks/:symbol/price', async (req, res) => {
     try {
       const { symbol } = req.params
-      const price = await getPrice(symbol)
+      const { fresh } = req.query
+
+      let price
+      if (fresh === 'true') {
+        // Force fresh price fetch by clearing cache
+        delete state.stockPrices[symbol]
+        price = await getPrice(symbol)
+        console.log(`🔄 Fresh price fetch for ${symbol}: $${price.toFixed(2)}`)
+      } else {
+        price = await getPrice(symbol)
+      }
 
       // Cache the price for future WebSocket updates.
       if (price > 0) state.stockPrices[symbol] = price
@@ -292,6 +302,22 @@ export function createRestApiRoutes() {
     catch (error) {
       console.error(`Error subscribing to ${req.params.symbol}:`, error)
       res.status(500).json({ error: `Failed to subscribe to ${req.params.symbol}` })
+    }
+  })
+
+  // Stock unsubscription endpoint.
+  app.post('/api/stocks/:symbol/unsubscribe', async (req, res) => {
+    try {
+      const { symbol } = req.params
+      unsubscribeFromStock(symbol)
+      res.json(createStandardResponse({
+        success: true,
+        message: `Unsubscribed from ${symbol} updates`
+      }))
+    }
+    catch (error) {
+      console.error(`Error unsubscribing from ${req.params.symbol}:`, error)
+      res.status(500).json({ error: `Failed to unsubscribe from ${req.params.symbol}` })
     }
   })
 

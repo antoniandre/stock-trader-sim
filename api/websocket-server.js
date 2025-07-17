@@ -1,6 +1,6 @@
 import WebSocket, { WebSocketServer } from 'ws'
 import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state } from './config.js'
-import { getMarketStatus, getStockMarketStatus } from './market-data.js'
+import { getMarketStatus, getStockMarketStatus, startPricePolling, stopPricePolling } from './market-data.js'
 import { placeOrder } from './alpaca-account.js'
 import { runSimulation, mockPrices } from './simulation.js'
 
@@ -88,13 +88,18 @@ function stopMarketStatusUpdates() {
   }
 }
 
-// Function to subscribe to a new stock.
+// Function to subscribe to a stock via WebSocket.
 export function subscribeToStock(symbol) {
   if (!subscribedStocks.has(symbol)) {
     subscribedStocks.add(symbol)
-    console.log(`📡 Adding subscription for ${symbol} (total: ${subscribedStocks.size})`)
+    console.log(`📡 Added subscription for ${symbol}`)
 
-    // If we have an active Alpaca WebSocket and are authenticated, update the subscription.
+    // Start price polling if this is the first subscription
+    if (subscribedStocks.size === 1) {
+      startPricePolling(subscribedStocks, broadcast)
+    }
+
+    // Also try to subscribe via Alpaca WebSocket if available
     if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1 && isAuthenticated) {
       const subscribeMessage = {
         action: 'subscribe',
@@ -116,7 +121,13 @@ export function subscribeToStock(symbol) {
 export function unsubscribeFromStock(symbol) {
   if (subscribedStocks.has(symbol)) {
     subscribedStocks.delete(symbol)
-    console.log(`📡 Removing subscription for ${symbol}`)
+    console.log(`📡 Removing subscription for ${symbol} (${subscribedStocks.size} remaining)`)
+
+    // Stop price polling if no subscriptions left
+    if (subscribedStocks.size === 0) {
+      console.log('🛑 No more subscriptions, stopping price polling')
+      stopPricePolling()
+    }
 
     // If we have an active Alpaca WebSocket, update the subscription.
     if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1) {
@@ -189,6 +200,10 @@ export function createWebSocketServer(server) {
       // Stop market status updates if no clients connected
       if (state.wsClients.size === 0) {
         stopMarketStatusUpdates()
+        // Also stop price polling if no clients
+        if (subscribedStocks.size === 0) {
+          stopPricePolling()
+        }
       }
     })
 

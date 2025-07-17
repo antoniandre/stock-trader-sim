@@ -7,6 +7,8 @@ import { getMockPrice, initializeMockPrices, getMockTradableStocks, generateMock
 // --------------------------------------------------------
 let marketCalendar = null
 let marketClockData = null
+let pricePollingInterval = null
+let isPollingActive = false
 
 export async function fetchMarketCalendar(startDate, endDate) {
   if (IS_SIMULATION) return null
@@ -554,4 +556,77 @@ export async function initializeMarketData() {
 
   console.log('✅ Market data initialization complete')
   return { calendar: calendarData, clock: clockData }
+}
+
+// Price Polling Functions
+// --------------------------------------------------------
+export function startPricePolling(subscribedStocks, broadcast) {
+  if (IS_SIMULATION || isPollingActive) return
+
+  console.log('🔄 Starting price polling for subscribed stocks...')
+  isPollingActive = true
+
+  pricePollingInterval = setInterval(async () => {
+    try {
+      // Only poll during market hours
+      const marketStatus = await getMarketStatus()
+      if (marketStatus.status !== 'open') {
+        console.log('📊 Market closed, skipping price polling')
+        return
+      }
+
+            // Fetch fresh prices for all subscribed stocks
+      const priceUpdates = []
+      for (const symbol of subscribedStocks) {
+        try {
+          // Force fresh price fetch by temporarily clearing cache
+          const cachedPrice = state.stockPrices[symbol]
+          delete state.stockPrices[symbol]
+
+          const newPrice = await getPrice(symbol)
+          if (newPrice > 0 && newPrice !== cachedPrice) {
+            console.log(`💰 Price update: ${symbol} = $${newPrice.toFixed(2)} (was $${cachedPrice?.toFixed(2) || 'N/A'})`)
+
+            const stockData = state.allStocks.find(s => s.symbol === symbol)
+            if (stockData) {
+              const marketStatus = await getStockMarketStatus(stockData)
+              priceUpdates.push({
+                type: 'price',
+                symbol,
+                price: newPrice,
+                currency: stockData.currency || 'USD',
+                currencySymbol: stockData.currencySymbol || '$',
+                marketState: marketStatus.status,
+                marketMessage: marketStatus.message,
+                nextOpen: marketStatus.nextOpen,
+                nextClose: marketStatus.nextClose,
+                timestamp: new Date().toISOString()
+              })
+            }
+          }
+        } catch (error) {
+          console.warn(`⚠️ Failed to poll price for ${symbol}:`, error.message)
+        }
+      }
+
+      // Broadcast price updates
+      if (priceUpdates.length > 0) {
+        console.log(`📡 Broadcasting ${priceUpdates.length} price updates to ${state.wsClients.size} clients`)
+        priceUpdates.forEach(update => broadcast(update))
+      }
+    } catch (error) {
+      console.error('❌ Error in price polling:', error.message)
+    }
+      }, 1000) // Poll every 1 second
+
+  console.log('✅ Price polling started (1 second intervals)')
+}
+
+export function stopPricePolling() {
+  if (pricePollingInterval) {
+    clearInterval(pricePollingInterval)
+    pricePollingInterval = null
+    isPollingActive = false
+    console.log('🛑 Price polling stopped')
+  }
 }
