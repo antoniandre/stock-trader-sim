@@ -424,86 +424,117 @@ export async function getAllTradableStocks() {
 
 // Historical Data Functions
 // --------------------------------------------------------
-export async function getStockHistoricalData(symbol, period = '1D') {
+export async function getStockHistoricalData(symbol, period = '1D', timeframe = null) {
   if (IS_SIMULATION) {
-    console.log(`🧪 [SIM] Generating mock historical data for ${symbol} (${period})`)
-    return generateMockHistoricalData(symbol, period)
+    console.log(`🧪 [SIM] Generating mock historical data for ${symbol} (${period}, ${timeframe || 'auto'})`)
+    return generateMockHistoricalData(symbol, period, timeframe)
   }
 
   try {
-    // Map period to Alpaca API parameters.
-    const { timeframe, limit, startDate } = getPeriodParameters(period)
+    // Map period and timeframe to Alpaca API parameters.
+    const { alpacaTimeframe, limit, startDate } = getPeriodParameters(period, timeframe)
     const params = new URLSearchParams({
-      timeframe,
+      timeframe: alpacaTimeframe,
       limit: limit.toString(),
       start: startDate.toISOString()
     })
 
     const url = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?${params}`
-    console.log(`📊 Fetching historical data for ${symbol} (${period}): ${url}`)
+    console.log(`📊 Fetching historical data for ${symbol} (${period}, ${alpacaTimeframe}): ${url}`)
 
     const { data } = await axios.get(url, { headers: HEADERS })
 
     if (!data.bars || data.bars.length === 0) {
       console.warn(`⚠️ No historical data found for ${symbol}`)
-      return { symbol, period, data: [] }
+      return { symbol, period, timeframe: alpacaTimeframe, data: [] }
     }
 
-    // Transform Alpaca data to our format.
+    // Transform Alpaca data to our format with OHLCV data for candlesticks.
     const historicalData = data.bars.map(bar => ({
       timestamp: new Date(bar.t).getTime(),
-      price: bar.c,  // Close price.
-      volume: bar.v,
       open: bar.o,
       high: bar.h,
-      low: bar.l
+      low: bar.l,
+      close: bar.c,
+      volume: bar.v,
+      price: bar.c  // For backward compatibility
     }))
 
     console.log(`✅ Fetched ${historicalData.length} historical data points for ${symbol}`)
-    return { symbol, period, data: historicalData }
+    return { symbol, period, timeframe: alpacaTimeframe, data: historicalData }
   }
   catch (error) {
     console.error(`❌ Error fetching historical data for ${symbol}:`, error.message)
     // Fall back to mock data on error.
-    return generateMockHistoricalData(symbol, period)
+    return generateMockHistoricalData(symbol, period, timeframe)
   }
 }
 
-function getPeriodParameters(period) {
+function getPeriodParameters(period, timeframe = null) {
   const easternTime = getEasternTime()
 
-  switch (period) {
-    case '1D':
-      return {
-        timeframe: '1Min',
-        limit: 390,  // Trading minutes in a day.
-        startDate: new Date(easternTime.getTime() - 24 * 60 * 60 * 1000)
-      }
-    case '1W':
-      return {
-        timeframe: '5Min',
-        limit: 500,
-        startDate: new Date(easternTime.getTime() - 7 * 24 * 60 * 60 * 1000)
-      }
-    case '1M':
-      return {
-        timeframe: '1Hour',
-        limit: 500,
-        startDate: new Date(easternTime.getTime() - 30 * 24 * 60 * 60 * 1000)
-      }
-    case '3M':
-      return {
-        timeframe: '1Day',
-        limit: 90,
-        startDate: new Date(easternTime.getTime() - 90 * 24 * 60 * 60 * 1000)
-      }
-    default:
-      return {
-        timeframe: '1Hour',
-        limit: 100,
-        startDate: new Date(easternTime.getTime() - 24 * 60 * 60 * 1000)
-      }
+  // Define available timeframes for each period
+  const timeframeMap = {
+    '1D': timeframe || '1Min',
+    '1W': timeframe || '5Min',
+    '1M': timeframe || '1Hour',
+    '3M': timeframe || '1Day'
   }
+
+  // If custom timeframe provided, validate it
+  const selectedTimeframe = timeframe || timeframeMap[period]
+
+  // Calculate appropriate limit based on period and timeframe
+  const limit = calculateDataLimit(period, selectedTimeframe)
+
+  // Calculate start date based on period
+  const startDate = calculateStartDate(period, easternTime)
+
+  return {
+    alpacaTimeframe: selectedTimeframe,
+    limit,
+    startDate
+  }
+}
+
+function calculateDataLimit(period, timeframe) {
+  // Calculate appropriate data limit based on period and timeframe
+  const periodDays = {
+    '1D': 1,
+    '1W': 7,
+    '1M': 30,
+    '3M': 90
+  }
+
+  const timeframeMinutes = {
+    '1Min': 1,
+    '5Min': 5,
+    '10Min': 10,
+    '15Min': 15,
+    '30Min': 30,
+    '1Hour': 60,
+    '4Hour': 240,
+    '1Day': 1440
+  }
+
+  const days = periodDays[period] || 30
+  const minutes = timeframeMinutes[timeframe] || 60
+
+  // For intraday timeframes, calculate based on trading hours (6.5 hours = 390 minutes per day)
+  if (minutes < 1440) return Math.min(Math.ceil((days * 390) / minutes), 1000) // Cap at 1000 for API limits.
+  else return Math.min(days, 1000)
+}
+
+function calculateStartDate(period, easternTime) {
+  const periodDays = {
+    '1D': 1,
+    '1W': 7,
+    '1M': 30,
+    '3M': 90
+  }
+
+  const days = periodDays[period] || 30
+  return new Date(easternTime.getTime() - days * 24 * 60 * 60 * 1000)
 }
 
 export async function initializeMarketData() {

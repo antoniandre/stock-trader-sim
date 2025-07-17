@@ -30,34 +30,69 @@
     div
       //- Price Chart
       .glass-box.pa6
-        .w-flex.justify-space-between.align-center.mb4
-          .w-flex.align-center.gap6
-            .price-display
-              .title2.text-bold(v-if="stock.price > 0")
-                span.op6.mr2 {{ stock.currencySymbol }}
-                span {{ stock.price.toFixed(2) }}
-              .title2.text-bold(v-else)
-                span.op6 Price Unavailable
-              .caption.mt1.op7 Last updated: {{ lastUpdate }}
-
-            .price-change(v-if="priceChange && stock.price > 0" :class="priceChange >= 0 ? 'success-light3' : 'error'")
-              .text-bold
-                span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
-              .size--sm ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
-
-            .no-price-info(v-else-if="stock.price === 0")
-              .text-bold.op6 Market data not available
-          .period-selector.w-flex.gap2.no-grow
-            w-button.period-btn(
-              v-for="period in chartPeriods"
-              :key="period.value"
-              color="base"
-              :class="{ 'period-btn--active': selectedPeriod === period.value }"
-              @click="changePeriod(period.value)")
-              | {{ period.label }}
-
         .chart-container
-          Line(ref="chartRef" :data="chartData" :options="chartOptions")
+          //- Chart Controls
+          .chart-controls.w-flex.justify-between.align-center.mb4
+            .chart-info.w-flex.align-center.gap6
+              .price-display
+                .title2.text-bold(v-if="stock.price > 0")
+                  span.op6.mr2 {{ stock.currencySymbol }}
+                  span {{ stock.price.toFixed(2) }}
+                .title2.text-bold(v-else)
+                  span.op6 Price Unavailable
+                .caption.mt1.op7 Last updated: {{ lastUpdate }}
+
+              .price-change(v-if="priceChange && stock.price > 0" :class="priceChange >= 0 ? 'success-light3' : 'error'")
+                .text-bold
+                  span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
+                .size--sm ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
+
+              .no-price-info(v-else-if="stock.price === 0")
+                .text-bold.op6 Market data not available
+
+            .chart-selectors.w-flex.gap2
+              //- Chart Type Toggle
+              .chart-type-toggle.w-flex.gap1.no-grow
+                w-button.pa0(
+                  width="26"
+                  height="26"
+                  :outline="chartType === 'candlestick'"
+                  @click="changeChartType('line')"
+                  tooltip="Line"
+                  :tooltip-props="{ sm: true }"
+                  round)
+                  icon.w-icon(icon="material-symbols-light:show-chart" style="width: 22px; height: 22px")
+                w-button.pa0(
+                  width="26"
+                  height="26"
+                  :outline="chartType === 'line'"
+                  @click="changeChartType('candlestick')"
+                  tooltip="Candles"
+                  :tooltip-props="{ sm: true }"
+                  round)
+                  icon.w-icon(icon="material-symbols-light:candlestick-chart-outline-rounded" style="width: 28px; height: 28px")
+
+              //- Period Selector
+              .period-selector.w-flex.gap1.no-grow.mla
+                w-button.period-btn(
+                  v-for="period in chartPeriods"
+                  :key="period.value"
+                  color="base"
+                  :class="{ 'period-btn--active': selectedPeriod === period.value }"
+                  @click="changePeriod(period.value)")
+                  | {{ period.label }}
+
+              //- Timeframe Selector
+              .timeframe-selector.w-flex.gap1.no-grow
+                w-select.timeframe-btn(
+                  v-model="selectedTimeframe"
+                  :items="availableTimeframes"
+                  outline)
+
+          //- Chart Display
+          .chart-display.h-60.relative
+            Line(v-if="chartType === 'line'" ref="lineChartRef" :data="lineChartData" :options="lineChartOptions")
+            CandlestickChart(v-else ref="candleChartRef" :data="candlestickChartData" :options="candlestickChartOptions")
 
     //- Right Column: Trading Interface
     div
@@ -162,10 +197,13 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Line } from 'vue-chartjs'
 import 'chart.js/auto'
+import 'chartjs-chart-financial'
+import 'chartjs-adapter-luxon'
 import { fetchStock, fetchStockPrice, fetchStockHistory } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from '@/components/ticker-logo.vue'
+import CandlestickChart from '@/components/candlestick-chart.vue'
 
 const props = defineProps({
   symbol: { type: String, required: true }
@@ -191,6 +229,8 @@ const stock = ref({
 const priceHistory = ref([])
 const historicalData = ref([])
 const selectedPeriod = ref('1D')
+const selectedTimeframe = ref('1Min')
+const chartType = ref('candlestick')
 const recentTrades = ref([])
 
 // Use composables for WebSocket and stock status.
@@ -204,6 +244,38 @@ const chartPeriods = [
   { label: '1M', value: '1M' },
   { label: '3M', value: '3M' }
 ]
+
+// Available timeframes for each period
+const timeframeOptions = {
+  '1D': [
+    { label: '1m', value: '1Min' },
+    { label: '5m', value: '5Min' },
+    { label: '10m', value: '10Min' },
+    { label: '15m', value: '15Min' },
+    { label: '30m', value: '30Min' },
+    { label: '1h', value: '1Hour' }
+  ],
+  '1W': [
+    { label: '5m', value: '5Min' },
+    { label: '15m', value: '15Min' },
+    { label: '30m', value: '30Min' },
+    { label: '1h', value: '1Hour' },
+    { label: '4h', value: '4Hour' }
+  ],
+  '1M': [
+    { label: '1h', value: '1Hour' },
+    { label: '4h', value: '4Hour' },
+    { label: '1d', value: '1Day' }
+  ],
+  '3M': [
+    { label: '1d', value: '1Day' }
+  ]
+}
+
+// Computed available timeframes based on selected period
+const availableTimeframes = computed(() => {
+  return timeframeOptions[selectedPeriod.value] || timeframeOptions['1D']
+})
 
 // Order form
 const orderForm = ref({
@@ -247,8 +319,8 @@ const isOrderValid = computed(() => {
 
 
 
-// Chart data
-const chartData = computed(() => {
+// Chart data for line chart
+const lineChartData = computed(() => {
   const dataToUse = historicalData.value.length > 0 ? historicalData.value : priceHistory.value
 
   if (!dataToUse.length) {
@@ -268,45 +340,8 @@ const chartData = computed(() => {
     }
   }
 
-  const labels = dataToUse.map(item => {
-    const date = new Date(item.timestamp)
-    // Format labels based on selected period.
-    switch (selectedPeriod.value) {
-      case '1D':
-        return date.toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false
-        })
-      case '1W':
-        return date.toLocaleDateString('en-US', {
-          weekday: 'short',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false
-        })
-      case '1M':
-        return date.toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          hour12: false
-        })
-      case '3M':
-        return date.toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric'
-        })
-      default:
-        return date.toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false
-        })
-    }
-  })
-
-  const data = dataToUse.map(item => item.price)
+  const labels = dataToUse.map(item => new Date(item.timestamp))
+  const data = dataToUse.map(item => item.close || item.price)
 
   return {
     labels,
@@ -327,8 +362,49 @@ const chartData = computed(() => {
   }
 })
 
-// Chart options
-const chartOptions = {
+// Chart data for candlestick chart
+const candlestickChartData = computed(() => {
+  const dataToUse = historicalData.value.length > 0 ? historicalData.value : priceHistory.value
+
+  if (!dataToUse.length) {
+    return {
+      datasets: [{
+        label: `${props.symbol} OHLC`,
+        data: [],
+        borderColor: '#3B82F6',
+        backgroundColor: '#3B82F6'
+      }]
+    }
+  }
+
+  const candlestickData = dataToUse.map(item => ({
+    x: item.timestamp,
+    o: item.open || item.price,
+    h: item.high || item.price,
+    l: item.low || item.price,
+    c: item.close || item.price
+  }))
+
+  return {
+    datasets: [{
+      label: `${props.symbol} OHLC`,
+      data: candlestickData,
+      borderColor: {
+        up: '#10B981',    // Green for bullish candles
+        down: '#EF4444',  // Red for bearish candles
+        unchanged: '#6B7280'
+      },
+      backgroundColor: {
+        up: 'rgba(16, 185, 129, 0.8)',
+        down: 'rgba(239, 68, 68, 0.8)',
+        unchanged: 'rgba(107, 114, 128, 0.8)'
+      }
+    }]
+  }
+})
+
+// Chart options for line chart
+const lineChartOptions = {
   responsive: true,
   maintainAspectRatio: false,
   animation: false,
@@ -349,16 +425,11 @@ const chartOptions = {
       borderWidth: 1,
       callbacks: {
         title(tooltipItems) {
-          const dataIndex = tooltipItems[0].dataIndex
-          const item = priceHistory.value[dataIndex]
-          if (!item) return tooltipItems[0].label
-
-          return new Date(item.timestamp).toLocaleString('en-US', {
+          return new Date(tooltipItems[0].parsed.x).toLocaleString('en-US', {
             month: 'short',
             day: 'numeric',
             hour: '2-digit',
             minute: '2-digit',
-            second: '2-digit',
             hour12: false
           })
         },
@@ -370,6 +441,18 @@ const chartOptions = {
     }
   },
   scales: {
+    x: {
+      type: 'time',
+      time: {
+        displayFormats: {
+          minute: 'HH:mm',
+          hour: 'HH:mm',
+          day: 'MMM dd'
+        }
+      },
+      grid: { display: false },
+      ticks: { color: '#C9D1D9' }
+    },
     y: {
       beginAtZero: false,
       grid: { color: 'rgba(255, 255, 255, 0.05)' },
@@ -377,10 +460,70 @@ const chartOptions = {
         color: '#C9D1D9',
         callback: value => stock.value.currencySymbol + value.toFixed(2)
       }
-    },
+    }
+  }
+}
+
+// Chart options for candlestick chart
+const candlestickChartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: false,
+  interaction: {
+    mode: 'index',
+    intersect: false
+  },
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      enabled: true,
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      titleColor: '#fff',
+      bodyColor: '#fff',
+      borderColor: '#3B82F6',
+      borderWidth: 1,
+      callbacks: {
+        title(tooltipItems) {
+          return new Date(tooltipItems[0].parsed.x).toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          })
+        },
+        label(context) {
+          const data = context.parsed
+          return [
+            `Open: ${stock.value.currencySymbol}${data.o.toFixed(2)}`,
+            `High: ${stock.value.currencySymbol}${data.h.toFixed(2)}`,
+            `Low: ${stock.value.currencySymbol}${data.l.toFixed(2)}`,
+            `Close: ${stock.value.currencySymbol}${data.c.toFixed(2)}`
+          ]
+        }
+      }
+    }
+  },
+  scales: {
     x: {
+      type: 'time',
+      time: {
+        displayFormats: {
+          minute: 'HH:mm',
+          hour: 'HH:mm',
+          day: 'MMM dd'
+        }
+      },
       grid: { display: false },
       ticks: { color: '#C9D1D9' }
+    },
+    y: {
+      beginAtZero: false,
+      grid: { color: 'rgba(255, 255, 255, 0.05)' },
+      ticks: {
+        color: '#C9D1D9',
+        callback: value => stock.value.currencySymbol + value.toFixed(2)
+      }
     }
   }
 }
@@ -390,8 +533,8 @@ const chartOptions = {
 
 async function fetchHistoricalData() {
   try {
-    console.log(`📊 Fetching historical data for ${props.symbol} (${selectedPeriod.value})...`)
-    const data = await fetchStockHistory(props.symbol, selectedPeriod.value)
+    console.log(`📊 Fetching historical data for ${props.symbol} (${selectedPeriod.value}, ${selectedTimeframe.value})...`)
+    const data = await fetchStockHistory(props.symbol, selectedPeriod.value, selectedTimeframe.value)
 
     if (data.data && data.data.length > 0) {
       historicalData.value = data.data
@@ -594,7 +737,29 @@ async function changePeriod(period) {
   if (selectedPeriod.value === period) return
 
   selectedPeriod.value = period
+
+  // Reset timeframe to default for the new period
+  const defaultTimeframes = {
+    '1D': '1Min',
+    '1W': '5Min',
+    '1M': '1Hour',
+    '3M': '1Day'
+  }
+  selectedTimeframe.value = defaultTimeframes[period] || '1Min'
+
   await fetchHistoricalData()
+}
+
+async function changeTimeframe(timeframe) {
+  if (selectedTimeframe.value === timeframe) return
+
+  selectedTimeframe.value = timeframe
+  await fetchHistoricalData()
+}
+
+function changeChartType(type) {
+  if (chartType.value === type) return
+  chartType.value = type
 }
 
 // formatNextOpen is now imported from utilities.
@@ -665,14 +830,59 @@ watch(() => props.symbol, async () => {
   max-width: 1400px;
   margin: 0 auto;
 
-  .chart-container {height: 400px;}
+  .chart-controls {
+    flex-wrap: wrap;
+    gap: 1rem;
 
-  .period-selector {
-    .period-btn {
+    .chart-info {
+      flex: 1;
+      min-width: 300px;
+    }
+
+    .chart-selectors {
+      flex-wrap: wrap;
+      align-items: center;
+    }
+  }
+
+  .timeframe-selector .w-select__selection-wrap {min-height: 24px;}
+  .period-selector, .chart-type-toggle {
+    .period-btn, .chart-type-btn {
+      min-width: 40px;
+      font-size: 12px;
+      padding: 6px 12px;
       background-color: rgba(255, 255, 255, 0.1);
 
-      &--active {background-color: var(--w-primary-color);}
+      &--active {
+        background-color: var(--w-primary-color);
+        color: white;
+      }
     }
+  }
+
+  .timeframe-selector {
+    .timeframe-btn {
+      &--active {
+        background-color: var(--w-info-color);
+        color: white;
+      }
+    }
+  }
+
+  .chart-type-toggle {
+    .chart-type-btn {
+      &--active {
+        background-color: var(--w-secondary-color);
+        color: white;
+      }
+    }
+  }
+
+  .chart-display {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.2);
   }
 
   .trade-item {

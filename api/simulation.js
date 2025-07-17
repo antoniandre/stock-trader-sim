@@ -133,10 +133,10 @@ export function initializeMockPrices() {
 
 // Mock Historical Data Generation
 // --------------------------------------------------------
-export function generateMockHistoricalData(symbol, period) {
+export function generateMockHistoricalData(symbol, period, timeframe = null) {
   const basePrice = mockPrices[symbol] || 100
   const now = Date.now()
-  const { dataPoints, intervalMs } = getMockDataParams(period)
+  const { dataPoints, intervalMs } = getMockDataParams(period, timeframe)
 
   const data = []
   let currentPrice = basePrice
@@ -144,57 +144,78 @@ export function generateMockHistoricalData(symbol, period) {
   for (let i = 0; i < dataPoints; i++) {
     const timestamp = now - (dataPoints - 1 - i) * intervalMs
 
-    // Generate realistic price movement.
+    // Generate realistic OHLCV data for candlesticks
     const volatility = 0.02  // 2% volatility.
     const trend = Math.sin(i / 20) * 0.005  // Small trend component.
     const randomChange = (Math.random() - 0.5) * volatility
+
+    const openPrice = currentPrice
+    const randomHigh = Math.random() * 0.02 + 0.005 // 0.5% to 2.5% higher
+    const randomLow = Math.random() * 0.02 + 0.005 // 0.5% to 2.5% lower
 
     currentPrice = currentPrice * (1 + trend + randomChange)
 
     // Ensure price doesn't go below 10% of base price.
     currentPrice = Math.max(currentPrice, basePrice * 0.1)
 
+    const high = Math.max(openPrice, currentPrice) * (1 + randomHigh)
+    const low = Math.min(openPrice, currentPrice) * (1 - randomLow)
+
     data.push({
       timestamp,
-      price: Math.round(currentPrice * 100) / 100,
+      open: Math.round(openPrice * 100) / 100,
+      high: Math.round(high * 100) / 100,
+      low: Math.round(low * 100) / 100,
+      close: Math.round(currentPrice * 100) / 100,
       volume: Math.floor(Math.random() * 10000) + 1000,
-      open: currentPrice,
-      high: currentPrice * 1.01,
-      low: currentPrice * 0.99
+      price: Math.round(currentPrice * 100) / 100 // For backward compatibility
     })
   }
 
-  return { symbol, period, data }
+  return { symbol, period, timeframe: timeframe || 'auto', data }
 }
 
-function getMockDataParams(period) {
-  switch (period) {
-    case '1D':
-      return {
-        dataPoints: 390,  // Trading minutes in a day.
-        intervalMs: 60 * 1000  // 1 minute.
-      }
-    case '1W':
-      return {
-        dataPoints: 336,  // 7 days * 48 (5-min intervals per day).
-        intervalMs: 5 * 60 * 1000  // 5 minutes.
-      }
-    case '1M':
-      return {
-        dataPoints: 720,  // 30 days * 24 hours.
-        intervalMs: 60 * 60 * 1000  // 1 hour.
-      }
-    case '3M':
-      return {
-        dataPoints: 90,  // 90 days.
-        intervalMs: 24 * 60 * 60 * 1000  // 1 day.
-      }
-    default:
-      return {
-        dataPoints: 100,
-        intervalMs: 60 * 60 * 1000  // 1 hour.
-      }
+function getMockDataParams(period, timeframe = null) {
+  const timeframeMs = {
+    '1Min': 60 * 1000,
+    '5Min': 5 * 60 * 1000,
+    '10Min': 10 * 60 * 1000,
+    '15Min': 15 * 60 * 1000,
+    '30Min': 30 * 60 * 1000,
+    '1Hour': 60 * 60 * 1000,
+    '4Hour': 4 * 60 * 60 * 1000,
+    '1Day': 24 * 60 * 60 * 1000
   }
+
+  // Default timeframes for each period if not specified
+  const defaultTimeframes = {
+    '1D': '1Min',
+    '1W': '5Min',
+    '1M': '1Hour',
+    '3M': '1Day'
+  }
+
+  const selectedTimeframe = timeframe || defaultTimeframes[period] || '1Hour'
+  const intervalMs = timeframeMs[selectedTimeframe] || 60 * 60 * 1000
+
+  // Calculate data points based on period and timeframe
+  const periodDays = {
+    '1D': 1,
+    '1W': 7,
+    '1M': 30,
+    '3M': 90
+  }
+
+  const days = periodDays[period] || 30
+
+  // For intraday timeframes, calculate based on trading hours (6.5 hours = 390 minutes per day)
+  if (intervalMs < 24 * 60 * 60 * 1000) {
+    const tradingMinutesPerDay = 390
+    const timeframeMinutes = intervalMs / (60 * 1000)
+    const dataPoints = Math.ceil((days * tradingMinutesPerDay) / timeframeMinutes)
+    return { dataPoints: Math.min(dataPoints, 1000), intervalMs }
+  }
+  else return { dataPoints: Math.min(days, 1000), intervalMs }
 }
 
 // Mock Portfolio History Generation

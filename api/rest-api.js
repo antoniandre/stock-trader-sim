@@ -299,8 +299,8 @@ export function createRestApiRoutes() {
   app.get('/api/stocks/:symbol/history', async (req, res) => {
     try {
       const { symbol } = req.params
-      const { period = '1D' } = req.query
-      const historicalData = await getStockHistoricalData(symbol, period)
+      const { period = '1D', timeframe } = req.query
+      const historicalData = await getStockHistoricalData(symbol, period, timeframe)
       res.json(historicalData)
     }
     catch (error) {

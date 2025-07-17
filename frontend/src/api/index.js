@@ -149,9 +149,12 @@ export async function fetchMarketStatus() {
 }
 
 // Get historical data for a stock
-export async function fetchStockHistory(symbol, period = '1D') {
+export async function fetchStockHistory(symbol, period = '1D', timeframe = null) {
   try {
-    const response = await fetch(`${API_BASE}/stocks/${symbol}/history?period=${period}`)
+    const params = new URLSearchParams({ period })
+    if (timeframe) params.append('timeframe', timeframe)
+
+    const response = await fetch(`${API_BASE}/stocks/${symbol}/history?${params}`)
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
     return await response.json()
