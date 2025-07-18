@@ -25,9 +25,9 @@
       h1.title2 {{ stock.name || 'Loading...' }}
 
   //- Stock Details & Trading
-  w-grid.gap6.mt4(:columns="{ xs: 1, lg: 2 }")
+  .w-flex.wrap.mt4
     //- Left Column: Stock Details & Chart
-    div
+    .mdd12.lg7.grow
       //- Price Chart
       .glass-box.pa6
         .chart-container
@@ -54,9 +54,9 @@
               :tooltip-props="{ sm: true }"
               round)
               icon.w-icon(icon="mdi:refresh" style="width: 18px")
+
           //- Chart Controls
           .chart-controls.w-flex.justify-between.align-center.mt6.mb2
-
             .chart-selectors.w-flex.gap2
               //- Chart Type Toggle
               .chart-type-toggle.w-flex.gap1.no-grow
@@ -68,7 +68,7 @@
                   tooltip="Line"
                   :tooltip-props="{ sm: true }"
                   round)
-                  icon.w-icon(icon="material-symbols-light:show-chart" style="width: 22px; height: 22px")
+                  icon.size--lg(icon="material-symbols-light:show-chart")
                 w-button.pa0(
                   width="26"
                   height="26"
@@ -77,7 +77,7 @@
                   tooltip="Candles"
                   :tooltip-props="{ sm: true }"
                   round)
-                  icon.w-icon(icon="material-symbols-light:candlestick-chart-outline-rounded" style="width: 28px")
+                  icon.size--xl(icon="material-symbols-light:candlestick-chart-outline-rounded")
 
               //- Period Selector
               .period-selector.w-flex.gap1.no-grow.mla
@@ -98,7 +98,7 @@
                   outline)
 
           //- Chart Display
-          .chart.por.align-center.justify-center(:class="`chart--${chartType}`")
+          .chart.w-flex.column.align-center.justify-center(:class="`chart--${chartType}`")
             //- Loading state
             .w-flex.column.align-center.justify-center(v-if="isLoadingHistoricalData")
               w-progress.mb4(circle)
@@ -130,7 +130,7 @@
                   icon.w-icon(icon="mdi:refresh" style="width: 16px")
 
     //- Right Column: Trading Interface
-    div
+    .mdd12.lg5.pl8.grow
       //- Trading Form
       .glass-box.pa6
         .title2.mb4 Place Order
@@ -176,40 +176,63 @@
                 outline)
 
             //- Order Value Display
-            .mb4.pa3.glass--bg.bdrs2(v-if="orderValue > 0 && stock.price > 0")
-              .w-flex.justify-between
+            .pa3.glass--bg.bdrs2(v-if="orderValue > 0 && stock.price > 0")
+              .w-flex.justify-between.gap2
                 span.op7 Estimated Total:
                 span.text-bold {{ stock.currencySymbol }}{{ orderValue.toFixed(2) }}
 
             //- No Price Data Warning
-            .mb4.pa3.error-dark4--bg.bdrs2(v-if="stock.price === 0")
+            .pa3.error-dark4--bg.bdrs2(v-if="stock.price === 0")
               .w-flex.align-center.gap2
                 icon.w-icon.error(icon="mdi:alert-triangle")
                 span Trading disabled: No current market data available
 
           //- Quick Actions
-          .w-card.pa6.mt4.no-grow.lg-grow
-            .title3.mb4 Quick Actions
-            .w-flex.column.gap2
-              w-button.fill-width.text-bold(@click="setQuickQuantity(1)" sm) 1 Share
-              w-button.fill-width.text-bold(@click="setQuickQuantity(10)" sm) 10 Shares
-              w-button.fill-width.text-bold(@click="setQuickQuantity(100)" sm) 100 Shares
-              w-button.fill-width.text-bold(@click="setQuickQuantity(1000)" sm) 1000 Shares
+          .w-card.bdrs2.pa6.no-grow.lg-grow
+            .mb3.text-upper.op6.body Quick Actions
+            .w-flex.align-center.gap2
+              w-button(
+                @click="setQuickQuantity(1)"
+                round
+                tooltip="1 Share"
+                width="40"
+                height="40")
+                strong.size--xl 1
+              w-button(
+                @click="setQuickQuantity(10)"
+                round
+                tooltip="10 Shares"
+                width="40"
+                height="40")
+                strong.size--xl 10
+              w-button(
+                @click="setQuickQuantity(100)"
+                round
+                tooltip="100 Shares"
+                width="40"
+                height="40")
+                strong.size--lg 100
+              w-button(
+                @click="setQuickQuantity(1000)"
+                round
+                tooltip="1000 Shares"
+                width="40"
+                height="40")
+                strong.size--md 1000
+              span Shares
 
         //- Buy/Sell Buttons
-        .w-flex.gap4
-          w-button.grow(
+        .w-flex.gap4.mt4
+          w-button.grow.py4(
             @click="placeOrder('buy')"
-            color="success"
-            :disabled="!isOrderValid || stock.price === 0"
-            large)
+            bg-color="success"
+            :disabled="!isOrderValid || stock.price === 0")
             strong BUY
 
-          w-button.grow(
+          w-button.grow.py4(
             @click="placeOrder('sell')"
-            color="error"
-            :disabled="!isOrderValid || stock.price === 0"
-            large)
+            bg-color="error"
+            :disabled="!isOrderValid || stock.price === 0")
             strong SELL
 
       //- Recent Trades for this symbol
