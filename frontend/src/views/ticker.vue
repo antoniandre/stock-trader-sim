@@ -300,6 +300,7 @@ const lineChartRef = ref(null)
 const candleChartRef = ref(null)
 const isRefreshing = ref(false)
 const isLoadingHistoricalData = ref(false)
+let marketStatusInterval = null
 
 // Use composables for WebSocket and stock status.
 const { wsConnected, lastUpdate, connect, addMessageHandler, subscribeToStock } = useWebSocket()
@@ -387,8 +388,23 @@ const isOrderValid = computed(() => {
 
 // Chart data for line chart
 const lineChartData = computed(() => {
-  // Use historical data if available, otherwise use real-time price history.
-  const dataToUse = historicalData.value.length > 0 ? historicalData.value : priceHistory.value
+  // Always combine historical data with real-time price history for seamless transition
+  let dataToUse = []
+
+  if (historicalData.value.length > 0) {
+    // Start with historical data
+    dataToUse = [...historicalData.value]
+
+    // Add real-time price updates that don't overlap with historical data
+    if (priceHistory.value.length > 0) {
+      const lastHistoricalTime = historicalData.value[historicalData.value.length - 1]?.timestamp || 0
+      const newRealTimeData = priceHistory.value.filter(item => item.timestamp > lastHistoricalTime)
+      dataToUse = [...dataToUse, ...newRealTimeData]
+    }
+  } else {
+    // Fallback to real-time data only if no historical data
+    dataToUse = priceHistory.value
+  }
 
   if (!dataToUse.length) {
     return {
@@ -431,8 +447,22 @@ const lineChartData = computed(() => {
 
 // Chart data for candlestick chart
 const candlestickChartData = computed(() => {
-  // Use real-time OHLC data if available, otherwise use historical data.
-  const dataToUse = realtimeOHLC.value.length > 0 ? realtimeOHLC.value : historicalData.value
+  // Always combine historical data with real-time OHLC data for seamless transition
+  let dataToUse = []
+
+  if (historicalData.value.length > 0) {
+    // Start with historical data.
+    dataToUse = [...historicalData.value]
+
+    // Add real-time OHLC updates that don't overlap with historical data.
+    if (realtimeOHLC.value.length > 0) {
+      const lastHistoricalTime = historicalData.value[historicalData.value.length - 1]?.timestamp || 0
+      const newRealTimeData = realtimeOHLC.value.filter(item => item.timestamp > lastHistoricalTime)
+      dataToUse = [...dataToUse, ...newRealTimeData]
+    }
+  }
+  // Fallback to real-time data only if no historical data.
+  else dataToUse = realtimeOHLC.value
 
   if (!dataToUse.length) {
     return {
@@ -812,13 +842,30 @@ function handlePriceUpdate(data) {
     price: data.price
   })
 
-  // Keep only the last 100 price points for performance.
+  // Keep only the last 100 price points for performance
   if (priceHistory.value.length > 100) {
     priceHistory.value = priceHistory.value.slice(-100)
   }
 
   // Update OHLC data for candlestick chart
   updateOHLCData(data.price, timestamp)
+
+  // Keep realtime OHLC data manageable
+  if (realtimeOHLC.value.length > 200) {
+    realtimeOHLC.value = realtimeOHLC.value.slice(-200)
+  }
+
+  // If we have a lot of combined data, trim old historical data to prevent memory issues
+  if (historicalData.value.length > 0 && priceHistory.value.length > 50) {
+    // Keep only the most recent part of historical data
+    const totalPoints = historicalData.value.length + priceHistory.value.length
+    if (totalPoints > 500) {
+      // Remove only ~10% of historical data instead of fixed 100 points
+      const removePoints = Math.max(10, Math.floor(historicalData.value.length * 0.1))
+      const keepHistorical = Math.max(300, historicalData.value.length - removePoints)
+      historicalData.value = historicalData.value.slice(-keepHistorical)
+    }
+  }
 
   console.log(`📈 Price update: ${props.symbol} = ${stock.value.currencySymbol}${data.price}`)
 }
@@ -856,9 +903,9 @@ function setupWebSocket() {
   addMessageHandler('market-status', handleMarketStatusUpdate)
 }
 
-// Subscribe to stock updates via WebSocket
+// Subscribe to stock updates via WebSocket.
 function subscribeToStockUpdates() {
-  // Wait for WebSocket to be connected before subscribing
+  // Wait for WebSocket to be connected before subscribing.
   const checkConnection = () => {
     if (wsConnected.value) {
       const success = subscribeToStock(props.symbol)
@@ -881,23 +928,23 @@ function updatePrice(newPrice) {
     }
     lastUpdate.value = new Date().toLocaleTimeString()
 
-    // Add to price history for line chart
+    // Add to price history for line chart.
     priceHistory.value.push({ timestamp: timestamp, price: newPrice })
 
-    // Keep only last 100 price points
+    // Keep only last 100 price points.
     if (priceHistory.value.length > 100) {
       priceHistory.value = priceHistory.value.slice(-100)
     }
 
-    // Update OHLC data for candlestick chart
+    // Update OHLC data for candlestick chart.
     updateOHLCData(newPrice, timestamp)
 
-    // For 1D period, also update historical data with live prices
+    // For 1D period, also update historical data with live prices.
     if (selectedPeriod.value === '1D' && historicalData.value.length > 0) {
       historicalData.value.push({ timestamp: timestamp, price: newPrice })
 
-      // Keep only relevant data for the period
-      const cutoff = Date.now() - (24 * 60 * 60 * 1000)  // 24 hours ago
+      // Keep only relevant data for the period.
+      const cutoff = Date.now() - (24 * 60 * 60 * 1000)  // 24 hours ago.
       historicalData.value = historicalData.value.filter(item => item.timestamp > cutoff)
     }
   }
@@ -912,7 +959,7 @@ async function changePeriod(period) {
 
   selectedPeriod.value = period
 
-  // Reset timeframe to default for the new period
+  // Reset timeframe to default for the new period.
   const defaultTimeframes = {
     '1D': '1Min',
     '1W': '5Min',
@@ -921,7 +968,7 @@ async function changePeriod(period) {
   }
   selectedTimeframe.value = defaultTimeframes[period] || '1Min'
 
-  // Clear real-time OHLC data when changing periods
+  // Clear real-time OHLC data when changing periods.
   realtimeOHLC.value = []
 
   await fetchHistoricalData()
@@ -940,7 +987,7 @@ function changeChartType(type) {
 }
 
 function resetZoom() {
-  // Reset zoom for both chart types
+  // Reset zoom for both chart types.
   if (chartType.value === 'line' && lineChartRef.value?.chart) {
     lineChartRef.value.chart.resetZoom()
   } else if (chartType.value === 'candlestick' && candleChartRef.value?.chart) {
@@ -955,37 +1002,54 @@ async function refreshPrice() {
   try {
     console.log(`🔄 Refreshing price for ${props.symbol}...`)
 
-    // Fetch fresh price from API
+    // Fetch fresh price from API.
     const response = await fetch(`http://localhost:3000/api/stocks/${props.symbol}/price?fresh=true`)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
     const data = await response.json()
     if (data.price > 0) {
-      // Update stock price
+      // Update stock price.
       const oldPrice = stock.value.price
       stock.value.price = data.price
       stock.value.previousPrice = oldPrice
 
       console.log(`✅ Price refreshed: ${props.symbol} = $${data.price.toFixed(2)}`)
 
-      // Update timestamp
+      // Update timestamp.
       lastUpdate.value = new Date().toLocaleTimeString()
 
       const timestamp = Date.now()
 
-      // Add to price history for line chart
+      // Add to price history for line chart.
       priceHistory.value.push({
         timestamp: timestamp,
         price: data.price
       })
 
-      // Keep only last 100 price points
+      // Keep only last 100 price points for performance.
       if (priceHistory.value.length > 100) {
         priceHistory.value = priceHistory.value.slice(-100)
       }
 
-      // Update OHLC data for candlestick chart
+      // Update OHLC data for candlestick chart.
       updateOHLCData(data.price, timestamp)
+
+      // Keep realtime OHLC data manageable.
+      if (realtimeOHLC.value.length > 200) {
+        realtimeOHLC.value = realtimeOHLC.value.slice(-200)
+      }
+
+      // If we have a lot of combined data, trim old historical data to prevent memory issues.
+      if (historicalData.value.length > 0 && priceHistory.value.length > 50) {
+        // Keep only the most recent part of historical data.
+        const totalPoints = historicalData.value.length + priceHistory.value.length
+        if (totalPoints > 500) {
+          // Remove only ~10% of historical data instead of fixed 100 points.
+          const removePoints = Math.max(10, Math.floor(historicalData.value.length * 0.1))
+          const keepHistorical = Math.max(300, historicalData.value.length - removePoints)
+          historicalData.value = historicalData.value.slice(-keepHistorical)
+        }
+      }
     }
   }
   catch (error) {
@@ -1023,10 +1087,10 @@ async function refreshMarketStatus() {
 }
 
 function startMarketStatusMonitoring() {
-  // Don't start if already running
+  // Don't start if already running.
   if (marketStatusInterval) return
 
-  // Check market status every 5 minutes as a fallback
+  // Check market status every 5 minutes as a fallback.
   marketStatusInterval = setInterval(refreshMarketStatus, 5 * 60 * 1000)
   console.log('📊 Market status monitoring started (5-minute intervals)')
 }
@@ -1052,7 +1116,7 @@ async function placeOrder(side) {
 
     console.log(`📈 Placing ${side} order for ${props.symbol}:`, order)
 
-    // For now, just show a confirmation
+    // For now, just show a confirmation.
     const orderTypeText = orderForm.value.type.charAt(0).toUpperCase() + orderForm.value.type.slice(1)
     let confirmationText = `${orderTypeText} ${side.toUpperCase()} ${order.quantity} ${props.symbol}`
 
@@ -1083,14 +1147,14 @@ onMounted(async () => {
   setupWebSocket()
   connect()
 
-  // Wait for stock data, historical data, and market status to load
+  // Wait for stock data, historical data, and market status to load.
   await Promise.all([
     fetchStockData(),
     fetchHistoricalData(),
     refreshMarketStatus()
   ])
 
-  // Start periodic market status monitoring
+  // Start periodic market status monitoring.
   startMarketStatusMonitoring()
 
   console.log(`✅ Component ready for ${props.symbol}`)
@@ -1098,7 +1162,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   // WebSocket cleanup is handled by the composable.
-  // Stop market status monitoring
+  // Stop market status monitoring.
   stopMarketStatusMonitoring()
   console.log(`🔄 Component unmounted for ${props.symbol}`)
 })
@@ -1109,20 +1173,20 @@ watch(() => props.symbol, async (newSymbol, oldSymbol) => {
 
   console.log(`🔄 Symbol changed from ${oldSymbol} to ${newSymbol}`)
 
-  // Clear existing data
+  // Clear existing data.
   priceHistory.value = []
   historicalData.value = []
   realtimeOHLC.value = []
   recentTrades.value = []
 
-  // Fetch new data
+  // Fetch new data.
   await Promise.all([
     fetchStockData(),
     fetchHistoricalData()
   ])
 }, { immediate: false })
 
-// Watch for period/timeframe changes
+// Watch for period/timeframe changes.
 watch([selectedPeriod, selectedTimeframe], async () => {
   await fetchHistoricalData()
 })

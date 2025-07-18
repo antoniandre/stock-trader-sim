@@ -81,7 +81,7 @@ export async function getMarketStatus() {
   if (!isTradingDay) {
     return {
       status: 'closed',
-      message: 'Market is closed - Holiday or Weekend',
+      message: 'Closed',
       nextOpen: getNextMarketOpen(),
       isWeekend: day === 0 || day === 6
     }
@@ -96,7 +96,7 @@ export async function getMarketStatus() {
   if (currentTimeMinutes < preMarketStart) {
     return {
       status: 'overnight',
-      message: 'Overnight trading',
+      message: 'Overnight',
       nextOpen: getNextMarketOpen(),
       isWeekend: false
     }
@@ -105,7 +105,7 @@ export async function getMarketStatus() {
   if (currentTimeMinutes >= preMarketStart && currentTimeMinutes < marketOpen) {
     return {
       status: 'premarket',
-      message: 'Pre-market trading',
+      message: 'Pre-market',
       nextOpen: getNextMarketOpen(),
       isWeekend: false
     }
@@ -114,7 +114,7 @@ export async function getMarketStatus() {
   if (currentTimeMinutes >= marketOpen && currentTimeMinutes < marketClose) {
     return {
       status: 'open',
-      message: 'Market is open',
+      message: 'Open',
       nextClose: getNextMarketClose(),
       isWeekend: false
     }
@@ -123,7 +123,7 @@ export async function getMarketStatus() {
   if (currentTimeMinutes >= marketClose && currentTimeMinutes < afterHoursEnd) {
     return {
       status: 'afterhours',
-      message: 'After-hours trading',
+      message: 'After-hours',
       nextOpen: getNextMarketOpen(),
       isWeekend: false
     }
@@ -131,7 +131,7 @@ export async function getMarketStatus() {
 
   return {
     status: 'overnight',
-    message: 'Overnight trading',
+    message: 'Overnight',
     nextOpen: getNextMarketOpen(),
     isWeekend: false
   }
@@ -174,7 +174,7 @@ export async function getStockMarketStatus(stock) {
   if (!isTradingDay) {
     return {
       status: 'closed',
-      message: 'Market closed - Holiday or Weekend',
+      message: 'Closed',
       nextOpen: getNextMarketOpen(),
       nextClose: null
     }
@@ -212,7 +212,7 @@ export async function getStockMarketStatus(stock) {
     if (currentTimeMinutes >= marketOpen && currentTimeMinutes < marketClose) {
       return {
         status: 'open',
-        message: 'Market Open',
+        message: 'Open',
         nextOpen: null,
         nextClose: getNextMarketClose()
       }
@@ -239,7 +239,7 @@ export async function getStockMarketStatus(stock) {
   // This can be expanded to support international exchanges
   return {
     status: 'closed',
-    message: 'Market status unavailable',
+    message: 'Unavailable',
     nextOpen: null,
     nextClose: null
   }
