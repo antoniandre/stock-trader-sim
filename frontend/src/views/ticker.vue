@@ -25,7 +25,7 @@
       h1.title2 {{ stock.name || 'Loading...' }}
 
   //- Stock Details & Trading
-  .w-flex.wrap.mt4
+  .w-flex.mt4.mdd-column
     //- Left Column: Stock Details & Chart
     .mdd12.lg7.grow
       //- Price Chart
@@ -114,7 +114,7 @@
               span.text-info Loading chart data...
 
             //- Charts
-            .chart-content.tradingview-chart(v-else ref="chartContainer")
+            .chart-content.tradingview-chart(v-else ref="chartContainer" style="position: relative;")
               Line(
                 v-if="chartType === 'line'"
                 ref="lineChartRef"
@@ -125,6 +125,11 @@
                 ref="candleChartRef"
                 :data="candlestickChartData"
                 :options="candlestickChartOptions")
+
+              //- Drawing Tools Overlay (positioned inside chart container)
+              DrawingTools(
+                v-if="!isLoadingHistoricalData"
+                :chart-container="chartContainer")
 
             //- Chart Controls
             .chart-controls-helper.w-flex.align-center.gap2.size--xs(v-if="!isLoadingHistoricalData")
@@ -139,6 +144,7 @@
                 icon.w-icon(icon="mdi:refresh" style="width: 12px")
 
     //- Right Column: Trading Interface
+    .spacer.ma3
     .mdd12.lg5.pl8.grow
       //- Trading Form
       .glass-box.pa6
@@ -1322,16 +1328,167 @@ watch([selectedPeriod, selectedTimeframe], async () => {
     &--candlestick {height: 450px;}
   }
 
-  .chart-controls-helper {
-    background: rgba(0, 0, 0, 0.6);
-    border-radius: 6px;
-    padding: 6px 10px;
-    backdrop-filter: blur(10px);
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 11px;
-    transition: opacity 0.3s ease;
+  .tradingview-chart {
+    background: var(--chart-bg-color);
+    border-radius: 12px;
+    overflow: hidden;
+    padding: 12px;
 
-    &:hover {opacity: 1;}
+    &.chart-fullscreen {
+      height: 100%;
+      border-radius: 0;
+      background: #000;
+    }
+
+    &:fullscreen {
+      background: #000;
+
+      .chart-main {height: calc(100vh - 200px);}
+    }
+
+    .chart-main {
+      height: 500px;
+      position: relative;
+
+      .chart-content {
+        height: 100%;
+        width: 100%;
+      }
+    }
+
+    .volume-section {
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    .chart-controls-panel {
+      background: rgba(0, 0, 0, 0.8);
+      border-radius: 8px;
+      padding: 0.5rem;
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+
+      .controls-row {
+        .control-btn {
+          width: 24px;
+          height: 24px;
+          padding: 0;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+
+          &:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-1px);
+          }
+        }
+      }
+
+      .controls-help {
+        margin-top: 0.5rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+    }
+  }
+
+  .settings-content {
+    .setting-group {
+      label {
+        display: block;
+        font-weight: 600;
+        color: #C9D1D9;
+      }
+
+      .color-controls {
+        .color-input {
+          flex: 1;
+
+          label {
+            font-size: 0.75rem;
+            margin-bottom: 0.25rem;
+          }
+        }
+      }
+    }
+  }
+
+  .shortcuts-content {
+    .shortcuts-section {
+      .section-title {
+        color: #3B82F6;
+        border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+        padding-bottom: 0.5rem;
+      }
+
+      .shortcut-row {
+        padding: 0.5rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+
+        &:last-child {border-bottom: none;}
+
+        .shortcut-key {
+          kbd {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            padding: 0.25rem 0.5rem;
+            font-family: monospace;
+            font-size: 0.75rem;
+            font-weight: bold;
+            color: #3B82F6;
+            min-width: 50px;
+            text-align: center;
+            display: inline-block;
+          }
+        }
+
+        .shortcut-description {
+          color: #C9D1D9;
+          font-size: 0.875rem;
+        }
+      }
+    }
+  }
+
+  // Enhanced chart styling
+  .chart--line, .chart--candlestick {
+    height: auto;
+    padding: 0;
+    background: transparent;
+    border: none;
+  }
+
+  // Professional toolbar styling
+  .period-selector, .chart-type-toggle, .timeframe-selector {
+    .period-btn, .chart-type-btn, .timeframe-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.2s ease;
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.1);
+        transform: translateY(-1px);
+      }
+
+      &--active {
+        background: rgba(59, 130, 246, 0.2);
+        border-color: rgba(59, 130, 246, 0.4);
+        color: #3B82F6;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+      }
+    }
+  }
+
+  // Responsive enhancements
+  @media (max-width: 768px) {
+    .tradingview-chart {
+      .chart-main {height: 350px;}
+
+      .chart-controls-panel {
+        position: static;
+        margin-top: 1rem;
+      }
+    }
   }
 
   .trade-item {
