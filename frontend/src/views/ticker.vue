@@ -45,15 +45,24 @@
               .text-bold
                 span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
               .size--xs ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
-            w-button.pa0.mla(
-              width="24"
-              height="24"
-              @click="refreshPrice"
-              :loading="isRefreshing"
-              tooltip="Refresh Price"
-              :tooltip-props="{ sm: true }"
-              round)
-              icon.w-icon(icon="mdi:refresh" style="width: 18px")
+            .w-flex.align-center.gap2.mla.no-grow
+              w-button.pa0(
+                width="24"
+                height="24"
+                @click="refreshPrice"
+                :loading="isRefreshing"
+                tooltip="Refresh Price"
+                :tooltip-props="{ sm: true }"
+                round)
+                icon(icon="mdi:refresh")
+              w-button.pa0(
+                  width="24"
+                  height="24"
+                  @click="showDialog = true"
+                  tooltip="Fullscreen Chart"
+                  :tooltip-props="{ sm: true }"
+                  round)
+                  icon(icon="mdi:fullscreen")
 
           //- Chart Controls
           .chart-controls.w-flex.justify-between.align-center.mt6.mb2
@@ -118,17 +127,16 @@
                 :options="candlestickChartOptions")
 
             //- Chart Controls
-            .chart-controls-helper.op6(v-if="!isLoadingHistoricalData")
-              .w-flex.align-center.gap2.size--xs
-                span Mouse wheel to zoom • Click &amp; drag to pan
-                w-button.pa0.ml2(
-                  width="20"
-                  height="20"
-                  @click="resetZoom"
-                  tooltip="Reset Zoom"
-                  :tooltip-props="{ sm: true }"
-                  round)
-                  icon.w-icon(icon="mdi:refresh" style="width: 16px")
+            .chart-controls-helper.w-flex.align-center.gap2.size--xs(v-if="!isLoadingHistoricalData")
+              span.op6 Mouse wheel to zoom • Click &amp; drag to pan
+              w-button.pa0.op8(
+                width="16"
+                height="16"
+                @click="resetZoom"
+                tooltip="Reset Zoom"
+                :tooltip-props="{ sm: true }"
+                round)
+                icon.w-icon(icon="mdi:refresh" style="width: 12px")
 
     //- Right Column: Trading Interface
     .mdd12.lg5.pl8.grow
