@@ -210,11 +210,8 @@ defineExpose({
     border-radius: 12px;
     overflow: hidden;
     padding: 12px;
-
-    .chart-content {
-      height: 100%;
-      width: 100%;
-    }
+    height: 100%;
+    width: 100%;
   }
 
   // Enhanced chart styling - override some properties but keep height

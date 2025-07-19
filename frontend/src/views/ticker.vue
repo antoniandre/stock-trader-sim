@@ -568,6 +568,7 @@ const lineChartOptions = computed(() => ({
       }
     },
     y: {
+      position: 'right',
       beginAtZero: false,
       grid: { color: 'rgba(255, 255, 255, 0.05)' },
       ticks: {
@@ -652,6 +653,7 @@ const candlestickChartOptions = computed(() => ({
       }
     },
     y: {
+      position: 'right',
       beginAtZero: false,
       grid: { color: 'rgba(255, 255, 255, 0.05)' },
       ticks: {
@@ -1190,63 +1192,6 @@ watch([selectedPeriod, selectedTimeframe], async () => {
   max-width: 1400px;
   margin: 0 auto;
 
-  .chart-info {
-    flex: 1;
-    min-width: 300px;
-  }
-
-  .tradingview-chart {
-    .chart-controls-panel {
-      background: rgba(0, 0, 0, 0.8);
-      border-radius: 8px;
-      padding: 0.5rem;
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-
-      .controls-row {
-        .control-btn {
-          width: 24px;
-          height: 24px;
-          padding: 0;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-
-          &:hover {
-            background: rgba(255, 255, 255, 0.1);
-            transform: translateY(-1px);
-          }
-        }
-      }
-
-      .controls-help {
-        margin-top: 0.5rem;
-        padding-top: 0.5rem;
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
-      }
-    }
-  }
-
-  .settings-content {
-    .setting-group {
-      label {
-        display: block;
-        font-weight: 600;
-        color: #C9D1D9;
-      }
-
-      .color-controls {
-        .color-input {
-          flex: 1;
-
-          label {
-            font-size: 0.75rem;
-            margin-bottom: 0.25rem;
-          }
-        }
-      }
-    }
-  }
-
   .trade-item {
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 
@@ -1256,12 +1201,6 @@ watch([selectedPeriod, selectedTimeframe], async () => {
   .price-display .title2 {
     font-size: 2.2rem;
     line-height: 1;
-  }
-
-  .chart-controls-fullscreen {
-    background: rgba(0, 0, 0, 0.7);
-    border-radius: 8px;
-    padding: 0.5rem;
   }
 }
 </style>

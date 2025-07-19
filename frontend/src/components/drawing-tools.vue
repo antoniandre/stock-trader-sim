@@ -473,9 +473,11 @@ onUnmounted(() => {
 
 <style lang="scss" scoped>
 .drawing-tools-container {
-  position: relative;
+  position: absolute;
   width: 100%;
   height: 100%;
+  left: 0;
+  top: 0;
 
   .drawing-toolbar {
     width: 50px; /* Fixed width for the toolbar */
@@ -489,9 +491,7 @@ onUnmounted(() => {
     .toolbar-section {
       margin-bottom: 1rem;
 
-      &:last-child {
-        margin-bottom: 0;
-      }
+      &:last-child {margin-bottom: 0;}
 
       .section-title {
         writing-mode: vertical-rl;
@@ -541,9 +541,7 @@ onUnmounted(() => {
       height: 100%;
       pointer-events: none;
 
-      .completed-drawings {
-        pointer-events: auto;
-      }
+      .completed-drawings {pointer-events: auto;}
 
       .current-drawing {
         pointer-events: none;
@@ -568,9 +566,7 @@ onUnmounted(() => {
       padding: 1rem;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 
-      .panel-title {
-        font-weight: 600;
-      }
+      .panel-title {font-weight: 600;}
     }
 
     .panel-content {
