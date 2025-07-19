@@ -64,84 +64,22 @@
                   round)
                   icon(icon="mdi:fullscreen")
 
-          //- Chart Controls
-          .chart-controls.w-flex.justify-between.align-center.mt6.mb2
-            .chart-selectors.w-flex.gap2
-              //- Chart Type Toggle
-              .chart-type-toggle.w-flex.gap1.no-grow
-                w-button.pa0(
-                  width="26"
-                  height="26"
-                  :outline="chartType === 'candlestick'"
-                  @click="changeChartType('line')"
-                  tooltip="Line"
-                  :tooltip-props="{ sm: true }"
-                  round)
-                  icon.size--lg(icon="material-symbols-light:show-chart")
-                w-button.pa0(
-                  width="26"
-                  height="26"
-                  :outline="chartType === 'line'"
-                  @click="changeChartType('candlestick')"
-                  tooltip="Candles"
-                  :tooltip-props="{ sm: true }"
-                  round)
-                  icon.size--xl(icon="material-symbols-light:candlestick-chart-outline-rounded")
-
-              //- Period Selector
-              .period-selector.w-flex.gap1.no-grow.mla
-                w-button.period-btn(
-                  v-for="period in chartPeriods"
-                  :key="period.value"
-                  color="base"
-                  :class="{ 'period-btn--active': selectedPeriod === period.value }"
-                  @click="changePeriod(period.value)")
-                  | {{ period.label }}
-
-              //- Timeframe Selector
-              .timeframe-selector.w-flex.gap1.no-grow
-                w-select.timeframe-btn(
-                  v-model="selectedTimeframe"
-                  :items="availableTimeframes"
-                  @input="changeTimeframe"
-                  outline)
-
-          //- Chart Display
-          .chart.w-flex.column.align-center.justify-center(:class="`chart--${chartType}`")
-            //- Loading state
-            .w-flex.column.align-center.justify-center(v-if="isLoadingHistoricalData")
-              w-progress.mb4(circle)
-              span.text-info Loading chart data...
-
-            //- Charts
-            .chart-content.tradingview-chart(v-else ref="chartContainer" style="position: relative;")
-              Line(
-                v-if="chartType === 'line'"
-                ref="lineChartRef"
-                :data="lineChartData"
-                :options="lineChartOptions")
-              CandlestickChart(
-                v-else
-                ref="candleChartRef"
-                :data="candlestickChartData"
-                :options="candlestickChartOptions")
-
-              //- Drawing Tools Overlay (positioned inside chart container)
-              DrawingTools(
-                v-if="!isLoadingHistoricalData"
-                :chart-container="chartContainer")
-
-            //- Chart Controls
-            .chart-controls-helper.w-flex.align-center.gap2.size--xs(v-if="!isLoadingHistoricalData")
-              span.op6 Mouse wheel to zoom • Click &amp; drag to pan
-              w-button.pa0.op8(
-                width="16"
-                height="16"
-                @click="resetZoom"
-                tooltip="Reset Zoom"
-                :tooltip-props="{ sm: true }"
-                round)
-                icon.w-icon(icon="mdi:refresh" style="width: 12px")
+          //- Price Chart Component
+          PriceChart(
+            :chart-type="chartType"
+            :selected-period="selectedPeriod"
+            :selected-timeframe="selectedTimeframe"
+            :chart-periods="chartPeriods"
+            :available-timeframes="availableTimeframes"
+            :is-loading-historical-data="isLoadingHistoricalData"
+            :line-chart-data="lineChartData"
+            :line-chart-options="lineChartOptions"
+            :candlestick-chart-data="candlestickChartData"
+            :candlestick-chart-options="candlestickChartOptions"
+            @change-chart-type="changeChartType"
+            @change-period="changePeriod"
+            @change-timeframe="changeTimeframe"
+            ref="priceChartRef")
 
     //- Right Column: Trading Interface
     .spacer.ma3
@@ -253,7 +191,7 @@
       //- Recent Trades for this symbol
       .glass-box.pa6.mt4(v-if="recentTrades.length")
         .title3.mb4 Recent Trades
-        .max-h-40.ova
+        .ova
           .trade-item.w-flex.justify-between.align-center.py2(
             v-for="trade in recentTrades.slice(0, 5)"
             :key="trade.timestamp")
@@ -272,51 +210,40 @@
     dialog-class="ma8"
     content-class="pa0")
     .tradingview-chart.chart-fullscreen
-      .chart-main
-        .chart-content(ref="fullscreenChartContainer")
-          Line(
-            v-if="chartType === 'line'"
-            :data="lineChartData"
-            :options="lineChartOptions")
-          CandlestickChart(
-            v-else
-            :data="candlestickChartData"
-            :options="candlestickChartOptions")
-      .chart-controls-fullscreen.absolute
-        .w-flex.align-center.gap2
-          w-button.pa0(
-            width="24"
-            height="24"
-            @click="resetZoom"
-            tooltip="Reset Zoom"
-            round)
-            icon.w-icon(icon="mdi:refresh" style="width: 18px")
-          w-button.pa0.ml2(
-            width="24"
-            height="24"
-            @click="showDialog = false"
-            tooltip="Exit Fullscreen"
-            round)
-            icon.w-icon(icon="mdi:fullscreen-exit" style="width: 18px")
+      w-button.pa0.ml2(
+        absolute
+        right
+        top
+        width="24"
+        height="24"
+        @click="showDialog = false"
+        tooltip="Close"
+        icon="wi-cross"
+        bg-color="error"
+        round)
+      PriceChart(
+        :chart-type="chartType"
+        :selected-period="selectedPeriod"
+        :selected-timeframe="selectedTimeframe"
+        :chart-periods="chartPeriods"
+        :available-timeframes="availableTimeframes"
+        :is-loading-historical-data="isLoadingHistoricalData"
+        :line-chart-data="lineChartData"
+        :line-chart-options="lineChartOptions"
+        :candlestick-chart-data="candlestickChartData"
+        :candlestick-chart-options="candlestickChartOptions"
+        @change-chart-type="changeChartType"
+        @change-period="changePeriod"
+        @change-timeframe="changeTimeframe")
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { Line } from 'vue-chartjs'
-import { Chart } from 'chart.js'
-import 'chart.js/auto'
-import 'chartjs-chart-financial'
-import 'chartjs-adapter-luxon'
-import zoomPlugin from 'chartjs-plugin-zoom'
 import { fetchStock, fetchStockPrice, fetchStockHistory } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from '@/components/ticker-logo.vue'
-import CandlestickChart from '@/components/candlestick-chart.vue'
-import DrawingTools from '@/components/drawing-tools.vue'
-
-// Register zoom plugin.
-Chart.register(zoomPlugin)
+import PriceChart from '@/components/price-chart.vue'
 
 const props = defineProps({
   symbol: { type: String, required: true }
@@ -346,10 +273,7 @@ const selectedPeriod = ref('1D')
 const selectedTimeframe = ref('1Min')
 const chartType = ref('candlestick')
 const recentTrades = ref([])
-const lineChartRef = ref(null)
-const candleChartRef = ref(null)
-const chartContainer = ref(null)
-const fullscreenChartContainer = ref(null)
+const priceChartRef = ref(null)
 const isRefreshing = ref(false)
 const showDialog = ref(false) // For fullscreen chart dialog
 const isLoadingHistoricalData = ref(false)
@@ -481,7 +405,6 @@ const lineChartData = computed(() => {
 
   if (!dataToUse.length) {
     return {
-      labels: [],
       datasets: [{
         label: `${props.symbol} Price`,
         data: [],
@@ -496,14 +419,13 @@ const lineChartData = computed(() => {
     }
   }
 
-  const labels = dataToUse.map(item => new Date(item.timestamp))
-  const data = dataToUse.map(item => item.close || item.price)
-
   return {
-    labels,
     datasets: [{
       label: `${props.symbol} Price`,
-      data,
+      data: dataToUse.map(item => ({
+        x: item.timestamp,
+        y: item.close || item.price
+      })),
       borderColor: priceChange.value >= 0 ? '#10B981' : '#EF4444',
       backgroundColor: priceChange.value >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
       borderWidth: 2,
@@ -1064,11 +986,9 @@ function changeChartType(type) {
 }
 
 function resetZoom() {
-  // Reset zoom for both chart types.
-  if (chartType.value === 'line' && lineChartRef.value?.chart) {
-    lineChartRef.value.chart.resetZoom()
-  } else if (chartType.value === 'candlestick' && candleChartRef.value?.chart) {
-    candleChartRef.value.chart().resetZoom()
+  // Delegate to PriceChart component.
+  if (priceChartRef.value) {
+    priceChartRef.value.resetZoom()
   }
 }
 
@@ -1270,97 +1190,12 @@ watch([selectedPeriod, selectedTimeframe], async () => {
   max-width: 1400px;
   margin: 0 auto;
 
-  .chart-controls {
-    flex-wrap: wrap;
-    gap: 1rem;
-
-    .chart-info {
-      flex: 1;
-      min-width: 300px;
-    }
-
-    .chart-selectors {
-      flex-wrap: wrap;
-      align-items: center;
-    }
-  }
-
-  .timeframe-selector .w-select__selection-wrap {min-height: 24px;}
-  .period-selector, .chart-type-toggle {
-    .period-btn, .chart-type-btn {
-      min-width: 40px;
-      font-size: 12px;
-      padding: 6px 12px;
-      background-color: rgba(255, 255, 255, 0.1);
-
-      &--active {
-        background-color: var(--w-primary-color);
-        color: white;
-      }
-    }
-  }
-
-  .timeframe-selector {
-    .timeframe-btn {
-      &--active {
-        background-color: var(--w-info-color);
-        color: white;
-      }
-    }
-  }
-
-  .chart-type-toggle {
-    .chart-type-btn {
-      &--active {
-        background-color: var(--w-secondary-color);
-        color: white;
-      }
-    }
-  }
-
-  .chart {
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    padding: 1rem;
-    background: rgba(0, 0, 0, 0.2);
-
-    &--line {height: 450px;}
-    &--candlestick {height: 450px;}
+  .chart-info {
+    flex: 1;
+    min-width: 300px;
   }
 
   .tradingview-chart {
-    background: var(--chart-bg-color);
-    border-radius: 12px;
-    overflow: hidden;
-    padding: 12px;
-
-    &.chart-fullscreen {
-      height: 100%;
-      border-radius: 0;
-      background: #000;
-    }
-
-    &:fullscreen {
-      background: #000;
-
-      .chart-main {height: calc(100vh - 200px);}
-    }
-
-    .chart-main {
-      height: 500px;
-      position: relative;
-
-      .chart-content {
-        height: 100%;
-        width: 100%;
-      }
-    }
-
-    .volume-section {
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-      background: rgba(0, 0, 0, 0.2);
-    }
-
     .chart-controls-panel {
       background: rgba(0, 0, 0, 0.8);
       border-radius: 8px;
@@ -1408,85 +1243,6 @@ watch([selectedPeriod, selectedTimeframe], async () => {
             margin-bottom: 0.25rem;
           }
         }
-      }
-    }
-  }
-
-  .shortcuts-content {
-    .shortcuts-section {
-      .section-title {
-        color: #3B82F6;
-        border-bottom: 1px solid rgba(59, 130, 246, 0.2);
-        padding-bottom: 0.5rem;
-      }
-
-      .shortcut-row {
-        padding: 0.5rem 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-
-        &:last-child {border-bottom: none;}
-
-        .shortcut-key {
-          kbd {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 4px;
-            padding: 0.25rem 0.5rem;
-            font-family: monospace;
-            font-size: 0.75rem;
-            font-weight: bold;
-            color: #3B82F6;
-            min-width: 50px;
-            text-align: center;
-            display: inline-block;
-          }
-        }
-
-        .shortcut-description {
-          color: #C9D1D9;
-          font-size: 0.875rem;
-        }
-      }
-    }
-  }
-
-  // Enhanced chart styling
-  .chart--line, .chart--candlestick {
-    height: auto;
-    padding: 0;
-    background: transparent;
-    border: none;
-  }
-
-  // Professional toolbar styling
-  .period-selector, .chart-type-toggle, .timeframe-selector {
-    .period-btn, .chart-type-btn, .timeframe-btn {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      transition: all 0.2s ease;
-
-      &:hover {
-        background: rgba(255, 255, 255, 0.1);
-        transform: translateY(-1px);
-      }
-
-      &--active {
-        background: rgba(59, 130, 246, 0.2);
-        border-color: rgba(59, 130, 246, 0.4);
-        color: #3B82F6;
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-      }
-    }
-  }
-
-  // Responsive enhancements
-  @media (max-width: 768px) {
-    .tradingview-chart {
-      .chart-main {height: 350px;}
-
-      .chart-controls-panel {
-        position: static;
-        margin-top: 1rem;
       }
     }
   }
