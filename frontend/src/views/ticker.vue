@@ -258,6 +258,40 @@
             .text-right
               .text-bold {{ stock.currencySymbol }}{{ trade.price.toFixed(2) }}
               .size--sm.op7 {{ new Date(trade.timestamp).toLocaleTimeString() }}
+
+  //- Fullscreen Chart Dialog
+  w-dialog(
+    v-model="showDialog"
+    :fullscreen="true"
+    dialog-class="ma8"
+    content-class="pa0")
+    .tradingview-chart.chart-fullscreen
+      .chart-main
+        .chart-content(ref="fullscreenChartContainer")
+          Line(
+            v-if="chartType === 'line'"
+            :data="lineChartData"
+            :options="lineChartOptions")
+          CandlestickChart(
+            v-else
+            :data="candlestickChartData"
+            :options="candlestickChartOptions")
+      .chart-controls-fullscreen.absolute
+        .w-flex.align-center.gap2
+          w-button.pa0(
+            width="24"
+            height="24"
+            @click="resetZoom"
+            tooltip="Reset Zoom"
+            round)
+            icon.w-icon(icon="mdi:refresh" style="width: 18px")
+          w-button.pa0.ml2(
+            width="24"
+            height="24"
+            @click="showDialog = false"
+            tooltip="Exit Fullscreen"
+            round)
+            icon.w-icon(icon="mdi:fullscreen-exit" style="width: 18px")
 </template>
 
 <script setup>
@@ -273,6 +307,7 @@ import { useWebSocket } from '@/composables/web-socket'
 import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from '@/components/ticker-logo.vue'
 import CandlestickChart from '@/components/candlestick-chart.vue'
+import DrawingTools from '@/components/drawing-tools.vue'
 
 // Register zoom plugin.
 Chart.register(zoomPlugin)
@@ -308,7 +343,9 @@ const recentTrades = ref([])
 const lineChartRef = ref(null)
 const candleChartRef = ref(null)
 const chartContainer = ref(null)
+const fullscreenChartContainer = ref(null)
 const isRefreshing = ref(false)
+const showDialog = ref(false) // For fullscreen chart dialog
 const isLoadingHistoricalData = ref(false)
 let marketStatusInterval = null
 
@@ -354,6 +391,27 @@ const timeframeOptions = {
 // Computed available timeframes based on selected period.
 const availableTimeframes = computed(() => {
   return timeframeOptions[selectedPeriod.value] || timeframeOptions['1D']
+})
+
+// Computed time unit for Chart.js based on selected timeframe
+const chartTimeUnit = computed(() => {
+  const timeframe = selectedTimeframe.value
+  if (timeframe.includes('Min')) return 'minute'
+  if (timeframe.includes('Hour')) return 'hour'
+  if (timeframe.includes('Day')) return 'day'
+  return 'minute' // Default fallback
+})
+
+// Dynamic display formats based on time unit
+const chartDisplayFormats = computed(() => {
+  const unit = chartTimeUnit.value
+  return {
+    minute: 'HH:mm',
+    hour: unit === 'hour' ? 'HH:mm' : 'MMM dd HH:mm',
+    day: 'MMM dd',
+    week: 'MMM dd',
+    month: 'MMM yyyy'
+  }
 })
 
 // Order form.
@@ -511,11 +569,13 @@ const candlestickChartData = computed(() => {
 })
 
 // Chart options for line chart
-const lineChartOptions = {
+const lineChartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
-  // Disable animations for real-time updates
-  animation: { duration: 0 },
+  // Disable animations for real-time updates.
+  animation: false,
+  parsing: false, // Improve performance.
+  normalized: true, // Better data handling.
   interaction: { mode: 'index', intersect: false },
   plugins: {
     legend: { display: false },
@@ -545,35 +605,38 @@ const lineChartOptions = {
       }
     },
     zoom: {
-      zoom: {
-        wheel: { enabled: true, modifierKey: 'ctrl' },
-        pinch: { enabled: true },
-        mode: 'xy',
-        scaleMode: 'xy'
+      limits: {
+        x: { minRange: 60000 * 5 } // Minimum 5 minutes visible.
       },
       pan: {
         enabled: true,
-        mode: 'xy',
-        modifierKey: 'shift'
+        mode: 'x',
+        threshold: 5, // Reduce sensitivity for smoother panning.
+        modifierKey: null // Ensure no modifier key required.
+      },
+      zoom: {
+        wheel: { enabled: true, speed: 0.1 },
+        pinch: { enabled: true },
+        mode: 'x'
       }
     }
   },
   scales: {
     x: {
       type: 'time',
+      bounds: 'ticks', // Constrain to tick boundaries for better stability.
+      adapters: {
+        date: { zone: 'UTC' }
+      },
       time: {
-        displayFormats: {
-          minute: 'HH:mm',
-          hour: 'HH:mm',
-          day: 'MMM dd',
-          week: 'MMM dd',
-          month: 'MMM yyyy'
-        }
+        unit: chartTimeUnit.value,
+        displayFormats: chartDisplayFormats.value
       },
       grid: { display: false },
       ticks: {
         color: '#C9D1D9',
-        maxTicksLimit: 8 // Limit number of ticks for better readability
+        maxTicksLimit: 8,
+        source: 'auto' // Let Chart.js auto-generate ticks.
       }
     },
     y: {
@@ -585,17 +648,16 @@ const lineChartOptions = {
       }
     }
   }
-}
+}))
 
-// Chart options for candlestick chart
-const candlestickChartOptions = {
+// Chart options for candlestick chart.
+const candlestickChartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
   animation: false,
-  interaction: {
-    mode: 'index',
-    intersect: false
-  },
+  parsing: false, // Improve performance for financial data.
+  normalized: true, // Better data handling.
+  interaction: { mode: 'index', intersect: false },
   plugins: {
     legend: { display: false },
     tooltip: {
@@ -627,38 +689,38 @@ const candlestickChartOptions = {
       }
     },
     zoom: {
-      zoom: {
-        wheel: {
-          enabled: true,
-          modifierKey: 'ctrl'
-        },
-        pinch: { enabled: true },
-        mode: 'xy',
-        scaleMode: 'xy'
+      limits: {
+        x: { minRange: 60000 * 5 } // Minimum 5 minutes visible.
       },
       pan: {
         enabled: true,
-        mode: 'xy',
-        modifierKey: 'shift'
+        mode: 'x',
+        threshold: 5, // Reduce sensitivity for smoother panning.
+        modifierKey: null // Ensure no modifier key required.
+      },
+      zoom: {
+        wheel: { enabled: true, speed: 0.1 },
+        pinch: { enabled: true },
+        mode: 'x'
       }
     }
   },
   scales: {
     x: {
       type: 'time',
+      bounds: 'ticks', // Constrain to tick boundaries for better stability.
+      adapters: {
+        date: { zone: 'UTC' }
+      },
       time: {
-        displayFormats: {
-          minute: 'HH:mm',
-          hour: 'HH:mm',
-          day: 'MMM dd',
-          week: 'MMM dd',
-          month: 'MMM yyyy'
-        }
+        unit: chartTimeUnit.value,
+        displayFormats: chartDisplayFormats.value
       },
       grid: { display: false },
       ticks: {
         color: '#C9D1D9',
-        maxTicksLimit: 8 // Limit number of ticks for better readability
+        maxTicksLimit: 8,
+        source: 'auto' // Let Chart.js auto-generate ticks.
       }
     },
     y: {
@@ -670,7 +732,7 @@ const candlestickChartOptions = {
       }
     }
   }
-}
+}))
 
 // Methods.
 // fetchMarketStatusData is now handled by the composable.
@@ -1281,6 +1343,12 @@ watch([selectedPeriod, selectedTimeframe], async () => {
   .price-display .title2 {
     font-size: 2.2rem;
     line-height: 1;
+  }
+
+  .chart-controls-fullscreen {
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 8px;
+    padding: 0.5rem;
   }
 }
 </style>
