@@ -30,7 +30,7 @@
     .mdd12.lg7.grow
       //- Price Chart
       .glass-box.pa6
-        .chart-container
+        .chart-wrap
           .chart-info.w-flex.align-center.gap6
             .price-display
               .title2.text-bold(v-if="stock.price")
@@ -105,21 +105,21 @@
               span.text-info Loading chart data...
 
             //- Charts
-            Line(
-              v-else-if="chartType === 'line'"
-              ref="lineChartRef"
-              :data="lineChartData"
-              :options="lineChartOptions")
-            CandlestickChart(
-              v-else ref="candleChartRef"
-              :data="candlestickChartData"
-              :options="candlestickChartOptions")
+              Line(
+                v-if="chartType === 'line'"
+                ref="lineChartRef"
+                :data="lineChartData"
+                :options="lineChartOptions")
+              CandlestickChart(
+                v-else
+                ref="candleChartRef"
+                :data="candlestickChartData"
+                :options="candlestickChartOptions")
 
-            //- Chart Controls Helper
+            //- Chart Controls
             .chart-controls-helper.absolute.bottom-2.right-2.op6(v-if="!isLoadingHistoricalData")
               .w-flex.align-center.gap2.size--xs
-                icon.w-icon(icon="mdi:mouse" style="width: 14px")
-                span Ctrl+Wheel to zoom • Shift+Drag to pan
+                span Mouse wheel to zoom • Click &amp; drag to pan
                 w-button.pa0.ml2(
                   width="20"
                   height="20"
@@ -265,14 +265,14 @@ import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from '@/components/ticker-logo.vue'
 import CandlestickChart from '@/components/candlestick-chart.vue'
 
-// Register zoom plugin
+// Register zoom plugin.
 Chart.register(zoomPlugin)
 
 const props = defineProps({
   symbol: { type: String, required: true }
 })
 
-// Consolidated stock object
+// Consolidated stock object.
 const stock = ref({
   symbol: props.symbol,
   name: '',
@@ -291,13 +291,14 @@ const stock = ref({
 
 const priceHistory = ref([])
 const historicalData = ref([])
-const realtimeOHLC = ref([]) // Real-time OHLC data for candlestick chart
+const realtimeOHLC = ref([]) // Real-time OHLC data for candlestick chart.
 const selectedPeriod = ref('1D')
 const selectedTimeframe = ref('1Min')
 const chartType = ref('candlestick')
 const recentTrades = ref([])
 const lineChartRef = ref(null)
 const candleChartRef = ref(null)
+const chartContainer = ref(null)
 const isRefreshing = ref(false)
 const isLoadingHistoricalData = ref(false)
 let marketStatusInterval = null
@@ -306,7 +307,7 @@ let marketStatusInterval = null
 const { wsConnected, lastUpdate, connect, addMessageHandler, subscribeToStock } = useWebSocket()
 const { currentStatus, formatNextOpenTime } = useStockStatus(stock)
 
-// Chart periods
+// Chart periods.
 const chartPeriods = [
   { label: '1D', value: '1D' },
   { label: '1W', value: '1W' },
@@ -314,7 +315,7 @@ const chartPeriods = [
   { label: '3M', value: '3M' }
 ]
 
-// Available timeframes for each period
+// Available timeframes for each period.
 const timeframeOptions = {
   '1D': [
     { label: '1m', value: '1Min' },
@@ -341,12 +342,12 @@ const timeframeOptions = {
   ]
 }
 
-// Computed available timeframes based on selected period
+// Computed available timeframes based on selected period.
 const availableTimeframes = computed(() => {
   return timeframeOptions[selectedPeriod.value] || timeframeOptions['1D']
 })
 
-// Order form
+// Order form.
 const orderForm = ref({
   type: 'market',
   quantity: 1,
@@ -360,7 +361,7 @@ const orderTypes = [
   { label: 'Stop Loss', value: 'stop' }
 ]
 
-// Computed properties
+// Computed properties.
 const currentPrice = computed(() => stock.value.price)
 const previousPrice = computed(() => stock.value.previousPrice)
 const currency = computed(() => stock.value.currency)
@@ -386,25 +387,24 @@ const isOrderValid = computed(() => {
   return true
 })
 
-// Chart data for line chart
+// Chart data for line chart.
 const lineChartData = computed(() => {
-  // Always combine historical data with real-time price history for seamless transition
+  // Always combine historical data with real-time price history for seamless transition.
   let dataToUse = []
 
   if (historicalData.value.length > 0) {
-    // Start with historical data
+    // Start with historical data.
     dataToUse = [...historicalData.value]
 
-    // Add real-time price updates that don't overlap with historical data
+    // Add real-time price updates that don't overlap with historical data.
     if (priceHistory.value.length > 0) {
       const lastHistoricalTime = historicalData.value[historicalData.value.length - 1]?.timestamp || 0
       const newRealTimeData = priceHistory.value.filter(item => item.timestamp > lastHistoricalTime)
       dataToUse = [...dataToUse, ...newRealTimeData]
     }
-  } else {
-    // Fallback to real-time data only if no historical data
-    dataToUse = priceHistory.value
   }
+  // Fallback to real-time data only if no historical data.
+  else dataToUse = priceHistory.value
 
   if (!dataToUse.length) {
     return {
@@ -445,9 +445,9 @@ const lineChartData = computed(() => {
   }
 })
 
-// Chart data for candlestick chart
+// Chart data for candlestick chart.
 const candlestickChartData = computed(() => {
-  // Always combine historical data with real-time OHLC data for seamless transition
+  // Always combine historical data with real-time OHLC data for seamless transition.
   let dataToUse = []
 
   if (historicalData.value.length > 0) {
