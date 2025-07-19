@@ -15,6 +15,7 @@
     --nyse-color: #116c65;
     --nasdaq-color: #1f507b;
     --other-se-color: #2a5d23;
+    --chart-bg-color: #00000033;
   }
   &[data-theme="light"] .w-app {
     --bg-gradient-stop1: #00ccff12;
@@ -24,6 +25,7 @@
     --nyse-color: #a3ded9;
     --nasdaq-color: #bbd9f3;
     --other-se-color: #e4ffe0;
+    --chart-bg-color: #ffffffbf;
   }
 
   .glass--bg {background: var(--w-glass-bg-color);}

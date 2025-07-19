@@ -39,7 +39,7 @@
               .title3(v-else)
                 w-icon.mr2.op4(size="1.4rem") wi-info-circle
                 span.op6 Price Unavailable
-              .caption.mt1.op7.poa Last updated: {{ lastUpdate }}
+              .caption.mt1.op7.absolute Last updated: {{ lastUpdate }}
 
             .price-change.text-center(v-if="priceChange && stock.price" :class="priceChange >= 0 ? 'success-light3' : 'error'")
               .text-bold
@@ -105,6 +105,7 @@
               span.text-info Loading chart data...
 
             //- Charts
+            .chart-content.tradingview-chart(v-else ref="chartContainer")
               Line(
                 v-if="chartType === 'line'"
                 ref="lineChartRef"
@@ -117,7 +118,7 @@
                 :options="candlestickChartOptions")
 
             //- Chart Controls
-            .chart-controls-helper.absolute.bottom-2.right-2.op6(v-if="!isLoadingHistoricalData")
+            .chart-controls-helper.op6(v-if="!isLoadingHistoricalData")
               .w-flex.align-center.gap2.size--xs
                 span Mouse wheel to zoom • Click &amp; drag to pan
                 w-button.pa0.ml2(
@@ -1014,17 +1015,12 @@ async function refreshPrice() {
       stock.value.previousPrice = oldPrice
 
       console.log(`✅ Price refreshed: ${props.symbol} = $${data.price.toFixed(2)}`)
-
-      // Update timestamp.
       lastUpdate.value = new Date().toLocaleTimeString()
 
       const timestamp = Date.now()
 
       // Add to price history for line chart.
-      priceHistory.value.push({
-        timestamp: timestamp,
-        price: data.price
-      })
+      priceHistory.value.push({ timestamp: timestamp, price: data.price })
 
       // Keep only last 100 price points for performance.
       if (priceHistory.value.length > 100) {
