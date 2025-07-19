@@ -5,7 +5,8 @@ w-image.ticker-logo(
   :alt="symbol"
   :class="sizeClass"
   :width="sizes[size]"
-  lazy)
+  lazy
+  spinner-color="contrast-o3")
   .logo-placeholder.hide {{ symbol.charAt(0) }}
 </template>
 
