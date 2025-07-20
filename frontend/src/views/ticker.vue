@@ -81,7 +81,7 @@
             @change-timeframe="changeTimeframe"
             ref="priceChartRef")
 
-    //- Right Column: Trading Interface
+    //- Right Column: Trading Interface & Stats
     .spacer.ma3
     .mdd12.lg5.pl8.grow
       //- Trading Form
@@ -203,6 +203,12 @@
               .text-bold {{ stock.currencySymbol }}{{ trade.price.toFixed(2) }}
               .size--sm.op7 {{ new Date(trade.timestamp).toLocaleTimeString() }}
 
+      .glass-box.mt4
+        StockStatsPanel(
+          :stock="stock"
+          :current-price="stock.price"
+          :currency-symbol="stock.currencySymbol")
+
   //- Fullscreen Chart Dialog
   w-dialog(
     v-model="showDialog"
@@ -244,6 +250,7 @@ import { useWebSocket } from '@/composables/web-socket'
 import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from '@/components/ticker-logo.vue'
 import PriceChart from '@/components/price-chart.vue'
+import StockStatsPanel from '@/components/stock-stats-panel.vue'
 
 const props = defineProps({
   symbol: { type: String, required: true }
