@@ -167,7 +167,7 @@ export function generateMockHistoricalData(symbol, period, timeframe = null) {
       high: Math.round(high * 100) / 100,
       low: Math.round(low * 100) / 100,
       close: Math.round(currentPrice * 100) / 100,
-      volume: Math.floor(Math.random() * 10000) + 1000,
+      volume: Math.floor(Math.random() * 100000) + 10000, // More realistic intraday volumes
       price: Math.round(currentPrice * 100) / 100 // For backward compatibility
     })
   }
