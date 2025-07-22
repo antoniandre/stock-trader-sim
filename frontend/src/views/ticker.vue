@@ -86,18 +86,19 @@
     .mdd12.lg5.pl8.grow
       //- Trading Form
       .glass-box.pa6
-        .title2.mb4 Place Order
+        .title2.mb4.w-flex.gap2
+          | Place
+          w-select.no-grow(
+                v-model="orderForm.type"
+                :items="orderTypes"
+            outline
+            round)
+            template(#selection="{ item }")
+              span.size--lg.ml2.mr1.pb2 {{ item.label }}
+          | Order
 
         .w-flex.gap4.wrap
           .grow
-            //- Order Type Selection
-            .mb4
-              label.size--sm.op7.mb2 Order Type
-              w-select(
-                v-model="orderForm.type"
-                :items="orderTypes"
-                outline)
-
             //- Quantity Input
             .mb4
               label.size--sm.op7.mb2 Quantity

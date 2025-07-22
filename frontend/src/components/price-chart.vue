@@ -45,27 +45,27 @@
   //- Indicators Toggle
   .indicators-panel.w-flex.gap2.mb4
     w-button.indicator-btn(
-      :class="{ 'indicator-btn--active': showEMA }"
+      :outline="!showEMA"
       @click="showEMA = !showEMA"
       size="xs")
       | EMA (20,50,200)
     w-button.indicator-btn(
-      :class="{ 'indicator-btn--active': showVWAP }"
+      :outline="!showVWAP"
       @click="showVWAP = !showVWAP"
       size="xs")
       | VWAP
     w-button.indicator-btn(
-      :class="{ 'indicator-btn--active': showVolume }"
+      :outline="!showVolume"
       @click="showVolume = !showVolume"
       size="xs")
       | Volume
     w-button.indicator-btn(
-      :class="{ 'indicator-btn--active': showRSI }"
+      :outline="!showRSI"
       @click="showRSI = !showRSI"
       size="xs")
       | RSI
     w-button.indicator-btn(
-      :class="{ 'indicator-btn--active': showMACD }"
+      :outline="!showMACD"
       @click="showMACD = !showMACD"
       size="xs")
       | MACD
