@@ -1,136 +1,153 @@
 <template lang="pug">
 .drawing-tools-container
-  //- Toolbar positioned absolutely
+  //- Toolbar positioned absolutely.
   .drawing-toolbar.absolute.left-2.top-2(style="z-index: 1001;")
     .toolbar-section
-      .section-title.size--xs.op6.text-upper Cursor
+      .section-title.op5.text-upper Cursor
       .tool-group.w-flex.column.gap1
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'cursor' }"
           @click="selectTool('cursor')"
           title="Cursor"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:cursor-default")
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'crosshair' }"
           @click="selectTool('crosshair')"
           title="Crosshair"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:crosshairs")
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'measure' }"
           @click="selectTool('measure')"
           title="Measure"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:ruler")
 
     .toolbar-section
-      .section-title.size--xs.op6.text-upper Trend Lines
+      .section-title.op6.text-upper Trend Lines
       .tool-group.w-flex.column.gap1
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'trend-line' }"
           @click="selectTool('trend-line')"
           title="Trend Line"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:chart-line")
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'horizontal-line' }"
           @click="selectTool('horizontal-line')"
           title="Horizontal Line"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:minus")
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'vertical-line' }"
           @click="selectTool('vertical-line')"
           title="Vertical Line"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:format-line-style")
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'parallel-channel' }"
           @click="selectTool('parallel-channel')"
           title="Parallel Channel"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:trending-up")
 
     .toolbar-section
-      .section-title.size--xs.op6.text-upper Fibonacci
+      .section-title.op6.text-upper Fibonacci
       .tool-group.w-flex.column.gap1
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'fib-retracement' }"
           @click="selectTool('fib-retracement')"
           title="Fibonacci Retracement"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:chart-areaspline")
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'fib-extension' }"
           @click="selectTool('fib-extension')"
           title="Fibonacci Extension"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:chart-timeline-variant")
 
     .toolbar-section
-      .section-title.size--xs.op6.text-upper Shapes
+      .section-title.op6.text-upper Shapes
       .tool-group.w-flex.column.gap1
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'rectangle' }"
           @click="selectTool('rectangle')"
           title="Rectangle"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:rectangle-outline")
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'ellipse' }"
           @click="selectTool('ellipse')"
           title="Ellipse"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:circle-outline")
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'arrow' }"
           @click="selectTool('arrow')"
           title="Arrow"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:arrow-top-right")
 
     .toolbar-section
-      .section-title.size--xs.op6.text-upper Annotations
+      .section-title.op6.text-upper Annotations
       .tool-group.w-flex.column.gap1
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'text' }"
           @click="selectTool('text')"
           title="Text"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:format-text")
         w-button.tool-btn(
           :class="{ 'tool-btn--active': activeTool === 'note' }"
           @click="selectTool('note')"
           title="Note"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:note-text")
 
     .toolbar-section
-      .section-title.size--xs.op6.text-upper Tools
+      .section-title.op6.text-upper Tools
       .tool-group.w-flex.column.gap1
         w-button.tool-btn(
           :class="{ 'tool-btn--active': magnetMode }"
           @click="toggleMagnet"
           title="Magnet Mode"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:magnet")
         w-button.tool-btn(
           :class="{ 'tool-btn--active': keepDrawing }"
           @click="toggleKeepDrawing"
           title="Keep Drawing"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:pencil-lock")
         w-button.tool-btn(
           @click="clearAllDrawings"
           title="Clear All"
-          size="xs")
+          xs
+          round)
           icon(icon="mdi:eraser")
 
-  //- Canvas overlay for drawing (fills entire parent container)
+  //- Canvas overlay for drawing (fills entire parent container).
   .drawing-canvas-overlay(
-    v-if="activeTool !== 'cursor'"
     ref="canvasOverlay"
+    :class="{ 'click-through': activeTool === 'cursor' }"
     @mousedown="startDrawing"
     @mousemove="updateDrawing"
     @mouseup="endDrawing"
@@ -140,7 +157,7 @@
       :height="canvasSize.height"
       :viewBox="`0 0 ${canvasSize.width} ${canvasSize.height}`")
 
-      // Render completed drawings
+      //- Render completed drawings.
       g.completed-drawings
         component(
           v-for="drawing in drawings"
@@ -150,7 +167,7 @@
           @click="selectDrawing(drawing.id)"
           @remove="removeDrawing(drawing.id)")
 
-      // Render current drawing (in progress)
+      //- Render current drawing (in progress).
       g.current-drawing(v-if="currentDrawing")
         component(
           :is="getDrawingComponent(currentDrawing.type)"
@@ -216,7 +233,7 @@ const props = defineProps({
 
 const emit = defineEmits(['drawing-added', 'drawing-removed', 'drawing-updated'])
 
-// Watch for chartContainer changes
+// Watch for chartContainer changes.
 watch(() => props.chartContainer, (newContainer) => {
   if (newContainer) {
     updateCanvasSize()
@@ -296,11 +313,11 @@ function startDrawing(event) {
   const x = event.clientX - rect.left
   const y = event.clientY - rect.top
 
-  // Convert screen coordinates to chart coordinates
+  // Convert screen coordinates to chart coordinates.
   const time = props.timeScale ? props.timeScale.invertPixel(x) : x
   const price = props.priceScale ? props.priceScale.invertPixel(y) : y
 
-  // Apply magnet mode
+  // Apply magnet mode.
   const magnetizedPoint = magnetMode.value ? applyMagnet(time, price) : { time, price }
 
   currentDrawing.value = {
@@ -323,11 +340,11 @@ function updateDrawing(event) {
   const x = event.clientX - rect.left
   const y = event.clientY - rect.top
 
-  // Convert screen coordinates to chart coordinates
+  // Convert screen coordinates to chart coordinates.
   const time = props.timeScale ? props.timeScale.invertPixel(x) : x
   const price = props.priceScale ? props.priceScale.invertPixel(y) : y
 
-  // Apply magnet mode
+  // Apply magnet mode.
   const magnetizedPoint = magnetMode.value ? applyMagnet(time, price) : { time, price }
 
   currentDrawing.value.props.endPoint = magnetizedPoint
@@ -338,14 +355,14 @@ function endDrawing() {
 
   isDrawing.value = false
 
-  // Add the completed drawing
+  // Add the completed drawing.
   drawings.value.push({ ...currentDrawing.value })
   emit('drawing-added', currentDrawing.value)
 
-  // Reset current drawing
+  // Reset current drawing.
   currentDrawing.value = null
 
-  // Return to cursor mode unless keepDrawing is enabled
+  // Return to cursor mode unless keepDrawing is enabled.
   if (!keepDrawing.value) {
     activeTool.value = 'cursor'
   }
@@ -385,8 +402,8 @@ function applySettings() {
 }
 
 function applyMagnet(time, price) {
-  // TODO: Implement magnet functionality to snap to OHLC points
-  // This would require access to the chart data to find the nearest price points
+  // TODO: Implement magnet functionality to snap to OHLC points.
+  // This would require access to the chart data to find the nearest price points.
   return { time, price }
 }
 
@@ -404,15 +421,15 @@ onMounted(() => {
   updateCanvasSize()
   window.addEventListener('resize', updateCanvasSize)
 
-  // Watch for changes to the chart container
+  // Watch for changes to the chart container.
   if (props.chartContainer) {
-    // Use ResizeObserver for more reliable size updates
+    // Use ResizeObserver for more reliable size updates.
     const resizeObserver = new ResizeObserver(() => {
       updateCanvasSize()
     })
     resizeObserver.observe(props.chartContainer)
 
-    // Store observer for cleanup
+    // Store observer for cleanup.
     onUnmounted(() => {
       resizeObserver.disconnect()
     })
@@ -423,7 +440,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateCanvasSize)
 })
 
-// Keyboard shortcuts
+// Keyboard shortcuts.
 function handleKeyPress(event) {
   if (event.altKey) {
     switch (event.code) {
@@ -478,43 +495,43 @@ onUnmounted(() => {
   height: 100%;
   left: 0;
   top: 0;
+  pointer-events: none;
 
   .drawing-toolbar {
-    width: 50px; /* Fixed width for the toolbar */
-    padding: 0.5rem;
-    background: rgba(0, 0, 0, 0.9);
+    padding: 0.2rem;
+    background: color-mix(in srgb, var(--w-base-color-bg) 80%, transparent);
     border-right: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 8px;
-    z-index: 1001; /* Ensure it's above the canvas */
-    backdrop-filter: blur(8px); /* Professional glass effect */
+    z-index: 1; // Ensure it's above the canvas.
+    backdrop-filter: blur(8px);
+    pointer-events: auto;
 
     .toolbar-section {
+      position: relative;
+      padding-left: 0.8rem;
       margin-bottom: 1rem;
 
       &:last-child {margin-bottom: 0;}
 
       .section-title {
+        position: absolute;
+        left: 0;
         writing-mode: vertical-rl;
         text-orientation: mixed;
-        margin-bottom: 0.5rem;
-        color: rgba(255, 255, 255, 0.7);
-        font-size: 10px;
+        font-size: 9px;
         text-transform: uppercase;
         letter-spacing: 1px;
       }
 
       .tool-group {
         .tool-btn {
-          width: 100%;
-          margin-bottom: 0.25rem;
+          width: 1.6rem;
+          font-size: 14px;
+          aspect-ratio: 1;
+          flex: 0;
+          overflow: hidden;
+          padding: 0.2rem;
           background: rgba(255, 255, 255, 0.1);
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          transition: all 0.2s ease;
-
-          &:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: scale(1.05);
-          }
 
           &--active {
             background: rgba(59, 130, 246, 0.8);
@@ -532,9 +549,11 @@ onUnmounted(() => {
     left: 0;
     width: 100%;
     height: 100%;
-    pointer-events: auto;
     cursor: crosshair;
-    z-index: 999; // Below the toolbar
+    z-index: 9; // Below the toolbar.
+    pointer-events: auto;
+
+    &.click-through {pointer-events: none;}
 
     .drawing-svg {
       width: 100%;
@@ -557,7 +576,7 @@ onUnmounted(() => {
     width: 250px;
     background: rgba(0, 0, 0, 0.9);
     border-left: 1px solid rgba(255, 255, 255, 0.1);
-    z-index: 1000;
+    z-index: 10;
 
     .panel-header {
       display: flex;
