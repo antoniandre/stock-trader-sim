@@ -288,52 +288,55 @@ export function connectAlpacaWebSocket() {
             }
 
             // Handle both trades and quotes.
-            if (message.T === 'trade') {
+            if (message.T === 't') {  // 't' for trade.
               const symbol = message.S
               const price = message.p
               console.log(`💰 Trade received: ${symbol} @ $${price}`)
               state.stockPrices[symbol] = price
 
-          const stockData = state.allStocks.find(s => s.symbol === symbol)
-          if (stockData) {
-            // Get market status for this stock
-            getStockMarketStatus(stockData).then(marketStatus => {
-              broadcast({
-                type: 'price',
-                symbol,
-                price,
-                currency: stockData.currency || 'USD',
-                currencySymbol: stockData.currencySymbol || '$',
-                marketState: marketStatus.status,
-                marketMessage: marketStatus.message,
-                nextOpen: marketStatus.nextOpen,
-                nextClose: marketStatus.nextClose,
-                timestamp: new Date().toISOString()
-              })
-            }).catch(error => {
-              console.warn(`⚠️ Failed to get market status for ${symbol}:`, error)
-              broadcast({
-                type: 'price',
-                symbol,
-                price,
-                currency: stockData.currency || 'USD',
-                currencySymbol: stockData.currencySymbol || '$',
-                timestamp: new Date().toISOString()
-              })
-            })
-          }
-        }
+              const stockData = state.allStocks.find(s => s.symbol === symbol)
+              if (stockData) {
+                // Get market status for this stock.
+                getStockMarketStatus(stockData).then(marketStatus => {
+                  broadcast({
+                    type: 'price',
+                    symbol,
+                    price,
+                    currency: stockData.currency || 'USD',
+                    currencySymbol: stockData.currencySymbol || '$',
+                    marketState: marketStatus.status,
+                    marketMessage: marketStatus.message,
+                    nextOpen: marketStatus.nextOpen,
+                    nextClose: marketStatus.nextClose,
+                    timestamp: new Date().toISOString()
+                  })
+                }).catch(error => {
+                  console.warn(`⚠️ Failed to get market status for ${symbol}:`, error)
+                  broadcast({
+                    type: 'price',
+                    symbol,
+                    price,
+                    currency: stockData.currency || 'USD',
+                    currencySymbol: stockData.currencySymbol || '$',
+                    timestamp: new Date().toISOString()
+                  })
+                })
+              }
+            }
 
-            if (message.T === 'quote') {
+            if (message.T === 'q') {  // 'q' for quote.
               const symbol = message.S
-              const price = message.ap || message.bp // Ask price or bid price.
+              const askPrice = message.ap  // Ask price.
+              const bidPrice = message.bp  // Bid price.
+              const price = askPrice || bidPrice  // Use ask price first, fallback to bid.
+
               if (price > 0) {
-                console.log(`📈 Quote received: ${symbol} @ $${price}`)
+                console.log(`📈 Quote received: ${symbol} @ $${price} (ask: $${askPrice || 'N/A'}, bid: $${bidPrice || 'N/A'})`)
                 state.stockPrices[symbol] = price
 
                 const stockData = state.allStocks.find(s => s.symbol === symbol)
                 if (stockData) {
-                  // Get market status for this stock
+                  // Get market status for this stock.
                   getStockMarketStatus(stockData).then(marketStatus => {
                     broadcast({
                       type: 'price',
@@ -380,7 +383,7 @@ export function connectAlpacaWebSocket() {
             }
 
             // Log other message types for debugging.
-            if (message.T && message.T !== 'trade' && message.T !== 'quote' && message.T !== 'success' && message.T !== 'error') {
+            if (message.T && message.T !== 't' && message.T !== 'q' && message.T !== 'success' && message.T !== 'error') {
               console.log(`🔍 Unknown message type: ${message.T}`, message)
             }
           }

@@ -329,13 +329,13 @@ export async function getPrice(symbol) {
       const { data } = await axios.get(url, { headers: HEADERS })
 
       let price = 0
-      if (data.quote?.ap) price = data.quote.ap  // Ask price from quotes.
-      else if (data.quote?.bp) price = data.quote.bp  // Bid price from quotes.
-      else if (data.trade?.p) price = data.trade.p   // Price from latest trade.
-      else if (data.bar?.c) price = data.bar.c       // Close price from latest bar.
+      if (data.quote?.ap) price = data.quote.ap // Ask price from quotes.
+      else if (data.quote?.bp) price = data.quote.bp // Bid price from quotes.
+      else if (data.trade?.p) price = data.trade.p // Price from latest trade.
+      else if (data.bar?.c) price = data.bar.c // Close price from latest bar.
 
       if (price > 0) {
-        console.log(`💲 Got ${symbol} price: $${price.toFixed(2)} from ${url.split('/').pop()}`)
+        console.log(`💲 Got ${symbol} price: $${price.toFixed(3)} from ${url.split('/').pop()}`)
         state.stockPrices[symbol] = price
         return price
       }
@@ -366,7 +366,7 @@ export async function initializeStockPrices() {
       const price = await getPrice(symbol)
       if (price > 0) {
         pricesFetched++
-        console.log(`💲 Initialized ${symbol}: $${price.toFixed(2)}`)
+        console.log(`💲 Initialized ${symbol}: $${price.toFixed(3)}`)
       }
     }
     catch (error) {
@@ -435,20 +435,27 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
   try {
     // Map period and timeframe to Alpaca API parameters.
     const { alpacaTimeframe, limit, startDate } = getPeriodParameters(period, timeframe)
+    const endDate = getEasternTime() // Current time as end date
+
     const params = new URLSearchParams({
       timeframe: alpacaTimeframe,
       limit: limit.toString(),
-      start: startDate.toISOString()
+      start: startDate.toISOString(),
+      end: endDate.toISOString()
     })
 
     const url = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?${params}`
-    console.log(`📊 Fetching historical data for ${symbol} (${period}, ${alpacaTimeframe}): ${url}`)
+    console.log(`📊 Fetching historical data for ${symbol}:`)
+    console.log(`   Period: ${period} | Timeframe: ${alpacaTimeframe} | Limit: ${limit}`)
+    console.log(`   Start Date: ${startDate.toISOString()} (${startDate.toLocaleString('en-US', { timeZone: 'America/New_York' })})`)
+    console.log(`   End Date: ${endDate.toISOString()} (${endDate.toLocaleString('en-US', { timeZone: 'America/New_York' })})`)
+    console.log(`   URL: ${url}`)
 
     const { data } = await axios.get(url, { headers: HEADERS })
 
     if (!data.bars || data.bars.length === 0) {
-      console.warn(`⚠️ No historical data found for ${symbol}`)
-      return { symbol, period, timeframe: alpacaTimeframe, data: [] }
+      console.warn(`⚠️ No historical data found for ${symbol}, using current mock data`)
+      return generateMockHistoricalData(symbol, period, timeframe)
     }
 
     // Transform Alpaca data to our format with OHLCV data for candlesticks.
@@ -462,14 +469,175 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
       price: bar.c  // For backward compatibility
     }))
 
+    // Check if data is outdated (more than 2 days old)
+    const latestDataTime = Math.max(...historicalData.map(d => d.timestamp))
+    const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000)
+
+    if (latestDataTime < twoDaysAgo) {
+      console.warn(`⚠️ Alpaca data is outdated (latest: ${new Date(latestDataTime).toISOString()}), using current mock data`)
+      return generateMockHistoricalData(symbol, period, timeframe)
+    }
+
     console.log(`✅ Fetched ${historicalData.length} historical data points for ${symbol}`)
+    if (historicalData.length > 0) {
+      const firstBar = historicalData[0]
+      const lastBar = historicalData[historicalData.length - 1]
+      console.log(`   First bar: ${new Date(firstBar.timestamp).toLocaleString('en-US', { timeZone: 'America/New_York' })} (${new Date(firstBar.timestamp).toISOString()})`)
+      console.log(`   Last bar: ${new Date(lastBar.timestamp).toLocaleString('en-US', { timeZone: 'America/New_York' })} (${new Date(lastBar.timestamp).toISOString()})`)
+    }
     return { symbol, period, timeframe: alpacaTimeframe, data: historicalData }
   }
   catch (error) {
     console.error(`❌ Error fetching historical data for ${symbol}:`, error.message)
-    // Fall back to mock data on error.
+    console.log(`📊 Falling back to mock data for ${symbol}`)
     return generateMockHistoricalData(symbol, period, timeframe)
   }
+}
+
+// Historical Data by Date Range (for dynamic loading)
+export async function getStockHistoricalDataByRange(symbol, timeframe, startDate, endDate) {
+  if (IS_SIMULATION) {
+    console.log(`🧪 [SIM] Generating mock historical data for ${symbol} (${timeframe}, ${startDate} to ${endDate})`)
+    return { symbol, timeframe, data: generateMockHistoricalDataByRange(symbol, timeframe, startDate, endDate) }
+  }
+
+  try {
+    const start = new Date(startDate)
+    const end = new Date(endDate)
+    const rangeDays = Math.ceil((end - start) / (24 * 60 * 60 * 1000))
+    const limit = calculateDataLimitForRange(timeframe, rangeDays)
+
+    const params = new URLSearchParams({
+      timeframe: timeframe,
+      limit: limit.toString(),
+      start: start.toISOString(),
+      end: end.toISOString()
+    })
+
+    const url = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?${params}`
+    console.log(`📊 Fetching historical data range for ${symbol}:`)
+    console.log(`   Timeframe: ${timeframe} | Limit: ${limit}`)
+    console.log(`   Start: ${start.toISOString()} (${start.toLocaleString('en-US', { timeZone: 'America/New_York' })})`)
+    console.log(`   End: ${end.toISOString()} (${end.toLocaleString('en-US', { timeZone: 'America/New_York' })})`)
+    console.log(`   URL: ${url}`)
+
+    const { data } = await axios.get(url, { headers: HEADERS })
+
+    if (!data.bars || data.bars.length === 0) {
+      console.warn(`⚠️ No Alpaca data found for ${symbol} in range, generating current mock data`)
+      return { symbol, timeframe, data: generateMockHistoricalDataByRange(symbol, timeframe, startDate, endDate) }
+    }
+
+    const historicalData = data.bars.map(bar => ({
+      timestamp: new Date(bar.t).getTime(),
+      open: bar.o,
+      high: bar.h,
+      low: bar.l,
+      close: bar.c,
+      volume: bar.v,
+      price: bar.c
+    }))
+
+    // Check if data is outdated (more than 2 days old) for range requests too
+    const latestDataTime = Math.max(...historicalData.map(d => d.timestamp))
+    const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000)
+
+    if (latestDataTime < twoDaysAgo) {
+      console.warn(`⚠️ Alpaca range data is outdated (latest: ${new Date(latestDataTime).toISOString()}), generating current mock data`)
+      return { symbol, timeframe, data: generateMockHistoricalDataByRange(symbol, timeframe, startDate, endDate) }
+    }
+
+    console.log(`✅ Fetched ${historicalData.length} historical data points for ${symbol} in range`)
+    if (historicalData.length > 0) {
+      const firstBar = historicalData[0]
+      const lastBar = historicalData[historicalData.length - 1]
+      console.log(`   First bar: ${new Date(firstBar.timestamp).toLocaleString('en-US', { timeZone: 'America/New_York' })}`)
+      console.log(`   Last bar: ${new Date(lastBar.timestamp).toLocaleString('en-US', { timeZone: 'America/New_York' })}`)
+    }
+
+    return { symbol, timeframe, data: historicalData }
+  } catch (error) {
+    console.error(`❌ Error fetching historical data range for ${symbol}:`, error.message)
+    console.log(`📊 Falling back to mock data for ${symbol} range request`)
+    return { symbol, timeframe, data: generateMockHistoricalDataByRange(symbol, timeframe, startDate, endDate) }
+  }
+}
+
+function calculateDataLimitForRange(timeframe, rangeDays) {
+  // Calculate appropriate data limit based on timeframe and date range
+  const timeframeMinutes = {
+    '1Min': 1,
+    '5Min': 5,
+    '15Min': 15,
+    '30Min': 30,
+    '1Hour': 60,
+    '4Hour': 240,
+    '1Day': 1440
+  }
+
+  const minutes = timeframeMinutes[timeframe] || 60
+  const tradingMinutesPerDay = 390 // 6.5 hours × 60 minutes
+
+  if (timeframe === '1Day') {
+    return Math.min(rangeDays + 10, 1000) // Add buffer for weekends
+  }
+
+  const estimatedDataPoints = Math.ceil((rangeDays * tradingMinutesPerDay) / minutes)
+  return Math.min(estimatedDataPoints + 50, 1000) // Add small buffer, cap at 1000
+}
+
+// Mock data generation for date range (simulation mode)
+function generateMockHistoricalDataByRange(symbol, timeframe, startDate, endDate) {
+  const start = new Date(startDate)
+  const end = new Date(endDate)
+  const duration = end - start
+
+  const timeframeMs = {
+    '1Min': 60 * 1000,
+    '5Min': 5 * 60 * 1000,
+    '15Min': 15 * 60 * 1000,
+    '30Min': 30 * 60 * 1000,
+    '1Hour': 60 * 60 * 1000,
+    '4Hour': 4 * 60 * 60 * 1000,
+    '1Day': 24 * 60 * 60 * 1000
+  }
+
+  const intervalMs = timeframeMs[timeframe] || 60 * 60 * 1000
+  const dataPoints = Math.floor(duration / intervalMs)
+
+  // Use existing mock generation logic
+  const mockPrices = { AAPL: 212, TSLA: 180, MSFT: 340, GOOGL: 2800 }
+  const basePrice = mockPrices[symbol] || 100
+
+  const data = []
+  let currentPrice = basePrice
+
+  for (let i = 0; i < Math.min(dataPoints, 1000); i++) {
+    const timestamp = start.getTime() + (i * intervalMs)
+
+    const volatility = 0.02
+    const randomChange = (Math.random() - 0.5) * volatility
+    currentPrice = currentPrice * (1 + randomChange)
+
+    const randomHigh = Math.random() * 0.02 + 0.005
+    const randomLow = Math.random() * 0.02 + 0.005
+
+    const openPrice = currentPrice
+    const high = Math.max(openPrice, currentPrice) * (1 + randomHigh)
+    const low = Math.min(openPrice, currentPrice) * (1 - randomLow)
+
+    data.push({
+      timestamp,
+      open: Math.round(openPrice * 100) / 100,
+      high: Math.round(high * 100) / 100,
+      low: Math.round(low * 100) / 100,
+      close: Math.round(currentPrice * 100) / 100,
+      volume: Math.floor(Math.random() * 100000) + 10000,
+      price: Math.round(currentPrice * 100) / 100
+    })
+  }
+
+  return data
 }
 
 function getPeriodParameters(period, timeframe = null) {
@@ -500,14 +668,20 @@ function getPeriodParameters(period, timeframe = null) {
 }
 
 function calculateDataLimit(period, timeframe) {
-  // Calculate appropriate data limit based on period and timeframe
-  const periodDays = {
-    '1D': 1,
-    '1W': 7,
-    '1M': 30,
-    '3M': 90
+  // For daily (1Day) timeframes, use fixed limits based on period
+  if (timeframe === '1Day') {
+    const periodLimits = {
+      '1D': 30,   // Get 30 recent trading days for daily view
+      '1W': 50,   // Get 50 trading days for weekly view
+      '1M': 100,  // Get 100 trading days for monthly view
+      '3M': 200,  // Get 200 trading days for quarterly view
+      '12M': 300  // Get 300 trading days for yearly view (~1.2 years)
+    }
+    return periodLimits[period] || 100
   }
 
+  // For intraday timeframes, calculate based on trading hours
+  const tradingMinutesPerDay = 390 // 6.5 hours × 60 minutes (9:30 AM - 4:00 PM EST)
   const timeframeMinutes = {
     '1Min': 1,
     '5Min': 5,
@@ -519,20 +693,31 @@ function calculateDataLimit(period, timeframe) {
     '1Day': 1440
   }
 
-  const days = periodDays[period] || 30
-  const minutes = timeframeMinutes[timeframe] || 60
+  const minutes = timeframeMinutes[timeframe] || 5
+  const periodDays = {
+    '1D': 1,    // 1 trading day
+    '1W': 5,    // 5 trading days
+    '1M': 22,   // ~22 trading days per month
+    '3M': 66,   // ~66 trading days per quarter
+    '12M': 252  // ~252 trading days per year
+  }
+  const days = periodDays[period] || 1
 
-  // For intraday timeframes, calculate based on trading hours (6.5 hours = 390 minutes per day)
-  if (minutes < 1440) return Math.min(Math.ceil((days * 390) / minutes), 1000) // Cap at 1000 for API limits.
-  else return Math.min(days, 1000)
+  const dataPoints = Math.ceil((days * tradingMinutesPerDay) / minutes)
+
+  // Ensure we have enough data for technical indicators
+  const minPoints = Math.max(200, dataPoints)
+
+  return Math.min(minPoints, 1000) // Cap at 1000 for API limits
 }
 
 function calculateStartDate(period, easternTime) {
   const periodDays = {
-    '1D': 1,
-    '1W': 7,
-    '1M': 30,
-    '3M': 90
+    '1D': 7,    // Look back 7 days to ensure we get recent trading data (accounts for weekends) + enables panning
+    '1W': 14,   // Look back 14 days to get at least a week of trading days
+    '1M': 45,   // Look back 45 days to ensure a full month of trading data
+    '3M': 120,  // Look back 120 days to ensure 3 months of trading data
+    '12M': 400  // Look back 400 days to ensure we get a full year of trading data
   }
 
   const days = periodDays[period] || 30
@@ -585,7 +770,7 @@ export function startPricePolling(subscribedStocks, broadcast) {
 
           const newPrice = await getPrice(symbol)
           if (newPrice > 0 && newPrice !== cachedPrice) {
-            console.log(`💰 Price update: ${symbol} = $${newPrice.toFixed(2)} (was $${cachedPrice?.toFixed(2) || 'N/A'})`)
+            console.log(`💰 Price update: ${symbol} = $${newPrice.toFixed(3)} (was $${cachedPrice?.toFixed(3) || 'N/A'})`)
 
             const stockData = state.allStocks.find(s => s.symbol === symbol)
             if (stockData) {
