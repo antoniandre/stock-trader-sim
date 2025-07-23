@@ -313,12 +313,26 @@ function startDrawing(event) {
   const x = event.clientX - rect.left
   const y = event.clientY - rect.top
 
-  // Convert screen coordinates to chart coordinates.
-  const time = props.timeScale ? props.timeScale.invertPixel(x) : x
-  const price = props.priceScale ? props.priceScale.invertPixel(y) : y
+  // Convert screen coordinates to chart coordinates using Chart.js scales
+  let chartTime = x
+  let chartPrice = y
 
-  // Apply magnet mode.
-  const magnetizedPoint = magnetMode.value ? applyMagnet(time, price) : { time, price }
+  // Try to get chart scales from the chart container
+  if (props.chartContainer && props.chartContainer.chart && props.chartContainer.chart.scales) {
+    const scales = props.chartContainer.chart.scales
+
+    if (scales.x && scales.y) {
+      // Convert pixel coordinates to data coordinates (for debugging)
+      chartTime = scales.x.getValueForPixel(x)
+      chartPrice = scales.y.getValueForPixel(y)
+    }
+  }
+
+  // Use pixel coordinates for drawing components (they expect x, y not time, price)
+  const drawingPoint = { x, y }
+
+  // Apply magnet mode if needed (keep in pixel space for now)
+  const magnetizedPoint = magnetMode.value ? applyMagnet(x, y) : drawingPoint
 
   currentDrawing.value = {
     id: Date.now(),
@@ -340,12 +354,11 @@ function updateDrawing(event) {
   const x = event.clientX - rect.left
   const y = event.clientY - rect.top
 
-  // Convert screen coordinates to chart coordinates.
-  const time = props.timeScale ? props.timeScale.invertPixel(x) : x
-  const price = props.priceScale ? props.priceScale.invertPixel(y) : y
+  // Use pixel coordinates for drawing components
+  const drawingPoint = { x, y }
 
-  // Apply magnet mode.
-  const magnetizedPoint = magnetMode.value ? applyMagnet(time, price) : { time, price }
+  // Apply magnet mode if needed (keep in pixel space)
+  const magnetizedPoint = magnetMode.value ? applyMagnet(x, y) : drawingPoint
 
   currentDrawing.value.props.endPoint = magnetizedPoint
 }
@@ -363,9 +376,7 @@ function endDrawing() {
   currentDrawing.value = null
 
   // Return to cursor mode unless keepDrawing is enabled.
-  if (!keepDrawing.value) {
-    activeTool.value = 'cursor'
-  }
+  if (!keepDrawing.value) activeTool.value = 'cursor'
 }
 
 function cancelDrawing() {
@@ -401,10 +412,11 @@ function applySettings() {
   emit('drawing-updated', selectedDrawing.value)
 }
 
-function applyMagnet(time, price) {
+function applyMagnet(x, y) {
   // TODO: Implement magnet functionality to snap to OHLC points.
   // This would require access to the chart data to find the nearest price points.
-  return { time, price }
+  // For now, just return the pixel coordinates unchanged
+  return { x, y }
 }
 
 function updateCanvasSize() {
@@ -499,28 +511,30 @@ onUnmounted(() => {
 
   .drawing-toolbar {
     padding: 0.2rem;
-    background: color-mix(in srgb, var(--w-base-color-bg) 80%, transparent);
-    border-right: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
+    border-right: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 10%, transparent);
     z-index: 1; // Ensure it's above the canvas.
     backdrop-filter: blur(8px);
     pointer-events: auto;
+    scrollbar-width: none;
+    overflow: auto;
+    height: 100%;
 
     .toolbar-section {
       position: relative;
-      padding-left: 0.8rem;
-      margin-bottom: 1rem;
+      padding-left: 0.6rem;
+      margin-bottom: 0.5rem;
 
       &:last-child {margin-bottom: 0;}
 
       .section-title {
         position: absolute;
-        left: 0;
+        left: -1px;
+        top: 3px;
         writing-mode: vertical-rl;
         text-orientation: mixed;
-        font-size: 9px;
+        font-size: 8.5px;
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: 0.5px;
       }
 
       .tool-group {
