@@ -1,5 +1,7 @@
 import { ref, onBeforeUnmount } from 'vue'
 
+// WebSocket Composable
+// --------------------------------------------------------
 export function useWebSocket(url = 'ws://localhost:3000') {
   const wsConnected = ref(false)
   const lastUpdate = ref('Never')
@@ -7,18 +9,16 @@ export function useWebSocket(url = 'ws://localhost:3000') {
   let reconnectTimeout = null
   let messageHandlers = new Map()
 
+  // Connection Management
+  // --------------------------------------------------------
   function connect() {
     try {
-      // Don't create a new connection if one already exists and is open.
       if (ws?.readyState === WebSocket.OPEN) return
-      // Close existing connection if it exists.
       if (ws) ws.close()
 
-      console.log('🔌 Connecting to WebSocket...')
       ws = new WebSocket(url)
 
       ws.onopen = () => {
-        console.log('✅ WebSocket connected')
         wsConnected.value = true
         if (reconnectTimeout) {
           clearTimeout(reconnectTimeout)
@@ -33,17 +33,15 @@ export function useWebSocket(url = 'ws://localhost:3000') {
 
           // Call all registered handlers for this message type.
           const handlers = messageHandlers.get(data.type) || []
-          handlers.forEach(handler => handler(data))
-        } catch (error) {
+          for (const handler of handlers) handler(data)
+        }
+        catch (error) {
           console.error('Error parsing WebSocket message:', error)
         }
       }
 
       ws.onclose = () => {
-        console.log('🔌 WebSocket disconnected')
         wsConnected.value = false
-
-        // Auto-reconnect after 3 seconds.
         reconnectTimeout = setTimeout(connect, 3000)
       }
 
@@ -51,21 +49,21 @@ export function useWebSocket(url = 'ws://localhost:3000') {
         console.error('WebSocket error:', error)
         wsConnected.value = false
       }
-    } catch (error) {
+    }
+    catch (error) {
       console.error('Error connecting to WebSocket:', error)
       wsConnected.value = false
     }
   }
 
+  // Message Handling
+  // --------------------------------------------------------
   function send(message) {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(message))
       return true
     }
-    else {
-      console.warn('WebSocket not connected, cannot send message:', message)
-      return false
-    }
+    return false
   }
 
   function subscribeToStock(symbol) {
@@ -88,6 +86,8 @@ export function useWebSocket(url = 'ws://localhost:3000') {
     if (index > -1) handlers.splice(index, 1)
   }
 
+  // Cleanup
+  // --------------------------------------------------------
   onBeforeUnmount(() => {
     if (ws) ws.close()
     if (reconnectTimeout) clearTimeout(reconnectTimeout)

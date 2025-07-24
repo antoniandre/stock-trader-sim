@@ -119,7 +119,7 @@ export function createRestApiRoutes() {
 
       let filteredStocks = stocks
 
-      // Apply search filter if provided
+      // Apply search filter.
       if (search) {
         filteredStocks = stocks.filter(stock =>
           stock.symbol.toLowerCase().includes(search.toLowerCase()) ||
@@ -127,7 +127,7 @@ export function createRestApiRoutes() {
         )
       }
 
-      // Sort stocks to show ones with prices first
+      // Sort stocks to show ones with prices first.
       filteredStocks.sort((a, b) => {
         const aPrice = state.stockPrices[a.symbol] || 0
         const bPrice = state.stockPrices[b.symbol] || 0
@@ -136,20 +136,19 @@ export function createRestApiRoutes() {
         return a.symbol.localeCompare(b.symbol)
       })
 
-      // Calculate pagination
+      // Calculate pagination.
       const pageNum = parseInt(page)
       const limitNum = parseInt(limit)
       const startIndex = (pageNum - 1) * limitNum
       const endIndex = startIndex + limitNum
       const paginatedStocks = filteredStocks.slice(startIndex, endIndex)
 
-      // Fetch comprehensive data for all stocks on current page
-      console.log(`💰 Fetching comprehensive data for ${paginatedStocks.length} stocks on page ${pageNum}...`)
+      console.log(`💰 Fetching data for ${paginatedStocks.length} stocks on page ${pageNum}`)
 
-      // Fetch prices and market status in parallel
+      // Fetch prices and market status in parallel.
       const comprehensiveStocks = await Promise.all(paginatedStocks.map(async (stock) => {
         try {
-          // Get price (use cached if available, otherwise fetch)
+          // Get price (use cached if available, otherwise fetch).
           let price = state.stockPrices[stock.symbol] || 0
           if (price === 0) {
             price = await getPrice(stock.symbol)
@@ -159,7 +158,6 @@ export function createRestApiRoutes() {
             }
           }
 
-          // Get market status for this specific stock
           const marketStatus = await getStockMarketStatus(stock)
 
           return {
@@ -179,7 +177,7 @@ export function createRestApiRoutes() {
           }
         }
         catch (error) {
-          console.warn(`⚠️ Failed to fetch comprehensive data for ${stock.symbol}: ${error.message}`)
+          console.warn(`⚠️ Failed to fetch data for ${stock.symbol}: ${error.message}`)
           return {
             symbol: stock.symbol,
             name: stock.name,
@@ -198,10 +196,8 @@ export function createRestApiRoutes() {
         }
       }))
 
-      const stocksWithPrices = comprehensiveStocks
-
       res.json({
-        stocks: stocksWithPrices,
+        stocks: comprehensiveStocks,
         pagination: {
           page: pageNum,
           limit: limitNum,
@@ -224,7 +220,7 @@ export function createRestApiRoutes() {
 
       let price
       if (fresh === 'true') {
-        // Force fresh price fetch by clearing cache
+        // Force fresh price fetch by clearing cache.
         delete state.stockPrices[symbol]
         price = await getPrice(symbol)
         console.log(`🔄 Fresh price fetch for ${symbol}: $${price.toFixed(2)}`)
@@ -264,7 +260,6 @@ export function createRestApiRoutes() {
       // Cache the price for future WebSocket updates.
       if (price > 0) state.stockPrices[symbol] = price
 
-      // Get market status for this specific stock
       const marketStatus = await getStockMarketStatus(stockData)
 
       res.json(createStandardResponse({

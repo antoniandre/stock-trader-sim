@@ -24,8 +24,7 @@
             span.op6 $
             span {{ formatNumber(position.market_value) }}
 
-          .unrealized-pl(
-            :class="parseFloat(position.unrealized_pl) >= 0 ? 'success-light3' : 'error'")
+          .unrealized-pl(:class="parseFloat(position.unrealized_pl) >= 0 ? 'success-light3' : 'error'")
             span.op6.mr1 $
             span {{ formatNumber(position.unrealized_pl) }}
             span.mx1 ({{ formatPercentage(position.unrealized_plpc) }}%)
@@ -36,8 +35,7 @@
             span.op6.mr1 $
             span {{ formatNumber(position.current_price) }}
 
-          .price-change.size--sm(
-            :class="parseFloat(position.change_today || 0) >= 0 ? 'success-light3' : 'error'")
+          .price-change.size--sm(:class="parseFloat(position.change_today || 0) >= 0 ? 'success-light3' : 'error'")
             span.op6.mr1 $
             span {{ formatNumber(position.change_today || 0) }}
 
@@ -59,8 +57,6 @@ import TickerLogo from './ticker-logo.vue'
 
 const positions = ref([])
 const loading = ref(false)
-
-// formatPercentage is now imported from utilities.
 
 async function refreshPositions() {
   try {
@@ -89,7 +85,6 @@ onMounted(() => {
 
 .position-item {
   transition: background-color 0.2s;
-
   &:hover {background-color: rgba(255, 255, 255, 0.02);}
 }
 

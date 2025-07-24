@@ -273,7 +273,8 @@ onMounted(async () => {
     await fetchStocks()
     setupWebSocket()
     connect()
-  } catch (error) {
+  }
+  catch (error) {
     console.error('Error during initialization:', error)
     loading.value = false
   }
