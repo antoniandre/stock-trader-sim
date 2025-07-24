@@ -212,7 +212,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import TrendLine from './drawings/trend-line.vue'
 import HorizontalLine from './drawings/horizontal-line.vue'
 import VerticalLine from './drawings/vertical-line.vue'
