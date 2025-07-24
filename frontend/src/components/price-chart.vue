@@ -102,6 +102,7 @@
       .w-flex.align-center.gap1(v-if="isLoadingAdditionalData")
         w-spinner(size="12" color="primary")
         span.op7 Loading...
+
       w-button.pa0.op8(
         width="16"
         height="16"
