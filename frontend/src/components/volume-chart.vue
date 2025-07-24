@@ -5,11 +5,8 @@
     .volume-value.size--sm.op7(v-if="currentVolume") {{ formatVolume(currentVolume) }}
     .volume-avg.size--xs.op5(v-if="averageVolume") Avg: {{ formatVolume(averageVolume) }}
 
-  .volume-canvas(ref="canvasContainer")
-    Bar(
-      :data="volumeChartData"
-      :options="volumeChartOptions"
-      :key="chartKey")
+  .volume-canvas
+    Bar(:data="volumeChartData" :options="volumeChartOptions" :key="chartKey")
 </template>
 
 <script setup>
@@ -25,7 +22,6 @@ const props = defineProps({
   height: { type: Number, default: 100 }
 })
 
-const canvasContainer = ref(null)
 const chartKey = ref(0)
 
 const volumeChartData = computed(() => {
@@ -40,21 +36,18 @@ const volumeChartData = computed(() => {
   const volumes = props.data.map(item => item.volume || 0)
   const prices = props.data.map(item => item.close || item.price)
 
-  // Color bars based on price direction
+  // Color bars based on price direction.
   const colors = []
   for (let i = 0; i < prices.length; i++) {
     if (i === 0) {
-      colors.push('rgba(156, 163, 175, 0.8)') // Gray for first bar
-    } else {
+      colors.push('rgba(156, 163, 175, 0.8)') // Gray for first bar.
+    }
+    else {
       const currentPrice = prices[i]
       const previousPrice = prices[i - 1]
-      if (currentPrice > previousPrice) {
-        colors.push('rgba(16, 185, 129, 0.8)') // Green for up
-      } else if (currentPrice < previousPrice) {
-        colors.push('rgba(239, 68, 68, 0.8)') // Red for down
-      } else {
-        colors.push('rgba(156, 163, 175, 0.8)') // Gray for no change
-      }
+      if (currentPrice > previousPrice) colors.push('rgba(16, 185, 129, 0.8)') // Green for up.
+      else if (currentPrice < previousPrice) colors.push('rgba(239, 68, 68, 0.8)') // Red for down.
+      else colors.push('rgba(156, 163, 175, 0.8)') // Gray for no change.
     }
   }
 
@@ -119,23 +112,15 @@ const volumeChartOptions = computed(() => ({
           day: 'MMM dd'
         }
       },
-      grid: {
-        display: false
-      },
-      ticks: {
-        display: false // Hide x-axis labels since main chart shows them
-      }
+      grid: { display: false },
+      ticks: { display: false } // Hide x-axis labels since main chart shows them.
     },
     y: {
       beginAtZero: true,
-      grid: {
-        display: false
-      },
+      grid: { display: false },
       ticks: {
         color: '#C9D1D9',
-        font: {
-          size: 10
-        },
+        font: { size: 10 },
         maxTicksLimit: 3,
         callback: (value) => formatVolume(value)
       }
@@ -160,13 +145,10 @@ const averageVolume = computed(() => {
 })
 
 function formatVolume(volume) {
-  if (volume >= 1000000) {
-    return (volume / 1000000).toFixed(1) + 'M'
-  } else if (volume >= 1000) {
-    return (volume / 1000).toFixed(1) + 'K'
-  } else {
-    return volume.toString()
-  }
+  if (volume >= 1000000) return (volume / 1000000).toFixed(1) + 'M'
+  if (volume >= 1000) return (volume / 1000).toFixed(1) + 'K'
+
+  return volume.toString()
 }
 
 // Force re-render when data changes
@@ -181,13 +163,9 @@ watch(() => props.data, () => {
     padding: 0.5rem 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 
-    .volume-title {
-      color: #3B82F6;
-    }
+    .volume-title {color: var(--primary-color);}
 
-    .volume-value {
-      font-family: monospace;
-    }
+    .volume-value {font-family: monospace;}
 
     .volume-avg {
       font-family: monospace;
@@ -199,9 +177,7 @@ watch(() => props.data, () => {
     height: v-bind(height + 'px');
     position: relative;
 
-    canvas {
-      border-radius: 4px;
-    }
+    canvas {border-radius: 4px;}
   }
 }
 </style>
