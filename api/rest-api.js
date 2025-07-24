@@ -1,7 +1,7 @@
 import express from 'express'
 import { state } from './config.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
-import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockMarketStatus } from './market-data.js'
+import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, placeOrder } from './alpaca-account.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse } from './utils.js'
@@ -332,6 +332,25 @@ export function createRestApiRoutes() {
     catch (error) {
       console.error(`Error fetching historical data for ${req.params.symbol}:`, error)
       res.status(500).json({ error: `Failed to fetch historical data for ${req.params.symbol}` })
+    }
+  })
+
+  // Stock historical data with specific date range endpoint (for dynamic loading).
+  app.get('/api/stocks/:symbol/history/range', async (req, res) => {
+    try {
+      const { symbol } = req.params
+      const { timeframe, start, end } = req.query
+
+      if (!timeframe || !start || !end) {
+        return res.status(400).json({ error: 'timeframe, start, and end parameters are required' })
+      }
+
+      const historicalData = await getStockHistoricalDataByRange(symbol, timeframe, start, end)
+      res.json(historicalData)
+    }
+    catch (error) {
+      console.error(`Error fetching historical data range for ${req.params.symbol}:`, error)
+      res.status(500).json({ error: `Failed to fetch historical data range for ${req.params.symbol}` })
     }
   })
 

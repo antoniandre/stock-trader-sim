@@ -61,11 +61,13 @@ const defaultOptions = {
 function createChart() {
   if (!chartCanvas.value) return
 
+  // Validate data before creating chart.
+  const validData = validateChartData(props.data)
   const mergedOptions = { ...defaultOptions, ...props.options }
 
   chartInstance = new Chart(chartCanvas.value, {
     type: 'candlestick',
-    data: props.data,
+    data: validData,
     options: mergedOptions
   })
 }
@@ -73,9 +75,34 @@ function createChart() {
 function updateChart() {
   if (!chartInstance) return
 
-  chartInstance.data = props.data
+  // Validate data before updating chart.
+  const validData = validateChartData(props.data)
+  chartInstance.data = validData
   chartInstance.options = { ...defaultOptions, ...props.options }
   chartInstance.update('none')
+}
+
+function validateChartData(data) {
+  // Return safe default if data is invalid.
+  if (!data || !data.datasets || !Array.isArray(data.datasets)) {
+    return {
+      datasets: [{
+        label: 'OHLC',
+        data: []
+      }]
+    }
+  }
+
+  // Ensure each dataset has valid data array.
+  const validatedDatasets = data.datasets.map(dataset => ({
+    ...dataset,
+    data: Array.isArray(dataset.data) ? dataset.data : []
+  }))
+
+  return {
+    ...data,
+    datasets: validatedDatasets
+  }
 }
 
 function destroyChart() {
@@ -86,14 +113,21 @@ function destroyChart() {
 }
 
 // Watch for data changes.
-watch(() => props.data, () => updateChart(), { deep: true })
+watch(() => props.data, () => {
+  if (!props.data || !props.data.datasets) return
+
+  // Create chart if it doesn't exist yet (data arrived later).
+  if (!chartInstance) createChart()
+  else updateChart()
+}, { deep: true })
 
 // Watch for options changes.
 watch(() => props.options, () => updateChart(), { deep: true })
 
 onMounted(async () => {
   await nextTick()
-  createChart()
+  // Only create chart if we have valid data
+  if (props.data && props.data.datasets) createChart()
 })
 
 onBeforeUnmount(() => {

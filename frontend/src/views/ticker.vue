@@ -66,12 +66,14 @@
 
           //- Price Chart Component
           PriceChart(
+            :key="chartKey"
             :chart-type="chartType"
             :selected-period="selectedPeriod"
             :selected-timeframe="selectedTimeframe"
             :chart-periods="chartPeriods"
             :available-timeframes="availableTimeframes"
             :is-loading-historical-data="isLoadingHistoricalData"
+            :is-loading-additional-data="isLoadingAdditionalData"
             :line-chart-data="lineChartData"
             :line-chart-options="lineChartOptions"
             :candlestick-chart-data="candlestickChartData"
@@ -208,7 +210,10 @@
         StockStatsPanel(
           :stock="stock"
           :current-price="stock.price"
-          :currency-symbol="stock.currencySymbol")
+          :currency-symbol="stock.currencySymbol"
+          :historical-data="statsHistoricalData"
+          :intraday-data="historicalData"
+          :price-history="priceHistory")
 
   //- Fullscreen Chart Dialog
   w-dialog(
@@ -229,12 +234,14 @@
         bg-color="error"
         round)
       PriceChart(
+        :key="chartKey"
         :chart-type="chartType"
         :selected-period="selectedPeriod"
         :selected-timeframe="selectedTimeframe"
         :chart-periods="chartPeriods"
         :available-timeframes="availableTimeframes"
         :is-loading-historical-data="isLoadingHistoricalData"
+        :is-loading-additional-data="isLoadingAdditionalData"
         :line-chart-data="lineChartData"
         :line-chart-options="lineChartOptions"
         :candlestick-chart-data="candlestickChartData"
@@ -245,7 +252,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { fetchStock, fetchStockPrice, fetchStockHistory } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { useStockStatus } from '@/composables/stock-status'
@@ -276,9 +283,10 @@ const stock = ref({
 
 const priceHistory = ref([])
 const historicalData = ref([])
+const statsHistoricalData = ref([]) // Longer-term data for stats panel (52-week ranges)
 const realtimeOHLC = ref([]) // Real-time OHLC data for candlestick chart.
 const selectedPeriod = ref('1D')
-const selectedTimeframe = ref('1Min')
+const selectedTimeframe = ref('5Min') // Default to 5-minute intervals for proper day trading
 const chartType = ref('candlestick')
 const recentTrades = ref([])
 const priceChartRef = ref(null)
@@ -286,6 +294,305 @@ const isRefreshing = ref(false)
 const showDialog = ref(false) // For fullscreen chart dialog
 const isLoadingHistoricalData = ref(false)
 let marketStatusInterval = null
+
+// Dynamic data loading for zoom/pan
+const isLoadingAdditionalData = ref(false)
+const isPanning = ref(false) // Flag to prevent updates during panning
+const userHasPanned = ref(false) // Track if user has manually panned
+const dataCache = ref(new Map()) // Cache fetched data ranges to avoid duplicates
+const panDebounceTimeout = ref(null) // Debounce timer for pan loading
+const chartKey = ref(0) // Force chart re-render when data changes
+
+// Debounced function for real-time data loading during pan
+function debouncedPanLoad(chart) {
+  // Clear previous timeout
+  if (panDebounceTimeout.value) {
+    clearTimeout(panDebounceTimeout.value)
+  }
+
+  // Set new timeout for smooth loading
+  panDebounceTimeout.value = setTimeout(() => {
+    console.log('🔄 Real-time pan loading triggered')
+    handleChartViewChange(chart, 'pan-realtime')
+  }, 150) // 150ms debounce for smooth experience
+}
+
+function handleChartViewChange(chart, action) {
+  const scales = chart.scales
+  if (!scales.x) return
+
+  const visibleRange = {
+    min: scales.x.min,
+    max: scales.x.max
+  }
+
+  console.log(`📊 Chart ${action} detected - visible range:`, {
+    min: new Date(visibleRange.min).toLocaleString(),
+    max: new Date(visibleRange.max).toLocaleString(),
+    currentDataRange: {
+      first: historicalData.value.length > 0 ? new Date(historicalData.value[0].timestamp).toLocaleString() : 'No data',
+      last: historicalData.value.length > 0 ? new Date(historicalData.value[historicalData.value.length - 1].timestamp).toLocaleString() : 'No data'
+    }
+  })
+
+  // Check if we need to load more data
+  checkAndLoadAdditionalData(visibleRange)
+}
+
+async function checkAndLoadAdditionalData(visibleRange) {
+  if (isLoadingAdditionalData.value) {
+    console.log('📊 Already loading additional data, skipping...')
+    return
+  }
+
+  const currentData = historicalData.value
+  if (currentData.length === 0) {
+    console.log('📊 No current data available for range checking')
+    return
+  }
+
+  const firstDataPoint = currentData[0].timestamp
+  const lastDataPoint = currentData[currentData.length - 1].timestamp
+
+  // Determine buffer time based on current timeframe
+  const bufferTime = getBufferTime(selectedTimeframe.value)
+
+  const needsEarlierData = visibleRange.min < (firstDataPoint + bufferTime)
+  const needsLaterData = visibleRange.max > (lastDataPoint - bufferTime)
+
+  console.log('📊 Range check:', {
+    visibleRange: {
+      min: new Date(visibleRange.min).toLocaleString(),
+      max: new Date(visibleRange.max).toLocaleString()
+    },
+    dataRange: {
+      first: new Date(firstDataPoint).toLocaleString(),
+      last: new Date(lastDataPoint).toLocaleString()
+    },
+    bufferTime: `${Math.round(bufferTime / 60000)} minutes`,
+    needsEarlierData,
+    needsLaterData
+  })
+
+  if (needsEarlierData) {
+    console.log(`📊 Need earlier data - loading before ${new Date(firstDataPoint).toLocaleString()}`)
+    console.log(`📊 Current data range: ${new Date(firstDataPoint).toLocaleString()} to ${new Date(lastDataPoint).toLocaleString()}`)
+    console.log(`📊 Visible range: ${new Date(visibleRange.min).toLocaleString()} to ${new Date(visibleRange.max).toLocaleString()}`)
+    console.log(`📊 Buffer time: ${Math.round(bufferTime / 60000)} minutes`)
+    await loadAdditionalData('earlier', firstDataPoint)
+  }
+
+  if (needsLaterData && !needsEarlierData) {
+    console.log(`📊 Need later data - loading after ${new Date(lastDataPoint).toLocaleString()}`)
+    await loadAdditionalData('later', lastDataPoint)
+  }
+
+  if (!needsEarlierData && !needsLaterData) {
+    console.log('📊 No additional data needed - current data covers visible range')
+  }
+}
+
+function getBufferTime(timeframe) {
+  const bufferMultiplier = {
+    '1Min': 60 * 1000 * 30,      // 30 minutes buffer
+    '5Min': 60 * 1000 * 150,     // 2.5 hours buffer
+    '10Min': 60 * 1000 * 300,    // 5 hours buffer
+    '15Min': 60 * 1000 * 450,    // 7.5 hours buffer
+    '30Min': 60 * 1000 * 900,    // 15 hours buffer
+    '1Hour': 60 * 1000 * 1800,   // 30 hours buffer
+    '4Hour': 60 * 1000 * 7200,   // 120 hours buffer
+    '1Day': 24 * 60 * 60 * 1000 * 7 // 7 days buffer
+  }
+  return bufferMultiplier[timeframe] || bufferMultiplier['1Hour']
+}
+
+function getReasonableTimeRange() {
+  // Return reasonable pan limits based on current period/timeframe
+  // Max should be minimal to prevent panning past current time
+  const basePeriods = {
+    '1D': { min: 2 * 24 * 60 * 60 * 1000, max: 10 * 60 * 1000 }, // 2 days back, 10 minutes forward max
+    '1W': { min: 14 * 24 * 60 * 60 * 1000, max: 60 * 60 * 1000 }, // 2 weeks back, 1 hour forward max
+    '1M': { min: 60 * 24 * 60 * 60 * 1000, max: 6 * 60 * 60 * 1000 }, // 2 months back, 6 hours forward max
+    '3M': { min: 180 * 24 * 60 * 60 * 1000, max: 24 * 60 * 60 * 1000 } // 6 months back, 1 day forward max
+  }
+  return basePeriods[selectedPeriod.value] || basePeriods['1D']
+}
+
+async function loadAdditionalData(direction, referenceTime) {
+  if (isLoadingAdditionalData.value) return
+
+  isLoadingAdditionalData.value = true
+
+  try {
+    // Calculate how much additional data to fetch
+    const additionalPeriod = calculateAdditionalPeriod(selectedTimeframe.value)
+    let startDate, endDate
+
+    console.log(`📊 Calculating ${direction} data range:`, {
+      referenceTime: new Date(referenceTime).toLocaleString(),
+      additionalPeriod: `${additionalPeriod / (60 * 60 * 1000)} hours`,
+      timeframe: selectedTimeframe.value
+    })
+
+    if (direction === 'earlier') {
+      endDate = new Date(referenceTime)
+      startDate = new Date(referenceTime - getAdditionalDataRange(additionalPeriod))
+    } else {
+      startDate = new Date(referenceTime)
+      endDate = new Date(Math.min(referenceTime + getAdditionalDataRange(additionalPeriod), Date.now())) // Don't request future data
+    }
+
+    console.log(`📊 Calculated date range for ${direction}:`, {
+      startDate: startDate.toLocaleString(),
+      endDate: endDate.toLocaleString(),
+      startISO: startDate.toISOString(),
+      endISO: endDate.toISOString(),
+      durationHours: Math.abs(endDate.getTime() - startDate.getTime()) / (60 * 60 * 1000)
+    })
+
+    // Check cache to avoid duplicate requests
+    const cacheKey = `${direction}-${startDate.toISOString()}-${endDate.toISOString()}`
+    if (dataCache.value.has(cacheKey)) {
+      const cachedData = dataCache.value.get(cacheKey)
+      if (cachedData && cachedData.length > 0) {
+        console.log(`💾 Using cached data for ${direction} range (${cachedData.length} points)`)
+        console.log(`💾 Cached data sample:`, {
+          first: cachedData[0] ? new Date(cachedData[0].timestamp).toLocaleString() : 'none',
+          last: cachedData[cachedData.length - 1] ? new Date(cachedData[cachedData.length - 1].timestamp).toLocaleString() : 'none'
+        })
+        await mergeAdditionalData(cachedData, direction)
+        return
+      } else {
+        console.log(`💾 Cache entry exists but empty for ${direction} range`)
+        return
+      }
+    }
+
+    console.log(`📊 Fetching additional ${direction} data:`, {
+      startDate: startDate.toLocaleString(),
+      endDate: endDate.toLocaleString(),
+      timeframe: selectedTimeframe.value,
+      apiUrl: `http://localhost:3000/api/stocks/${props.symbol}/history/range?timeframe=${selectedTimeframe.value}&start=${startDate.toISOString()}&end=${endDate.toISOString()}`
+    })
+
+    // Fetch additional data using a custom API call with specific date range
+    const additionalData = await fetchAdditionalStockHistory(
+      props.symbol,
+      selectedTimeframe.value,
+      startDate.toISOString(),
+      endDate.toISOString()
+    )
+
+    console.log(`📊 API returned ${additionalData ? additionalData.length : 0} data points for ${direction} direction`)
+
+    if (additionalData && additionalData.length > 0) {
+      console.log(`📊 Additional data sample:`, {
+        first: new Date(additionalData[0].timestamp).toLocaleString(),
+        last: new Date(additionalData[additionalData.length - 1].timestamp).toLocaleString(),
+        count: additionalData.length
+      })
+      // Merge with existing data
+      await mergeAdditionalData(additionalData, direction)
+
+      // Cache the actual data (not just true)
+      dataCache.value.set(cacheKey, additionalData)
+
+      console.log(`✅ Loaded ${additionalData.length} additional ${direction} data points`)
+    } else {
+      // Cache empty result to avoid repeated requests for same range
+      dataCache.value.set(cacheKey, [])
+      console.log(`ℹ️ No additional ${direction} data available for requested range`)
+    }
+
+  } catch (error) {
+    console.error(`❌ Error loading additional ${direction} data:`, error)
+  } finally {
+    isLoadingAdditionalData.value = false
+  }
+}
+
+function calculateAdditionalPeriod(timeframe) {
+  // How much additional data to fetch based on timeframe
+  const additionalRanges = {
+    '1Min': 2 * 60 * 60 * 1000,      // 2 hours
+    '5Min': 6 * 60 * 60 * 1000,      // 6 hours
+    '10Min': 8 * 60 * 60 * 1000,     // 8 hours
+    '15Min': 12 * 60 * 60 * 1000,    // 12 hours
+    '30Min': 24 * 60 * 60 * 1000,    // 1 day
+    '1Hour': 3 * 24 * 60 * 60 * 1000, // 3 days
+    '4Hour': 7 * 24 * 60 * 60 * 1000, // 1 week
+    '1Day': 30 * 24 * 60 * 60 * 1000  // 30 days
+  }
+  return additionalRanges[timeframe] || additionalRanges['1Hour']
+}
+
+function getAdditionalDataRange(period) {
+  return period
+}
+
+async function mergeAdditionalData(newData, direction) {
+  console.log(`📊 Merging ${newData.length} ${direction} data points`)
+
+  if (direction === 'earlier') {
+    // Add to beginning, avoid duplicates
+    const existingTimestamps = new Set(historicalData.value.map(d => d.timestamp))
+    const uniqueNewData = newData.filter(d => !existingTimestamps.has(d.timestamp))
+
+    console.log(`📊 Existing timestamps count: ${existingTimestamps.size}`)
+    console.log(`📊 New data timestamps:`, newData.map(d => new Date(d.timestamp).toLocaleString()))
+    console.log(`📊 Overlapping timestamps:`, newData.filter(d => existingTimestamps.has(d.timestamp)).map(d => new Date(d.timestamp).toLocaleString()))
+
+    historicalData.value = [...uniqueNewData.sort((a, b) => a.timestamp - b.timestamp), ...historicalData.value]
+    console.log(`📊 Added ${uniqueNewData.length} unique earlier data points`)
+  } else {
+    // Add to end, avoid duplicates
+    const existingTimestamps = new Set(historicalData.value.map(d => d.timestamp))
+    const uniqueNewData = newData.filter(d => !existingTimestamps.has(d.timestamp))
+
+    historicalData.value = [...historicalData.value, ...uniqueNewData.sort((a, b) => a.timestamp - b.timestamp)]
+    console.log(`📊 Added ${uniqueNewData.length} unique later data points`)
+  }
+
+  // Sort the entire array to ensure proper chronological order
+  historicalData.value.sort((a, b) => a.timestamp - b.timestamp)
+
+  console.log(`📊 Total historical data points: ${historicalData.value.length}`)
+
+  // Force chart re-render by changing the key
+  chartKey.value++
+  console.log(`🔄 Chart key updated to ${chartKey.value} - forcing re-render`)
+
+  // Ensure Vue processes the changes
+  await nextTick()
+  console.log(`✅ Chart re-render completed - data should now be visible`)
+}
+
+// API function for fetching data with specific date ranges
+async function fetchAdditionalStockHistory(symbol, timeframe, startDate, endDate) {
+  try {
+    const url = `http://localhost:3000/api/stocks/${symbol}/history/range?timeframe=${timeframe}&start=${startDate}&end=${endDate}`
+    console.log(`🌐 Making API call: ${url}`)
+
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+    const result = await response.json()
+    const data = result.data || []
+
+    console.log(`🌐 API response for ${symbol}:`, {
+      status: response.status,
+      dataCount: data.length,
+      resultKeys: Object.keys(result),
+      firstPoint: data[0] ? new Date(data[0].timestamp).toLocaleString() : 'none',
+      lastPoint: data[data.length - 1] ? new Date(data[data.length - 1].timestamp).toLocaleString() : 'none'
+    })
+
+    return data
+  } catch (error) {
+    console.error('🌐 Error fetching additional historical data:', error)
+    return []
+  }
+}
 
 // Use composables for WebSocket and stock status.
 const { wsConnected, lastUpdate, connect, addMessageHandler, subscribeToStock } = useWebSocket()
@@ -361,8 +668,8 @@ const orderForm = ref({
 })
 
 const orderTypes = [
-  { label: 'Market Order', value: 'market' },
-  { label: 'Limit Order', value: 'limit' },
+  { label: 'Market', value: 'market' },
+  { label: 'Limit', value: 'limit' },
   { label: 'Stop Loss', value: 'stop' }
 ]
 
@@ -394,25 +701,40 @@ const isOrderValid = computed(() => {
 
 // Chart data for line chart.
 const lineChartData = computed(() => {
+  console.log(`🔍 CHART DATA DEBUG:`, {
+    historicalDataLength: historicalData.value.length,
+    priceHistoryLength: priceHistory.value.length,
+    userHasPanned: userHasPanned.value,
+    firstHistorical: historicalData.value[0] ? new Date(historicalData.value[0].timestamp).toLocaleString() : 'none',
+    lastHistorical: historicalData.value[historicalData.value.length - 1] ? new Date(historicalData.value[historicalData.value.length - 1].timestamp).toLocaleString() : 'none'
+  })
+
   // Always combine historical data with real-time price history for seamless transition.
   let dataToUse = []
 
   if (historicalData.value.length > 0) {
     // Start with historical data.
     dataToUse = [...historicalData.value]
+    console.log(`🔍 Using ${dataToUse.length} historical data points for chart`)
 
-    // Add real-time price updates that don't overlap with historical data.
-    if (priceHistory.value.length > 0) {
+    // Only add real-time data if user hasn't panned away (to prevent auto-focus)
+    if (!userHasPanned.value && priceHistory.value.length > 0) {
       const lastHistoricalTime = historicalData.value[historicalData.value.length - 1]?.timestamp || 0
       const newRealTimeData = priceHistory.value.filter(item => item.timestamp > lastHistoricalTime)
       dataToUse = [...dataToUse, ...newRealTimeData]
+      console.log(`📊 Added ${newRealTimeData.length} real-time data points to chart`)
+    } else if (userHasPanned.value) {
+      console.log(`📊 Excluding real-time data - user has panned away (historical: ${historicalData.value.length} points)`)
     }
   }
-  // Fallback to real-time data only if no historical data.
-  else dataToUse = priceHistory.value
+  // Fallback to real-time data only if no historical data and user hasn't panned
+  else if (!userHasPanned.value) {
+    dataToUse = priceHistory.value
+    console.log(`🔍 Using ${dataToUse.length} real-time data points (no historical)`)
+  }
 
   if (!dataToUse.length) {
-    return {
+    const emptyData = {
       datasets: [{
         label: `${props.symbol} Price`,
         data: [],
@@ -425,27 +747,40 @@ const lineChartData = computed(() => {
         pointHoverRadius: 6
       }]
     }
+    return emptyData
   }
 
-  return {
+  const chartData = {
     datasets: [{
       label: `${props.symbol} Price`,
       data: dataToUse.map(item => ({
         x: item.timestamp,
-        y: item.close || item.price
+        y: item.close || item.price || 0
       })),
-      borderColor: priceChange.value >= 0 ? '#10B981' : '#EF4444',
-      backgroundColor: priceChange.value >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+      borderColor: '#3B82F6',
+      backgroundColor: 'rgba(59, 130, 246, 0.1)',
       borderWidth: 2,
-      fill: true,
-      tension: 0.4,
+      fill: false,
       pointRadius: 0,
-      pointHoverRadius: 6,
-      pointHoverBorderWidth: 2,
-      pointHoverBorderColor: priceChange.value >= 0 ? '#10B981' : '#EF4444',
-      pointHoverBackgroundColor: '#fff'
+      pointHoverRadius: 4,
+      tension: 0.1
     }]
   }
+
+  console.log(`🔍 FINAL CHART DATA:`, {
+    totalDataPoints: dataToUse.length,
+    chartDatasetLength: chartData.datasets[0].data.length,
+    firstPoint: chartData.datasets[0].data[0] ? {
+      x: new Date(chartData.datasets[0].data[0].x).toLocaleString(),
+      y: chartData.datasets[0].data[0].y
+    } : 'none',
+    lastPoint: chartData.datasets[0].data[chartData.datasets[0].data.length - 1] ? {
+      x: new Date(chartData.datasets[0].data[chartData.datasets[0].data.length - 1].x).toLocaleString(),
+      y: chartData.datasets[0].data[chartData.datasets[0].data.length - 1].y
+    } : 'none'
+  })
+
+  return chartData
 })
 
 // Chart data for candlestick chart.
@@ -457,18 +792,23 @@ const candlestickChartData = computed(() => {
     // Start with historical data.
     dataToUse = [...historicalData.value]
 
-    // Add real-time OHLC updates that don't overlap with historical data.
-    if (realtimeOHLC.value.length > 0) {
+    // Only add real-time OHLC data if user hasn't panned away
+    if (!userHasPanned.value && realtimeOHLC.value.length > 0) {
       const lastHistoricalTime = historicalData.value[historicalData.value.length - 1]?.timestamp || 0
       const newRealTimeData = realtimeOHLC.value.filter(item => item.timestamp > lastHistoricalTime)
       dataToUse = [...dataToUse, ...newRealTimeData]
+      console.log(`📊 Added ${newRealTimeData.length} real-time OHLC data points to candlestick chart`)
+    } else if (userHasPanned.value) {
+      console.log(`📊 Excluding real-time OHLC data - user has panned away (historical: ${historicalData.value.length} points)`)
     }
   }
-  // Fallback to real-time data only if no historical data.
-  else dataToUse = realtimeOHLC.value
+  // Fallback to real-time data only if no historical data and user hasn't panned
+  else if (!userHasPanned.value) {
+    dataToUse = realtimeOHLC.value
+  }
 
   if (!dataToUse.length) {
-    return {
+    const emptyData = {
       datasets: [{
         label: `${props.symbol} OHLC`,
         data: [],
@@ -476,6 +816,7 @@ const candlestickChartData = computed(() => {
         backgroundColor: '#3B82F6'
       }]
     }
+    return emptyData
   }
 
   const candlestickData = dataToUse.map(item => ({
@@ -486,7 +827,7 @@ const candlestickChartData = computed(() => {
     c: item.close || item.price
   }))
 
-  return {
+  const chartData = {
     datasets: [{
       label: `${props.symbol} OHLC`,
       data: candlestickData,
@@ -502,6 +843,8 @@ const candlestickChartData = computed(() => {
       }
     }]
   }
+
+  return chartData
 })
 
 // Chart options for line chart
@@ -511,6 +854,148 @@ const lineChartOptions = computed(() => ({
   // Disable animations for real-time updates.
   animation: false,
   parsing: false, // Improve performance.
+  normalized: true, // Better data handling.
+  resizeDelay: 0, // Disable resize delay
+  interaction: { mode: 'index', intersect: false },
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      enabled: true,
+      mode: 'index',
+      intersect: false,
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      titleColor: '#fff',
+      bodyColor: '#fff',
+      borderColor: '#3B82F6',
+      borderWidth: 1,
+      callbacks: {
+        title(tooltipItems) {
+          return new Date(tooltipItems[0].parsed.x).toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          })
+        },
+        label(context) {
+          const value = context.parsed?.y
+          if (typeof value !== 'number') {
+            return `${props.symbol}: No data`
+          }
+          return `${props.symbol}: ${stock.value.currencySymbol}${value.toFixed(2)}`
+        }
+      }
+    },
+    zoom: {
+      limits: {
+        x: {
+          minRange: 60000 * 5, // Minimum 5 minutes visible
+          min: () => Date.now() - getReasonableTimeRange().min,
+          max: () => Date.now() // Strict limit: cannot pan past current time
+        }
+      },
+      pan: {
+        enabled: true,
+        mode: 'x',
+        threshold: 5, // Reduce sensitivity for smoother panning.
+        modifierKey: null, // Ensure no modifier key required.
+        onPanStart: ({ chart }) => {
+          isPanning.value = true
+          console.log('📊 Pan START - current range:', {
+            min: new Date(chart.scales.x.min).toLocaleString(),
+            max: new Date(chart.scales.x.max).toLocaleString()
+          })
+        },
+        onPan: ({ chart }) => {
+          // Real-time loading during pan drag (TradingView-style)
+          debouncedPanLoad(chart)
+        },
+        onPanComplete: ({ chart }) => {
+          console.log('📊 Pan COMPLETE - final range:', {
+            min: new Date(chart.scales.x.min).toLocaleString(),
+            max: new Date(chart.scales.x.max).toLocaleString()
+          })
+
+          // Check if user has panned away from current time
+          const currentTime = Date.now()
+          const viewMin = chart.scales.x.min
+          const viewMax = chart.scales.x.max
+          const viewCenter = (viewMin + viewMax) / 2
+
+          // Check if the visible range center is significantly away from current time
+          const timeDiffFromCenter = Math.abs(currentTime - viewCenter)
+          const timeDiffFromMax = currentTime - viewMax  // Positive if current time is after view
+
+          // User has panned away if:
+          // 1. Center of view is more than 30 minutes away from current time, OR
+          // 2. Current time is more than 10 minutes after the visible range (viewing historical data)
+          const isPannedAway = timeDiffFromCenter > 30 * 60 * 1000 || timeDiffFromMax > 10 * 60 * 1000
+
+          if (isPannedAway) {
+            userHasPanned.value = true
+            console.log('📊 User panned away from current time - disabling auto-focus:', {
+              currentTime: new Date(currentTime).toLocaleString(),
+              viewCenter: new Date(viewCenter).toLocaleString(),
+              viewMax: new Date(viewMax).toLocaleString(),
+              timeDiffFromCenter: `${Math.round(timeDiffFromCenter / 60000)} minutes`,
+              timeDiffFromMax: `${Math.round(timeDiffFromMax / 60000)} minutes`,
+              isPannedAway
+            })
+          } else {
+            userHasPanned.value = false
+            console.log('📊 User is viewing current time area - enabling auto-focus')
+          }
+
+          handleChartViewChange(chart, 'pan')
+          isPanning.value = false
+        }
+      },
+      zoom: {
+        wheel: { enabled: true, speed: 0.1 },
+        pinch: { enabled: true },
+        mode: 'x',
+        onZoomComplete: ({ chart }) => {
+          handleChartViewChange(chart, 'zoom')
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      type: 'time',
+      adapters: {
+        date: { zone: 'UTC' }
+      },
+      time: {
+        unit: chartTimeUnit.value,
+        displayFormats: chartDisplayFormats.value
+      },
+      grid: { display: false },
+      ticks: {
+        color: '#C9D1D9',
+        maxTicksLimit: 8,
+        source: 'auto' // Let Chart.js auto-generate ticks.
+      }
+    },
+    y: {
+      position: 'right',
+      beginAtZero: false,
+      grid: { color: 'rgba(255, 255, 255, 0.05)' },
+      ticks: {
+        color: '#C9D1D9',
+        callback: value => typeof value === 'number' ? stock.value.currencySymbol + value.toFixed(2) : ''
+      }
+    }
+  }
+}))
+
+// Chart options for candlestick chart.
+const candlestickChartOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: false,
+  parsing: false, // Improve performance for financial data.
   normalized: true, // Better data handling.
   interaction: { mode: 'index', intersect: false },
   plugins: {
@@ -535,117 +1020,95 @@ const lineChartOptions = computed(() => ({
           })
         },
         label(context) {
-          const value = context.parsed.y
-          return `${props.symbol}: ${stock.value.currencySymbol}${value.toFixed(2)}`
-        }
-      }
-    },
-    zoom: {
-      limits: {
-        x: { minRange: 60000 * 5 } // Minimum 5 minutes visible.
-      },
-      pan: {
-        enabled: true,
-        mode: 'x',
-        threshold: 5, // Reduce sensitivity for smoother panning.
-        modifierKey: null // Ensure no modifier key required.
-      },
-      zoom: {
-        wheel: { enabled: true, speed: 0.1 },
-        pinch: { enabled: true },
-        mode: 'x'
-      }
-    }
-  },
-  scales: {
-    x: {
-      type: 'time',
-      bounds: 'ticks', // Constrain to tick boundaries for better stability.
-      adapters: {
-        date: { zone: 'UTC' }
-      },
-      time: {
-        unit: chartTimeUnit.value,
-        displayFormats: chartDisplayFormats.value
-      },
-      grid: { display: false },
-      ticks: {
-        color: '#C9D1D9',
-        maxTicksLimit: 8,
-        source: 'auto' // Let Chart.js auto-generate ticks.
-      }
-    },
-    y: {
-      position: 'right',
-      beginAtZero: false,
-      grid: { color: 'rgba(255, 255, 255, 0.05)' },
-      ticks: {
-        color: '#C9D1D9',
-        callback: value => stock.value.currencySymbol + value.toFixed(2)
-      }
-    }
-  }
-}))
-
-// Chart options for candlestick chart.
-const candlestickChartOptions = computed(() => ({
-  responsive: true,
-  maintainAspectRatio: false,
-  animation: false,
-  parsing: false, // Improve performance for financial data.
-  normalized: true, // Better data handling.
-  interaction: { mode: 'index', intersect: false },
-  plugins: {
-    legend: { display: false },
-    tooltip: {
-      enabled: true,
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
-      titleColor: '#fff',
-      bodyColor: '#fff',
-      borderColor: '#3B82F6',
-      borderWidth: 1,
-      callbacks: {
-        title(tooltipItems) {
-          return new Date(tooltipItems[0].parsed.x).toLocaleString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-          })
-        },
-        label(context) {
-          const data = context.parsed
+          const value = context.parsed
+          if (!value || typeof value.o !== 'number') return ''
+          const { o: open, h: high, l: low, c: close } = value
           return [
-            `Open: ${stock.value.currencySymbol}${data.o.toFixed(2)}`,
-            `High: ${stock.value.currencySymbol}${data.h.toFixed(2)}`,
-            `Low: ${stock.value.currencySymbol}${data.l.toFixed(2)}`,
-            `Close: ${stock.value.currencySymbol}${data.c.toFixed(2)}`
+            `${props.symbol}`,
+            `O: ${stock.value.currencySymbol}${open.toFixed(2)}`,
+            `H: ${stock.value.currencySymbol}${high.toFixed(2)}`,
+            `L: ${stock.value.currencySymbol}${low.toFixed(2)}`,
+            `C: ${stock.value.currencySymbol}${close.toFixed(2)}`
           ]
         }
       }
     },
     zoom: {
       limits: {
-        x: { minRange: 60000 * 5 } // Minimum 5 minutes visible.
+        x: {
+          minRange: 60000 * 5, // Minimum 5 minutes visible
+          min: () => Date.now() - getReasonableTimeRange().min,
+          max: () => Date.now() // Strict limit: cannot pan past current time
+        }
       },
       pan: {
         enabled: true,
         mode: 'x',
         threshold: 5, // Reduce sensitivity for smoother panning.
-        modifierKey: null // Ensure no modifier key required.
+        modifierKey: null, // Ensure no modifier key required.
+        onPanStart: ({ chart }) => {
+          isPanning.value = true
+          console.log('📊 Pan START - current range:', {
+            min: new Date(chart.scales.x.min).toLocaleString(),
+            max: new Date(chart.scales.x.max).toLocaleString()
+          })
+        },
+        onPan: ({ chart }) => {
+          // Real-time loading during pan drag (TradingView-style)
+          debouncedPanLoad(chart)
+        },
+        onPanComplete: ({ chart }) => {
+          console.log('📊 Pan COMPLETE - final range:', {
+            min: new Date(chart.scales.x.min).toLocaleString(),
+            max: new Date(chart.scales.x.max).toLocaleString()
+          })
+
+          // Check if user has panned away from current time
+          const currentTime = Date.now()
+          const viewMin = chart.scales.x.min
+          const viewMax = chart.scales.x.max
+          const viewCenter = (viewMin + viewMax) / 2
+
+          // Check if the visible range center is significantly away from current time
+          const timeDiffFromCenter = Math.abs(currentTime - viewCenter)
+          const timeDiffFromMax = currentTime - viewMax  // Positive if current time is after view
+
+          // User has panned away if:
+          // 1. Center of view is more than 30 minutes away from current time, OR
+          // 2. Current time is more than 10 minutes after the visible range (viewing historical data)
+          const isPannedAway = timeDiffFromCenter > 30 * 60 * 1000 || timeDiffFromMax > 10 * 60 * 1000
+
+          if (isPannedAway) {
+            userHasPanned.value = true
+            console.log('📊 User panned away from current time - disabling auto-focus:', {
+              currentTime: new Date(currentTime).toLocaleString(),
+              viewCenter: new Date(viewCenter).toLocaleString(),
+              viewMax: new Date(viewMax).toLocaleString(),
+              timeDiffFromCenter: `${Math.round(timeDiffFromCenter / 60000)} minutes`,
+              timeDiffFromMax: `${Math.round(timeDiffFromMax / 60000)} minutes`,
+              isPannedAway
+            })
+          } else {
+            userHasPanned.value = false
+            console.log('📊 User is viewing current time area - enabling auto-focus')
+          }
+
+          handleChartViewChange(chart, 'pan')
+        }
       },
       zoom: {
         wheel: { enabled: true, speed: 0.1 },
         pinch: { enabled: true },
-        mode: 'x'
+        mode: 'x',
+        onZoomComplete: ({ chart }) => {
+          handleChartViewChange(chart, 'zoom')
+        }
       }
     }
   },
   scales: {
     x: {
       type: 'time',
-      bounds: 'ticks', // Constrain to tick boundaries for better stability.
       adapters: {
         date: { zone: 'UTC' }
       },
@@ -666,7 +1129,7 @@ const candlestickChartOptions = computed(() => ({
       grid: { color: 'rgba(255, 255, 255, 0.05)' },
       ticks: {
         color: '#C9D1D9',
-        callback: value => stock.value.currencySymbol + value.toFixed(2)
+        callback: value => typeof value === 'number' ? stock.value.currencySymbol + value.toFixed(2) : ''
       }
     }
   }
@@ -742,6 +1205,27 @@ async function fetchHistoricalData() {
   }
   finally {
     isLoadingHistoricalData.value = false
+  }
+}
+
+async function fetchStatsHistoricalData() {
+  try {
+    console.log(`📊 Fetching 1-year historical data for stats panel (${props.symbol})...`)
+    // Fetch 1 year of daily data for accurate 52-week high/low calculations
+    const data = await fetchStockHistory(props.symbol, '12M', '1Day')
+
+    if (data.data && data.data.length > 0) {
+      statsHistoricalData.value = data.data
+      console.log(`✅ Loaded ${data.data.length} stats historical data points for ${props.symbol}`)
+    }
+    else {
+      console.warn(`⚠️ No stats historical data available for ${props.symbol}`)
+      statsHistoricalData.value = []
+    }
+  }
+  catch (error) {
+    console.error('❌ Error fetching stats historical data:', error)
+    statsHistoricalData.value = []
   }
 }
 
@@ -845,23 +1329,28 @@ function handlePriceUpdate(data) {
     nextClose: data.nextClose || stock.value.nextClose
   }
 
-  // Keep track of price history for line chart
-  priceHistory.value.push({
-    timestamp: timestamp,
-    price: data.price
-  })
+  // Only add real-time data if user hasn't manually panned away
+  if (!userHasPanned.value) {
+    // Keep track of price history for line chart
+    priceHistory.value.push({
+      timestamp: timestamp,
+      price: data.price
+    })
 
-  // Keep only the last 100 price points for performance
-  if (priceHistory.value.length > 100) {
-    priceHistory.value = priceHistory.value.slice(-100)
-  }
+    // Keep only the last 100 price points for performance
+    if (priceHistory.value.length > 100) {
+      priceHistory.value = priceHistory.value.slice(-100)
+    }
 
-  // Update OHLC data for candlestick chart
-  updateOHLCData(data.price, timestamp)
+    // Update OHLC data for candlestick chart
+    updateOHLCData(data.price, timestamp)
 
-  // Keep realtime OHLC data manageable
-  if (realtimeOHLC.value.length > 200) {
-    realtimeOHLC.value = realtimeOHLC.value.slice(-200)
+    // Keep realtime OHLC data manageable
+    if (realtimeOHLC.value.length > 200) {
+      realtimeOHLC.value = realtimeOHLC.value.slice(-200)
+    }
+  } else {
+    console.log(`📊 Skipping real-time chart update - user has panned away (${data.symbol}: $${data.price})`)
   }
 
   // If we have a lot of combined data, trim old historical data to prevent memory issues
@@ -893,13 +1382,13 @@ function handleMarketStatusUpdate(data) {
 }
 
 function handleTrade(data) {
-  recentTrades.value.unshift({
+          recentTrades.value.unshift({
     symbol: data.symbol,
-    side: data.side,
+            side: data.side,
     quantity: data.qty,
-    price: data.price,
-    timestamp: data.timestamp
-  })
+            price: data.price,
+            timestamp: data.timestamp
+          })
 
   // Keep only the last 50 trades.
   if (recentTrades.value.length > 50) recentTrades.value = recentTrades.value.slice(0, 50)
@@ -968,17 +1457,20 @@ async function changePeriod(period) {
 
   selectedPeriod.value = period
 
-  // Reset timeframe to default for the new period.
+    // Reset timeframe to default for the new period.
   const defaultTimeframes = {
-    '1D': '1Min',
-    '1W': '5Min',
-    '1M': '1Hour',
-    '3M': '1Day'
+    '1D': '5Min',   // 5-minute intervals for day trading
+    '1W': '15Min',  // 15-minute intervals for week view
+    '1M': '1Hour',  // 1-hour intervals for month view
+    '3M': '1Day'    // Daily for 3-month view
   }
-  selectedTimeframe.value = defaultTimeframes[period] || '1Min'
+  selectedTimeframe.value = defaultTimeframes[period] || '5Min'
 
   // Clear real-time OHLC data when changing periods.
   realtimeOHLC.value = []
+
+  // Clear data cache to prevent stale cached data
+  dataCache.value.clear()
 
   await fetchHistoricalData()
 }
@@ -987,6 +1479,10 @@ async function changeTimeframe(timeframe) {
   if (selectedTimeframe.value === timeframe) return
 
   selectedTimeframe.value = timeframe
+
+  // Clear data cache when timeframe changes
+  dataCache.value.clear()
+
   await fetchHistoricalData()
 }
 
@@ -1143,6 +1639,81 @@ async function placeOrder(side) {
   }
 }
 
+function snapToCurrentTime() {
+  // Reset the user panned flag to resume live updates
+  userHasPanned.value = false
+  console.log('📊 Snapping back to current time - resuming live updates')
+
+  // Reset zoom to show current data
+  resetZoom()
+}
+
+// Debug function for testing date calculations
+function debugDateCalculation() {
+  const referenceTime = Date.now() - (8 * 60 * 60 * 1000) // 8 hours ago
+  const timeframe = '5Min'
+  const direction = 'earlier'
+
+  console.log('🧪 DEBUG: Testing date calculation')
+  console.log('🧪 Reference time:', new Date(referenceTime).toLocaleString())
+
+  const additionalPeriod = calculateAdditionalPeriod(timeframe)
+  console.log('🧪 Additional period:', additionalPeriod, '=', additionalPeriod / (60 * 60 * 1000), 'hours')
+
+  const endDate = new Date(referenceTime)
+  const startDate = new Date(referenceTime - getAdditionalDataRange(additionalPeriod))
+
+  console.log('🧪 Calculated range:', {
+    startDate: startDate.toLocaleString(),
+    endDate: endDate.toLocaleString(),
+    startISO: startDate.toISOString(),
+    endISO: endDate.toISOString(),
+    durationMs: endDate.getTime() - startDate.getTime(),
+    durationHours: (endDate.getTime() - startDate.getTime()) / (60 * 60 * 1000)
+  })
+
+  const url = `http://localhost:3000/api/stocks/${props.symbol}/history/range?timeframe=${timeframe}&start=${startDate.toISOString()}&end=${endDate.toISOString()}`
+  console.log('🧪 Would call API:', url)
+
+  return { startDate, endDate, url }
+}
+
+// Make debug function globally available
+if (typeof window !== 'undefined') {
+  window.debugDateCalculation = debugDateCalculation
+  window.clearDataCache = () => {
+    dataCache.value.clear()
+    console.log('🗑️ Data cache cleared - next pan will make fresh API calls')
+  }
+  window.debugChartBounds = () => {
+    const range = getReasonableTimeRange()
+    const currentTime = Date.now()
+    console.log('🎯 Current chart bounds (STRICT):', {
+      currentTime: new Date(currentTime).toLocaleString(),
+      selectedPeriod: selectedPeriod.value,
+      minTime: new Date(currentTime - range.min).toLocaleString(),
+      maxTime: new Date(currentTime).toLocaleString(), // STRICT: Cannot pan past NOW
+      minRange: `${Math.round(range.min / (24 * 60 * 60 * 1000))} days back`,
+      maxRange: 'CURRENT TIME (no forward panning allowed)',
+      enforcement: 'zoom limits (no bounds setting)'
+    })
+    return { ...range, maxTime: currentTime }
+  }
+  window.debugChartData = () => {
+    console.log('📊 DIRECT CHART DATA INSPECTION:')
+    console.log('Historical data:', historicalData.value.length, 'points')
+    console.log('First 3 historical points:', historicalData.value.slice(0, 3))
+    console.log('Last 3 historical points:', historicalData.value.slice(-3))
+    console.log('Current lineChartData:', lineChartData.value)
+    console.log('User has panned:', userHasPanned.value)
+    return {
+      historical: historicalData.value,
+      chartData: lineChartData.value,
+      userPanned: userHasPanned.value
+    }
+  }
+}
+
 // Lifecycle.
 onMounted(async () => {
   console.log(`🔄 Component mounted for ${props.symbol}`)
@@ -1153,6 +1724,7 @@ onMounted(async () => {
   await Promise.all([
     fetchStockData(),
     fetchHistoricalData(),
+    fetchStatsHistoricalData(),
     refreshMarketStatus()
   ])
 
@@ -1178,19 +1750,32 @@ watch(() => props.symbol, async (newSymbol, oldSymbol) => {
   // Clear existing data.
   priceHistory.value = []
   historicalData.value = []
+  statsHistoricalData.value = []
   realtimeOHLC.value = []
   recentTrades.value = []
 
   // Fetch new data.
   await Promise.all([
     fetchStockData(),
-    fetchHistoricalData()
+    fetchHistoricalData(),
+    fetchStatsHistoricalData()
   ])
 }, { immediate: false })
 
 // Watch for period/timeframe changes.
 watch([selectedPeriod, selectedTimeframe], async () => {
   await fetchHistoricalData()
+})
+
+// Debug: Watch historicalData changes to see if chart updates
+watch(() => historicalData.value.length, (newLength, oldLength) => {
+  console.log(`📊 Historical data length changed: ${oldLength} → ${newLength}`)
+  if (newLength > oldLength) {
+    console.log(`📊 Added ${newLength - oldLength} historical data points`)
+    const latest = historicalData.value[historicalData.value.length - 1]
+    const earliest = historicalData.value[0]
+    console.log(`📊 Historical data range: ${new Date(earliest?.timestamp).toLocaleString()} to ${new Date(latest?.timestamp).toLocaleString()}`)
+  }
 })
 </script>
 
@@ -1212,3 +1797,7 @@ watch([selectedPeriod, selectedTimeframe], async () => {
   }
 }
 </style>
+
+
+
+
