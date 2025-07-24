@@ -133,29 +133,78 @@ export function initializeMockPrices() {
 
 // Mock Historical Data Generation
 // --------------------------------------------------------
-export function generateMockHistoricalData(symbol, period, timeframe = null) {
+export function generateMockHistoricalData(symbol, periodOrTimeframe, timeframeOrStart = null, endDate = null) {
   const basePrice = mockPrices[symbol] || 100
-  const now = Date.now()
-  const { dataPoints, intervalMs } = getMockDataParams(period, timeframe)
 
+  // Determine if this is period-based or range-based call
+  const isRangeBased = endDate !== null || (timeframeOrStart && typeof timeframeOrStart === 'string' && timeframeOrStart.includes('T'))
+
+  let data, startTime, intervalMs, dataPoints
+
+  if (isRangeBased) {
+    // Range-based: generateMockHistoricalData(symbol, timeframe, startDate, endDate)
+    const timeframe = periodOrTimeframe
+    const startDate = timeframeOrStart
+    startTime = new Date(startDate).getTime()
+    const endTime = new Date(endDate).getTime()
+
+    const timeframeMs = {
+      '1Min': 60 * 1000,
+      '5Min': 5 * 60 * 1000,
+      '10Min': 10 * 60 * 1000,
+      '15Min': 15 * 60 * 1000,
+      '30Min': 30 * 60 * 1000,
+      '1Hour': 60 * 60 * 1000,
+      '4Hour': 4 * 60 * 60 * 1000,
+      '1Day': 24 * 60 * 60 * 1000
+    }
+
+    intervalMs = timeframeMs[timeframe] || 60 * 60 * 1000
+    dataPoints = Math.min(Math.ceil((endTime - startTime) / intervalMs), 1000)
+
+    data = generateOHLCData(basePrice, startTime, intervalMs, dataPoints, true)
+    return data // For range-based, return just the data array
+  }
+  else {
+    // Period-based: generateMockHistoricalData(symbol, period, timeframe)
+    const period = periodOrTimeframe
+    const timeframe = timeframeOrStart
+    const now = Date.now()
+    const { dataPoints: points, intervalMs: interval } = getMockDataParams(period, timeframe)
+
+    dataPoints = points
+    intervalMs = interval
+    startTime = now - (dataPoints - 1) * intervalMs
+
+    data = generateOHLCData(basePrice, startTime, intervalMs, dataPoints, false)
+    return { symbol, period, timeframe: timeframe || 'auto', data }
+  }
+}
+
+export function generateMockHistoricalDataByRange(symbol, timeframe, startDate, endDate) {
+  // Wrapper function for backward compatibility
+  return generateMockHistoricalData(symbol, timeframe, startDate, endDate)
+}
+
+function generateOHLCData(basePrice, startTime, intervalMs, dataPoints, isForward = true) {
   const data = []
   let currentPrice = basePrice
 
   for (let i = 0; i < dataPoints; i++) {
-    const timestamp = now - (dataPoints - 1 - i) * intervalMs
+    const timestamp = isForward
+      ? startTime + (i * intervalMs)  // Forward: start + offset
+      : startTime + (i * intervalMs)  // Both should actually be the same since startTime is pre-calculated
 
-    // Generate realistic OHLCV data for candlesticks
-    const volatility = 0.02  // 2% volatility.
-    const trend = Math.sin(i / 20) * 0.005  // Small trend component.
+    // Generate realistic OHLCV data
+    const volatility = 0.02
+    const trend = Math.sin(i / 20) * 0.005
     const randomChange = (Math.random() - 0.5) * volatility
 
     const openPrice = currentPrice
-    const randomHigh = Math.random() * 0.02 + 0.005 // 0.5% to 2.5% higher
-    const randomLow = Math.random() * 0.02 + 0.005 // 0.5% to 2.5% lower
+    const randomHigh = Math.random() * 0.02 + 0.005
+    const randomLow = Math.random() * 0.02 + 0.005
 
     currentPrice = currentPrice * (1 + trend + randomChange)
-
-    // Ensure price doesn't go below 10% of base price.
     currentPrice = Math.max(currentPrice, basePrice * 0.1)
 
     const high = Math.max(openPrice, currentPrice) * (1 + randomHigh)
@@ -167,12 +216,12 @@ export function generateMockHistoricalData(symbol, period, timeframe = null) {
       high: Math.round(high * 100) / 100,
       low: Math.round(low * 100) / 100,
       close: Math.round(currentPrice * 100) / 100,
-      volume: Math.floor(Math.random() * 100000) + 10000, // More realistic intraday volumes
-      price: Math.round(currentPrice * 100) / 100 // For backward compatibility
+      volume: Math.floor(Math.random() * 100000) + 10000,
+      price: Math.round(currentPrice * 100) / 100
     })
   }
 
-  return { symbol, period, timeframe: timeframe || 'auto', data }
+  return data
 }
 
 function getMockDataParams(period, timeframe = null) {
