@@ -163,13 +163,14 @@ import 'chart.js/auto'
 import 'chartjs-chart-financial'
 import 'chartjs-adapter-luxon'
 import zoomPlugin from 'chartjs-plugin-zoom'
+import { BarController, BarElement } from 'chart.js'
 import CandlestickChart from './candlestick-chart.vue'
 import DrawingTools from './drawing-tools.vue'
 import { ref, computed } from 'vue'
 import { useTechnicalIndicators } from '@/composables/use-technical-indicators'
 
-// Register zoom plugin
-Chart.register(zoomPlugin)
+// Register zoom plugin and bar chart components for mixed MACD chart
+Chart.register(zoomPlugin, BarController, BarElement)
 
 const props = defineProps({
   chartType: { type: String, required: true },
@@ -188,7 +189,8 @@ const props = defineProps({
 const emit = defineEmits([
   'change-chart-type',
   'change-period',
-  'change-timeframe'
+  'change-timeframe',
+  'reset-zoom-complete'
 ])
 
 // Template refs
@@ -206,258 +208,461 @@ const showVolume = ref(true)
 const showRSI = ref(true)
 const showMACD = ref(true)
 
-// Extract OHLC data from props for indicators
+// OHLC data processing for technical indicators.
 const ohlcData = computed(() => {
-  if (props.chartType === 'line') {
-    // Convert line data to OHLC format
-    if (!props.lineChartData?.datasets?.[0]?.data) return []
+  try {
+    if (props.chartType === 'line') {
+      // Convert line data to OHLC format
+      if (!props.lineChartData?.datasets?.[0]?.data || !Array.isArray(props.lineChartData.datasets[0].data)) {
+        return []
+      }
 
-    return props.lineChartData.datasets[0].data.map(point => ({
-      timestamp: point.x,
-      price: point.y,
-      open: point.y,
-      high: point.y,
-      low: point.y,
-      close: point.y,
-      volume: 1000000 // Default volume for line charts
-    }))
+      return props.lineChartData.datasets[0].data.map(point => {
+        if (!point || typeof point !== 'object') return null
+
+        const timestamp = point.x || Date.now()
+        const price = point.y || 0
+
+        return {
+          timestamp,
+          price,
+          open: price,
+          high: price,
+          low: price,
+          close: price,
+          volume: 1000000 // Default volume for line charts.
+        }
+      }).filter(Boolean) // Remove any null entries.
+    }
+    else {
+      // Use candlestick data
+      if (!props.candlestickChartData?.datasets?.[0]?.data || !Array.isArray(props.candlestickChartData.datasets[0].data)) {
+        return []
+      }
+
+      return props.candlestickChartData.datasets[0].data.map(point => {
+        if (!point || typeof point !== 'object') return null
+
+        return {
+          timestamp: point.x || Date.now(),
+          open: point.o || 0,
+          high: point.h || 0,
+          low: point.l || 0,
+          close: point.c || 0,
+          price: point.c || 0,
+          volume: point.v || Math.random() * 10000000 // Mock volume data - replace with real volume
+        }
+      }).filter(Boolean) // Remove any null entries
+    }
   }
-  else {
-    // Use candlestick data
-    if (!props.candlestickChartData?.datasets?.[0]?.data) return []
-
-    return props.candlestickChartData.datasets[0].data.map(point => ({
-      timestamp: point.x,
-      open: point.o,
-      high: point.h,
-      low: point.l,
-      close: point.c,
-      price: point.c,
-      volume: Math.random() * 10000000 // Mock volume data - replace with real volume
-    }))
+  catch (error) {
+    console.warn('Error processing OHLC data:', error)
+    return []
   }
 })
 
-// Initialize technical indicators
-const indicators = useTechnicalIndicators(ohlcData)
+// Extract volume data for technical indicators.
+const volumeData = computed(() => {
+  try {
+    if (!Array.isArray(ohlcData.value)) return []
 
-// Current indicator values for display
+    return ohlcData.value.map(point => {
+      if (!point || typeof point !== 'object') return null
+
+      return {
+        timestamp: point.timestamp || Date.now(),
+        volume: point.volume || 0
+      }
+    }).filter(Boolean) // Remove any null entries
+  }
+  catch (error) {
+    console.warn('Error processing volume data:', error)
+    return []
+  }
+})
+
+// VWAP Calculation
+// --------------------------------------------------------
+const vwapData = computed(() => {
+  if (!ohlcData.value || ohlcData.value.length === 0) return []
+
+  let cumulativeVolumePrice = 0
+  let cumulativeVolume = 0
+  const vwapValues = []
+
+  for (const point of ohlcData.value) {
+    const typicalPrice = (point.high + point.low + point.close) / 3
+    const volume = point.volume || 1000000 // Default volume
+
+    cumulativeVolumePrice += typicalPrice * volume
+    cumulativeVolume += volume
+
+    const vwap = cumulativeVolume > 0 ? cumulativeVolumePrice / cumulativeVolume : typicalPrice
+
+    vwapValues.push({ timestamp: point.timestamp, value: vwap })
+  }
+
+  return vwapValues
+})
+
+// Initialize technical indicators.
+const indicators = useTechnicalIndicators(ohlcData, volumeData)
+
+// Current indicator values for display.
 const currentRSI = computed(() => {
-  const rsi = indicators.rsi.value
-  if (!rsi || !rsi.length) return '--'
-  const lastValue = rsi[rsi.length - 1]
-  return (lastValue != null) ? lastValue.toFixed(2) : '--'
+  // Try to get from composable first
+  if (indicators.currentRSI?.value != null) {
+    return typeof indicators.currentRSI.value === 'number' ? indicators.currentRSI.value.toFixed(2) : indicators.currentRSI.value
+  }
+
+  // Fallback: calculate manually if needed
+  const closePrices = ohlcData.value.map(d => d.close || d.price || 0).filter(p => p > 0)
+  if (closePrices.length < 14) return '--'
+
+  const rsi = calculateSimpleRSI(closePrices, 14)
+  return rsi.length > 0 ? rsi[rsi.length - 1].toFixed(2) : '--'
 })
 
 const currentRSISMA = computed(() => {
-  const rsiSMA = indicators.rsiSMA.value
-  if (!rsiSMA || !rsiSMA.length) return '--'
-  const lastValue = rsiSMA[rsiSMA.length - 1]
-  return (lastValue != null) ? lastValue.toFixed(2) : '--'
+  return '--' // RSI SMA not implemented in indicators composable.
 })
 
 const currentMACD = computed(() => {
-  const macd = indicators.macd.value?.MACD
-  if (!macd || !macd.length) return '--'
-  const lastValue = macd[macd.length - 1]
-  return (lastValue != null) ? lastValue.toFixed(4) : '--'
+  // Try to get from composable first.
+  if (indicators.currentMACD?.value != null) {
+    return typeof indicators.currentMACD.value === 'number' ? indicators.currentMACD.value.toFixed(4) : indicators.currentMACD.value
+  }
+  return '--'
 })
 
 const currentSignal = computed(() => {
-  const signal = indicators.macd.value?.signal
-  if (!signal || !signal.length) return '--'
-  const lastValue = signal[signal.length - 1]
-  return (lastValue != null) ? lastValue.toFixed(4) : '--'
+  // Try to get from composable first.
+  if (indicators.currentSignal?.value != null) {
+    return typeof indicators.currentSignal.value === 'number' ? indicators.currentSignal.value.toFixed(4) : indicators.currentSignal.value
+  }
+  return '--'
 })
 
 const currentHistogram = computed(() => {
-  const histogram = indicators.macd.value?.histogram
-  if (!histogram || !histogram.length) return '--'
-  const lastValue = histogram[histogram.length - 1]
-  return (lastValue != null) ? lastValue.toFixed(4) : '--'
+  // Try to get from composable first.
+  if (indicators.currentHistogram?.value != null) {
+    return typeof indicators.currentHistogram.value === 'number' ? indicators.currentHistogram.value.toFixed(4) : indicators.currentHistogram.value
+  }
+  return '--'
 })
 
-// Enhanced chart data with indicators
+// Enhanced chart data with indicators.
 const enhancedLineChartData = computed(() => {
-  if (!props.lineChartData || !props.lineChartData.datasets) {
-    return { datasets: [] }
+  // Ensure we always return a valid chart data structure.
+  const defaultData = {
+    labels: [],
+    datasets: []
   }
 
-  const baseData = { ...props.lineChartData }
+  if (!props.lineChartData || !props.lineChartData.datasets || !Array.isArray(props.lineChartData.datasets)) {
+    return defaultData
+  }
+
+  const baseData = {
+    labels: props.lineChartData.labels || [],
+    datasets: [...props.lineChartData.datasets]
+  }
   const datasets = [...baseData.datasets]
 
-  // Add EMA overlays
-  if (showEMA.value && indicators.ema20.value && indicators.ema20.value.length &&
-      indicators.prices.value.timestamps && indicators.prices.value.timestamps.length) {
-    const emaOffset20 = indicators.prices.value.close.length - indicators.ema20.value.length
+  // Add EMA overlays if enabled and data is available.
+  if (showEMA.value && ohlcData.value.length > 0) {
+    const closePrices = ohlcData.value.map(d => d.close || d.price || 0).filter(p => p > 0)
+    console.log(`📊 EMA: Available data points: ${closePrices.length}`)
 
-    datasets.push({
-      label: 'EMA 20',
-      data: indicators.ema20.value.map((value, index) => ({
-        x: indicators.prices.value.timestamps[index + emaOffset20] || Date.now(),
-        y: value
-      })),
-      borderColor: '#F59E0B',
-      backgroundColor: '#F59E0B',
-      borderWidth: 2,
-      fill: false,
-      pointRadius: 0
-    })
+    if (closePrices.length >= 20) {
+      const ema20 = calculateSimpleEMA(closePrices, 20)
+      console.log(`📊 EMA 20: Calculated ${ema20.filter(v => v !== null).length} valid points`)
+      if (ema20.length > 0) {
+        const ema20Data = ema20
+          .map((value, index) => ({
+            x: ohlcData.value[index]?.timestamp || Date.now(),
+            y: value
+          }))
+          .filter(point => point.y !== null) // Remove null values
+
+        datasets.push({
+          label: 'EMA 20',
+          data: ema20Data,
+          borderColor: '#10B981', // Green
+          backgroundColor: 'transparent',
+          borderWidth: 0.5,
+          pointRadius: 0,
+          tension: 0.1,
+          fill: false
+        })
+      }
+    }
+
+    if (closePrices.length >= 50) {
+      const ema50 = calculateSimpleEMA(closePrices, 50)
+      console.log(`📊 EMA 50: Calculated ${ema50.filter(v => v !== null).length} valid points`)
+      if (ema50.length > 0) {
+        const ema50Data = ema50
+          .map((value, index) => ({
+            x: ohlcData.value[index]?.timestamp || Date.now(),
+            y: value
+          }))
+          .filter(point => point.y !== null) // Remove null values
+
+        datasets.push({
+          label: 'EMA 50',
+          data: ema50Data,
+          borderColor: '#3B82F6', // Blue
+          backgroundColor: 'transparent',
+          borderWidth: 0.5,
+          pointRadius: 0,
+          tension: 0.1,
+          fill: false
+        })
+      }
+    }
+
+    if (closePrices.length >= 200) {
+      const ema200 = calculateSimpleEMA(closePrices, 200)
+      console.log(`📊 EMA 200: Calculated ${ema200.filter(v => v !== null).length} valid points`)
+      if (ema200.length > 0) {
+        const ema200Data = ema200
+          .map((value, index) => ({
+            x: ohlcData.value[index]?.timestamp || Date.now(),
+            y: value
+          }))
+          .filter(point => point.y !== null) // Remove null values
+
+        datasets.push({
+          label: 'EMA 200',
+          data: ema200Data,
+          borderColor: '#8B5CF6', // Purple
+          backgroundColor: 'transparent',
+          borderWidth: 0.5,
+          pointRadius: 0,
+          tension: 0.1,
+          fill: false
+        })
+      }
+    }
+    else {
+      console.log(`📊 EMA 200: Skipped - need 200 data points, have ${closePrices.length}`)
+    }
   }
 
-  if (showEMA.value && indicators.ema50.value && indicators.ema50.value.length &&
-      indicators.prices.value.timestamps && indicators.prices.value.timestamps.length) {
-    const emaOffset50 = indicators.prices.value.close.length - indicators.ema50.value.length
-    datasets.push({
-      label: 'EMA 50',
-      data: indicators.ema50.value.map((value, index) => ({
-        x: indicators.prices.value.timestamps[index + emaOffset50] || Date.now(),
-        y: value
-      })),
-      borderColor: '#8B5CF6',
-      backgroundColor: '#8B5CF6',
-      borderWidth: 2,
-      fill: false,
-      pointRadius: 0
-    })
-  }
+  // Add VWAP overlay if enabled
+  if (showVWAP.value && vwapData.value.length > 0) {
+    const vwapChartData = vwapData.value.map(point => ({
+      x: point.timestamp,
+      y: point.value
+    }))
 
-  if (showEMA.value && indicators.ema200.value && indicators.ema200.value.length &&
-      indicators.prices.value.timestamps && indicators.prices.value.timestamps.length) {
-    const emaOffset200 = indicators.prices.value.close.length - indicators.ema200.value.length
-    datasets.push({
-      label: 'EMA 200',
-      data: indicators.ema200.value.map((value, index) => ({
-        x: indicators.prices.value.timestamps[index + emaOffset200] || Date.now(),
-        y: value
-      })),
-      borderColor: '#EF4444',
-      backgroundColor: '#EF4444',
-      borderWidth: 2,
-      fill: false,
-      pointRadius: 0
-    })
-  }
-
-  // Add VWAP overlay
-  if (showVWAP.value && indicators.vwap.value && indicators.vwap.value.length &&
-      indicators.prices.value.timestamps && indicators.prices.value.timestamps.length) {
     datasets.push({
       label: 'VWAP',
-      data: indicators.vwap.value.map((value, index) => ({
-        x: indicators.prices.value.timestamps[index] || Date.now(),
-        y: value
-      })),
-      borderColor: '#10B981',
-      backgroundColor: '#10B981',
-      borderWidth: 2,
-      fill: false,
+      data: vwapChartData,
+      borderColor: '#F59E0B', // Orange color
+      backgroundColor: 'transparent',
+      borderWidth: 0.5,
       pointRadius: 0,
-      borderDash: [5, 5]
+      tension: 0.1,
+      fill: false
     })
   }
 
-  return { datasets }
+  return { ...baseData, datasets }
 })
+
+// EMA calculation function - improved for continuity.
+function calculateSimpleEMA(prices, period) {
+  if (!prices || !Array.isArray(prices) || prices.length < period) return []
+
+  const ema = []
+  const multiplier = 2 / (period + 1)
+
+  // Start with simple moving average for first value at index (period - 1).
+  let sum = 0
+  for (let i = 0; i < period; i++) {
+    sum += prices[i]
+  }
+
+  // Fill the EMA array with null values for the initial period, then add the first EMA value.
+  for (let i = 0; i < period - 1; i++) {
+    ema[i] = null
+  }
+  ema[period - 1] = sum / period
+
+  // Calculate EMA for remaining values using the standard formula.
+  for (let i = period; i < prices.length; i++) {
+    const currentPrice = prices[i]
+    const prevEMA = ema[i - 1]
+    ema[i] = (currentPrice * multiplier) + (prevEMA * (1 - multiplier))
+  }
+
+  return ema
+}
 
 const enhancedCandlestickChartData = computed(() => {
-  if (!props.candlestickChartData || !props.candlestickChartData.datasets) {
-    return { datasets: [] }
+  // Ensure we always return a valid chart data structure.
+  const defaultData = {
+    labels: [],
+    datasets: []
   }
 
-  const baseData = { ...props.candlestickChartData }
+  if (!props.candlestickChartData || !props.candlestickChartData.datasets || !Array.isArray(props.candlestickChartData.datasets)) {
+    return defaultData
+  }
+
+  const baseData = {
+    labels: props.candlestickChartData.labels || [],
+    datasets: [...props.candlestickChartData.datasets]
+  }
   const datasets = [...baseData.datasets]
 
-  // Add same indicators as line chart
-  if (showEMA.value &&
-      indicators.ema20.value && Array.isArray(indicators.ema20.value) && indicators.ema20.value.length &&
-      indicators.prices.value && indicators.prices.value.timestamps &&
-      Array.isArray(indicators.prices.value.timestamps) && indicators.prices.value.timestamps.length &&
-      indicators.prices.value.close && Array.isArray(indicators.prices.value.close)) {
-    const emaOffset20 = indicators.prices.value.close.length - indicators.ema20.value.length
+  // Add EMA overlays if enabled and data is available.
+  if (showEMA.value && ohlcData.value.length > 0) {
+    const timestamps = ohlcData.value.map(d => d.timestamp)
+    const closePrices = ohlcData.value.map(d => d.close || d.price || 0)
 
-    datasets.push({
-      label: 'EMA 20',
-      type: 'line',
-      data: indicators.ema20.value.map((value, index) => ({
-        x: indicators.prices.value.timestamps[index + emaOffset20] || Date.now(),
-        y: value
-      })),
-      borderColor: '#F59E0B',
-      backgroundColor: '#F59E0B',
-      borderWidth: 2,
-      fill: false,
-      pointRadius: 0
-    })
+    if (closePrices.length >= 20) {
+      // Calculate EMA 20.
+      const ema20 = calculateSimpleEMA(closePrices, 20)
+      if (ema20.length > 0) {
+        datasets.push({
+          label: 'EMA 20',
+          type: 'line',
+          data: ema20
+            .map((value, index) => ({
+              x: timestamps[index] || Date.now(),
+              y: value
+            }))
+            .filter(point => point.y !== null), // Remove null values
+          borderColor: '#10B981', // Green
+          backgroundColor: '#10B981',
+          borderWidth: 0.5,
+          fill: false,
+          pointRadius: 0
+        })
+      }
+    }
+
+    if (closePrices.length >= 50) {
+      // Calculate EMA 50.
+      const ema50 = calculateSimpleEMA(closePrices, 50)
+      if (ema50.length > 0) {
+        datasets.push({
+          label: 'EMA 50',
+          type: 'line',
+          data: ema50
+            .map((value, index) => ({
+              x: timestamps[index] || Date.now(),
+              y: value
+            }))
+            .filter(point => point.y !== null), // Remove null values
+          borderColor: '#3B82F6', // Blue
+          backgroundColor: '#3B82F6',
+          borderWidth: 0.5,
+          fill: false,
+          pointRadius: 0
+        })
+      }
+    }
+
+    if (closePrices.length >= 200) {
+      // Calculate EMA 200.
+      const ema200 = calculateSimpleEMA(closePrices, 200)
+      if (ema200.length > 0) {
+        datasets.push({
+          label: 'EMA 200',
+          type: 'line',
+          data: ema200
+            .map((value, index) => ({
+              x: timestamps[index] || Date.now(),
+              y: value
+            }))
+            .filter(point => point.y !== null), // Remove null values.
+          borderColor: '#8B5CF6', // Purple
+          backgroundColor: '#8B5CF6',
+          borderWidth: 0.5,
+          fill: false,
+          pointRadius: 0
+        })
+      }
+    }
   }
 
-  if (showEMA.value &&
-      indicators.ema50.value && Array.isArray(indicators.ema50.value) && indicators.ema50.value.length &&
-      indicators.prices.value && indicators.prices.value.timestamps &&
-      Array.isArray(indicators.prices.value.timestamps) && indicators.prices.value.timestamps.length &&
-      indicators.prices.value.close && Array.isArray(indicators.prices.value.close)) {
-    const emaOffset50 = indicators.prices.value.close.length - indicators.ema50.value.length
-    datasets.push({
-      label: 'EMA 50',
-      type: 'line',
-      data: indicators.ema50.value.map((value, index) => ({
-        x: indicators.prices.value.timestamps[index + emaOffset50] || Date.now(),
-        y: value
-      })),
-      borderColor: '#8B5CF6',
-      backgroundColor: '#8B5CF6',
-      borderWidth: 2,
-      fill: false,
-      pointRadius: 0
-    })
-  }
+  // Add VWAP overlay if enabled.
+  if (showVWAP.value && vwapData.value.length > 0) {
+    const vwapChartData = vwapData.value.map(point => ({
+      x: point.timestamp,
+      y: point.value
+    }))
 
-  if (showEMA.value &&
-      indicators.ema200.value && Array.isArray(indicators.ema200.value) && indicators.ema200.value.length &&
-      indicators.prices.value && indicators.prices.value.timestamps &&
-      Array.isArray(indicators.prices.value.timestamps) && indicators.prices.value.timestamps.length &&
-      indicators.prices.value.close && Array.isArray(indicators.prices.value.close)) {
-    const emaOffset200 = indicators.prices.value.close.length - indicators.ema200.value.length
-    datasets.push({
-      label: 'EMA 200',
-      type: 'line',
-      data: indicators.ema200.value.map((value, index) => ({
-        x: indicators.prices.value.timestamps[index + emaOffset200] || Date.now(),
-        y: value
-      })),
-      borderColor: '#EF4444',
-      backgroundColor: '#EF4444',
-      borderWidth: 2,
-      fill: false,
-      pointRadius: 0
-    })
-  }
-
-  // Add VWAP overlay
-  if (showVWAP.value &&
-      indicators.vwap.value && Array.isArray(indicators.vwap.value) && indicators.vwap.value.length &&
-      indicators.prices.value && indicators.prices.value.timestamps &&
-      Array.isArray(indicators.prices.value.timestamps) && indicators.prices.value.timestamps.length) {
     datasets.push({
       label: 'VWAP',
       type: 'line',
-      data: indicators.vwap.value.map((value, index) => ({
-        x: indicators.prices.value.timestamps[index] || Date.now(),
-        y: value
-      })),
-      borderColor: '#10B981',
-      backgroundColor: '#10B981',
-      borderWidth: 2,
+      data: vwapChartData,
+      borderColor: '#F59E0B', // Orange color
+      backgroundColor: '#F59E0B',
+      borderWidth: 0.5,
       fill: false,
-      pointRadius: 0,
-      borderDash: [5, 5]
+      pointRadius: 0
     })
   }
 
-  return { datasets }
+  return {
+    labels: baseData.labels,
+    datasets
+  }
 })
 
-// Chart options for indicator panels
+// Simple RSI calculation function.
+function calculateSimpleRSI(prices, period = 14) {
+  if (!prices || prices.length < period) return []
+
+  const rsi = []
+  const avgGain = []
+  const avgLoss = []
+
+  // Initialize first average gain and loss.
+  let gainSum = 0
+  let lossSum = 0
+  for (let i = 1; i <= period; i++) {
+    const diff = prices[i] - prices[i - 1]
+    if (diff > 0) {
+      gainSum += diff
+      lossSum += 0
+    } else {
+      gainSum += 0
+      lossSum += Math.abs(diff)
+    }
+  }
+  avgGain[0] = gainSum / period
+  avgLoss[0] = lossSum / period
+
+  // Calculate subsequent RSIs.
+  for (let i = period + 1; i < prices.length; i++) {
+    const currentPrice = prices[i]
+    const prevPrice = prices[i - 1]
+
+    const diff = currentPrice - prevPrice
+    const currentGain = diff > 0 ? diff : 0
+    const currentLoss = diff < 0 ? Math.abs(diff) : 0
+
+    avgGain[i - period] = (avgGain[i - period - 1] * (period - 1) + currentGain) / period
+    avgLoss[i - period] = (avgLoss[i - period - 1] * (period - 1) + currentLoss) / period
+
+    if (avgLoss[i - period] === 0) {
+      rsi.push(100)
+    } else {
+      const rs = avgGain[i - period] / avgLoss[i - period]
+      rsi.push(100 - (100 / (1 + rs)))
+    }
+  }
+
+  return rsi
+}
+
+// Chart options for indicator panels.
 const volumeChartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
@@ -497,38 +702,59 @@ const rsiChartOptions = computed(() => ({
       position: 'right',
       min: 0,
       max: 100,
-      grid: { color: 'rgba(255, 255, 255, 0.05)' },
+      grid: {
+        color: 'rgba(255, 255, 255, 0.05)',
+        drawOnChartArea: true
+      },
       ticks: {
         color: '#C9D1D9',
-        stepSize: 25,
-        callback: (value) => value === 30 || value === 70 ? value : ''
+        stepSize: 10,
+        // Show all major levels for better readability.
+        callback: function(value, index, values) {
+          // Show every 10 units: 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100.
+          if (value % 10 === 0) {
+            return value.toString()
+          }
+          return ''
+        }
       }
     }
   },
-  // Add horizontal lines at 30 and 70
+  // Add background fill and reference lines like in the reference image.
   plugins: [{
+    beforeDraw: (chart) => {
+      const ctx = chart.ctx
+      const chartArea = chart.chartArea
+
+      // Draw light background fill between 30 and 70 (neutral zone).
+      const y30 = chart.scales.y.getPixelForValue(30)
+      const y70 = chart.scales.y.getPixelForValue(70)
+
+      ctx.save()
+      ctx.fillStyle = 'rgba(100, 116, 139, 0.1)' // Light gray background
+      ctx.fillRect(chartArea.left, y70, chartArea.right - chartArea.left, y30 - y70)
+      ctx.restore()
+    },
     afterDraw: (chart) => {
       const ctx = chart.ctx
       const chartArea = chart.chartArea
-      ctx.strokeStyle = '#6B7280'
-      ctx.setLineDash([5, 5])
+
+      ctx.save()
+      ctx.strokeStyle = 'rgba(107, 114, 128, 0.5)' // Gray color for reference lines
+      ctx.setLineDash([2, 3]) // Dashed lines
       ctx.lineWidth = 1
 
-      // 70 line
-      const y70 = chart.scales.y.getPixelForValue(70)
-      ctx.beginPath()
-      ctx.moveTo(chartArea.left, y70)
-      ctx.lineTo(chartArea.right, y70)
-      ctx.stroke()
+      // Draw horizontal reference lines at key levels.
+      const levels = [30, 50, 70]
+      levels.forEach(level => {
+        const y = chart.scales.y.getPixelForValue(level)
+        ctx.beginPath()
+        ctx.moveTo(chartArea.left, y)
+        ctx.lineTo(chartArea.right, y)
+        ctx.stroke()
+      })
 
-      // 30 line
-      const y30 = chart.scales.y.getPixelForValue(30)
-      ctx.beginPath()
-      ctx.moveTo(chartArea.left, y30)
-      ctx.lineTo(chartArea.right, y30)
-      ctx.stroke()
-
-      ctx.setLineDash([])
+      ctx.restore()
     }
   }]
 }))
@@ -539,7 +765,21 @@ const macdChartOptions = computed(() => ({
   animation: false,
   plugins: {
     legend: { display: false },
-    tooltip: { enabled: false }
+    tooltip: {
+      enabled: true,
+      mode: 'index',
+      intersect: false,
+      callbacks: {
+        title: function(context) {
+          return new Date(context[0].parsed.x).toLocaleTimeString()
+        },
+        label: function(context) {
+          const label = context.dataset.label
+          const value = context.parsed.y
+          return `${label}: ${value.toFixed(4)}`
+        }
+      }
+    }
   },
   scales: {
     x: {
@@ -548,13 +788,48 @@ const macdChartOptions = computed(() => ({
     },
     y: {
       position: 'right',
-      grid: { color: 'rgba(255, 255, 255, 0.05)' },
-      ticks: { color: '#C9D1D9', maxTicksLimit: 4 }
+      grid: {
+        color: 'rgba(255, 255, 255, 0.05)',
+        drawOnChartArea: true
+      },
+      ticks: {
+        color: '#C9D1D9',
+        maxTicksLimit: 5,
+        callback: function(value) {
+          return value.toFixed(4)
+        }
+      }
     }
-  }
-}))
+  },
+  // Enable mixed chart types (bars + lines).
+  interaction: {
+    intersect: false,
+    mode: 'index'
+  },
+  // Add zero line for MACD.
+  plugins: [{
+    afterDraw: (chart) => {
+      const ctx = chart.ctx
+      const chartArea = chart.chartArea
 
-// Methods used in template - emit events to parent
+      // Draw zero line.
+      const zeroY = chart.scales.y.getPixelForValue(0)
+      if (zeroY >= chartArea.top && zeroY <= chartArea.bottom) {
+        ctx.save()
+        ctx.strokeStyle = 'rgba(107, 114, 128, 0.7)'
+        ctx.setLineDash([1, 1])
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(chartArea.left, zeroY)
+        ctx.lineTo(chartArea.right, zeroY)
+        ctx.stroke()
+        ctx.restore()
+      }
+    }
+  }]
+})
+
+// Methods used in template - emit events to parent.
 function changeChartType(type) {
   emit('change-chart-type', type)
 }
@@ -568,15 +843,27 @@ function changeTimeframe(timeframe) {
 }
 
 function resetZoom() {
-  // Reset zoom for both chart types.
-  if (props.chartType === 'line' && lineChartRef.value?.chart) {
-    lineChartRef.value.chart.resetZoom()
-  } else if (props.chartType === 'candlestick' && candleChartRef.value?.chart) {
-    candleChartRef.value.chart().resetZoom()
+  // Reset zoom for both chart types with correct chart access.
+  try {
+    if (props.chartType === 'line' && lineChartRef.value?.chart) {
+      // Line chart from vue-chartjs exposes chart as a property.
+      lineChartRef.value.chart.resetZoom()
+      console.log('📊 Line chart zoom reset')
+    } else if (props.chartType === 'candlestick' && candleChartRef.value?.chart) {
+      // Candlestick chart exposes chart as a function that returns the instance.
+      candleChartRef.value.chart().resetZoom()
+      console.log('📊 Candlestick chart zoom reset')
+    }
+
+    // Emit event to parent to handle state reset and data refresh.
+    emit('reset-zoom-complete')
+  }
+  catch (error) {
+    console.error('❌ Error resetting chart zoom:', error)
   }
 }
 
-// Expose refs and methods for parent access if needed
+// Expose refs and methods for parent access if needed.
 defineExpose({
   chartContainer,
   lineChartRef,
@@ -645,7 +932,7 @@ defineExpose({
     width: 100%;
   }
 
-  // Enhanced chart styling - override some properties but keep height
+  // Enhanced chart styling - override some properties but keep height.
   .chart--line, .chart--candlestick {
     padding: 0;
     background: transparent;

@@ -84,6 +84,7 @@
             @change-chart-type="changeChartType"
             @change-period="changePeriod"
             @change-timeframe="changeTimeframe"
+            @reset-zoom-complete="handleResetZoomComplete"
             ref="priceChartRef")
 
     //- Right Column: Trading Interface & Stats
@@ -250,7 +251,8 @@
         :candlestick-chart-options="candlestickChartOptions"
         @change-chart-type="changeChartType"
         @change-period="changePeriod"
-        @change-timeframe="changeTimeframe")
+        @change-timeframe="changeTimeframe"
+        @reset-zoom-complete="handleResetZoomComplete")
 </template>
 
 <script setup>
@@ -306,7 +308,22 @@ const isLoadingAdditionalData = ref(false)
 const isPanning = ref(false)
 const userHasPanned = ref(false)
 const dataCache = ref(new Map())
+const activeRequests = ref(new Set()) // Track active requests to prevent duplicates.
+let panDebounceTimer = null
+let zoomDebounceTimer = null // Add zoom debouncing.
 
+// Price Update Throttling
+// --------------------------------------------------------
+let lastPriceUpdate = 0
+const PRICE_UPDATE_THROTTLE = 1000 // 1 second.
+
+// WebSocket Setup
+// --------------------------------------------------------
+const { wsConnected, lastUpdate, connect, addMessageHandler, subscribeToStock } = useWebSocket()
+
+// Stock Status
+// --------------------------------------------------------
+const { currentStatus, formatNextOpenTime } = useStockStatus(stock)
 
 // Chart Configuration
 // --------------------------------------------------------
@@ -409,9 +426,20 @@ function createZoomPanConfig() {
   return {
     limits: {
       x: {
-        minRange: 60000 * 5,
-        min: () => Date.now() - getReasonableTimeRange().min,
-        max: () => Date.now()
+        minRange: 60000 * 5, // Minimum 5-minute range.
+        min: () => {
+          // Calculate a fixed minimum based on the current time and period.
+          // This prevents the min from shifting each time we reset.
+          const now = Date.now()
+          const timeRange = getReasonableTimeRange()
+          return now - timeRange.min
+        },
+        max: () => {
+          // Calculate a fixed maximum based on current time.
+          // This prevents accumulating errors in the max calculation.
+          const now = Date.now()
+          return now + (5 * 60 * 1000) // Allow slight future panning.
+        }
       }
     },
     pan: {
@@ -421,10 +449,25 @@ function createZoomPanConfig() {
       modifierKey: null,
       onPanStart: ({ chart }) => {
         isPanning.value = true
-        console.log('📊 Pan START')
+        console.log('📊 Pan START - current view:', {
+          min: new Date(chart.scales.x.min).toISOString(),
+          max: new Date(chart.scales.x.max).toISOString()
+        })
       },
-      onPan: ({ chart }) => debouncedPanLoad(chart),
+      onPan: ({ chart }) => {
+        if (chart && chart.scales && chart.scales.x) {
+          console.log('📊 Panning - checking for additional data needed')
+          checkAndLoadAdditionalData(chart, 'pan')
+        }
+      },
       onPanComplete: ({ chart }) => {
+        console.log('📊 Pan COMPLETE')
+
+        if (!chart || !chart.scales || !chart.scales.x) {
+          isPanning.value = false
+          return
+        }
+
         const currentTime = Date.now()
         const viewMin = chart.scales.x.min
         const viewMax = chart.scales.x.max
@@ -432,6 +475,14 @@ function createZoomPanConfig() {
         const timeDiffFromCenter = Math.abs(currentTime - viewCenter)
         const timeDiffFromMax = currentTime - viewMax
         const isPannedAway = timeDiffFromCenter > 30 * 60 * 1000 || timeDiffFromMax > 10 * 60 * 1000
+
+        console.log('📊 Pan analysis:', {
+          currentTime: new Date(currentTime).toISOString(),
+          viewCenter: new Date(viewCenter).toISOString(),
+          isPannedAway,
+          timeDiffFromCenter: Math.round(timeDiffFromCenter / 60000) + 'm',
+          timeDiffFromMax: Math.round(timeDiffFromMax / 60000) + 'm'
+        })
 
         userHasPanned.value = isPannedAway
         handleChartViewChange(chart, 'pan')
@@ -442,7 +493,13 @@ function createZoomPanConfig() {
       wheel: { enabled: true, speed: 0.1 },
       pinch: { enabled: true },
       mode: 'x',
-      onZoomComplete: ({ chart }) => handleChartViewChange(chart, 'zoom')
+      onZoomStart: ({ chart }) => {
+        console.log('📊 Zoom START')
+      },
+      onZoomComplete: ({ chart }) => {
+        console.log('📊 Zoom COMPLETE')
+        handleChartViewChange(chart, 'zoom')
+      }
     }
   }
 }
@@ -450,63 +507,82 @@ function createZoomPanConfig() {
 const lineChartData = computed(() => {
   let dataToUse = []
 
-  if (historicalData.value.length > 0) {
-    dataToUse = [...historicalData.value]
+  try {
+    if (historicalData.value && Array.isArray(historicalData.value) && historicalData.value.length > 0) {
+      dataToUse = [...historicalData.value]
 
-    if (!userHasPanned.value && priceHistory.value.length > 0) {
-      const lastHistoricalTime = historicalData.value[historicalData.value.length - 1].timestamp
-      const newRealTimeData = priceHistory.value.filter(item => item.timestamp > lastHistoricalTime)
-      dataToUse = [...dataToUse, ...newRealTimeData]
+      if (!userHasPanned.value && priceHistory.value && Array.isArray(priceHistory.value) && priceHistory.value.length > 0) {
+        const lastHistoricalTime = historicalData.value[historicalData.value.length - 1].timestamp
+        const newRealTimeData = priceHistory.value.filter(item => item && item.timestamp > lastHistoricalTime)
+        dataToUse = [...dataToUse, ...newRealTimeData]
+      }
     }
-  } else if (!userHasPanned.value) {
-    dataToUse = priceHistory.value
-  }
+    else if (!userHasPanned.value && priceHistory.value && Array.isArray(priceHistory.value)) {
+      dataToUse = priceHistory.value
+    }
 
-  const chartData = {
-    datasets: [{
-      label: props.symbol,
-      data: dataToUse.map(item => ({ x: item.timestamp, y: item.price })),
-      borderColor: '#3B82F6',
-      backgroundColor: 'rgba(59, 130, 246, 0.1)',
-      borderWidth: 2,
-      pointRadius: 0,
-      pointHoverRadius: 5,
-      tension: 0.1,
-      fill: false
-    }]
-  }
+    const chartData = {
+      labels: [],
+      datasets: [{
+        label: props.symbol || 'Stock',
+        data: dataToUse.filter(Boolean).map(item => ({
+          x: item.timestamp || Date.now(),
+          y: item.price || 0
+        })),
+        borderColor: '#3B82F6',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        tension: 0.1,
+        fill: false
+      }]
+    }
 
-  return chartData
+    return chartData
+  }
+  catch (error) {
+    console.warn('Error in lineChartData:', error)
+    return { labels: [], datasets: [] }
+  }
 })
 
 const candlestickChartData = computed(() => {
   let dataToUse = []
 
-  if (historicalData.value.length > 0) {
-    dataToUse = [...historicalData.value]
+  try {
+    if (historicalData.value && Array.isArray(historicalData.value) && historicalData.value.length > 0) {
+      dataToUse = [...historicalData.value]
 
-    if (!userHasPanned.value && realtimeOHLC.value.length > 0) {
-      const lastHistoricalTime = historicalData.value[historicalData.value.length - 1].timestamp
-      const newRealTimeData = realtimeOHLC.value.filter(item => item.timestamp > lastHistoricalTime)
-      dataToUse = [...dataToUse, ...newRealTimeData]
+      if (!userHasPanned.value && realtimeOHLC.value && Array.isArray(realtimeOHLC.value) && realtimeOHLC.value.length > 0) {
+        const lastHistoricalTime = historicalData.value[historicalData.value.length - 1].timestamp
+        const newRealTimeData = realtimeOHLC.value.filter(item => item && item.timestamp > lastHistoricalTime)
+        dataToUse = [...dataToUse, ...newRealTimeData]
+      }
     }
-  } else if (!userHasPanned.value) {
-    dataToUse = realtimeOHLC.value
-  }
+    else if (!userHasPanned.value && realtimeOHLC.value && Array.isArray(realtimeOHLC.value)) {
+      dataToUse = realtimeOHLC.value
+    }
 
-  return {
-    datasets: [{
-      label: props.symbol,
-      data: dataToUse.map(item => ({
-        x: item.timestamp,
-        o: item.open,
-        h: item.high,
-        l: item.low,
-        c: item.close
-      })),
-      borderColor: '#10B981',
-      backgroundColor: '#10B981'
-    }]
+    return {
+      labels: [],
+      datasets: [{
+        label: props.symbol || 'Stock',
+        data: dataToUse.filter(Boolean).map(item => ({
+          x: item.timestamp || Date.now(),
+          o: item.open || 0,
+          h: item.high || 0,
+          l: item.low || 0,
+          c: item.close || 0
+        })),
+        borderColor: '#10B981',
+        backgroundColor: '#10B981'
+      }]
+    }
+  }
+  catch (error) {
+    console.warn('Error in candlestickChartData:', error)
+    return { labels: [], datasets: [] }
   }
 })
 
@@ -618,7 +694,12 @@ const candlestickChartOptions = computed(() => ({
 // Helper Functions
 // --------------------------------------------------------
 function getReasonableTimeRange() {
-  const basePeriods = { '1D': { min: 2 * 24 * 60 * 60 * 1000, max: 10 * 60 * 1000 }, '1W': { min: 14 * 24 * 60 * 60 * 1000, max: 60 * 60 * 1000 }, '1M': { min: 60 * 24 * 60 * 60 * 1000, max: 6 * 60 * 60 * 1000 }, '3M': { min: 180 * 24 * 60 * 60 * 1000, max: 24 * 60 * 60 * 1000 } }
+  const basePeriods = {
+    '1D': { min: 2 * 24 * 60 * 60 * 1000, max: 10 * 60 * 1000 }, // 2 days back, 10 min forward.
+    '1W': { min: 14 * 24 * 60 * 60 * 1000, max: 60 * 60 * 1000 }, // 2 weeks back, 1 hour forward.
+    '1M': { min: 60 * 24 * 60 * 60 * 1000, max: 6 * 60 * 60 * 1000 }, // 2 months back, 6 hours forward.
+    '3M': { min: 180 * 24 * 60 * 60 * 1000, max: 24 * 60 * 60 * 1000 } // 6 months back, 1 day forward.
+  }
   return basePeriods[selectedPeriod.value] || basePeriods['1D']
 }
 
@@ -627,7 +708,39 @@ function getAdditionalDataRange(period) {
 }
 
 function resetZoom() {
-  if (priceChartRef.value?.chart) priceChartRef.value.chart.resetZoom()
+  // Trigger reset zoom on the chart component.
+  if (priceChartRef.value?.resetZoom) {
+    priceChartRef.value.resetZoom()
+  }
+}
+
+function handleResetZoomComplete() {
+  console.log('📊 Handling reset zoom complete - resetting all states')
+
+  // Reset all panning and zoom states.
+  userHasPanned.value = false
+  isPanning.value = false
+
+  // Clear data cache to prevent wrong data.
+  dataCache.value.clear()
+
+  // Clear active requests to prevent stale requests.
+  activeRequests.value.clear()
+
+  // Clear any pending debounce timers.
+  if (panDebounceTimer) {
+    clearTimeout(panDebounceTimer)
+    panDebounceTimer = null
+  }
+  if (zoomDebounceTimer) {
+    clearTimeout(zoomDebounceTimer)
+    zoomDebounceTimer = null
+  }
+
+  // Refresh historical data to ensure we have the correct current view.
+  fetchHistoricalData()
+
+  console.log('📊 Reset zoom complete - ready for current time view')
 }
 
 function updateOHLCData(price, timestamp) {
@@ -641,15 +754,19 @@ function updateOHLCData(price, timestamp) {
     lastCandle.high = Math.max(lastCandle.high, price)
     lastCandle.low = Math.min(lastCandle.low, price)
     lastCandle.close = price
-  } else {
-    realtimeOHLC.value.push({ timestamp: bucketTime, open: price, high: price, low: price, close: price, volume: 0 })
   }
+  else realtimeOHLC.value.push({ timestamp: bucketTime, open: price, high: price, low: price, close: price, volume: 0 })
 }
 
 // Message Handlers
 // --------------------------------------------------------
 function handlePriceUpdate(data) {
   if (data.symbol !== props.symbol) return
+
+  // Throttle price updates to prevent blinking.
+  const now = Date.now()
+  if (now - lastPriceUpdate < PRICE_UPDATE_THROTTLE) return
+  lastPriceUpdate = now
 
   const oldPrice = stock.value.price
   stock.value.price = data.price
@@ -659,21 +776,26 @@ function handlePriceUpdate(data) {
   stock.value.nextOpen = data.nextOpen
   stock.value.nextClose = data.nextClose
 
-  const timestamp = Date.now()
-  priceHistory.value.push({ timestamp, price: data.price })
-  if (priceHistory.value.length > 100) priceHistory.value = priceHistory.value.slice(-100)
+  // Only update real-time data if user hasn't panned away.
+  if (!userHasPanned.value) {
+    const timestamp = Date.now()
+    priceHistory.value.push({ timestamp, price: data.price })
+    if (priceHistory.value.length > 100) priceHistory.value = priceHistory.value.slice(-100)
 
-  updateOHLCData(data.price, timestamp)
-  if (realtimeOHLC.value.length > 200) realtimeOHLC.value = realtimeOHLC.value.slice(-200)
+    updateOHLCData(data.price, timestamp)
+    if (realtimeOHLC.value.length > 200) realtimeOHLC.value = realtimeOHLC.value.slice(-200)
 
-  if (historicalData.value.length > 0 && priceHistory.value.length > 50) {
-    const totalPoints = historicalData.value.length + priceHistory.value.length
-    if (totalPoints > 500) {
-      const removePoints = Math.max(10, Math.floor(historicalData.value.length * 0.1))
-      const keepHistorical = Math.max(300, historicalData.value.length - removePoints)
-      historicalData.value = historicalData.value.slice(-keepHistorical)
+    // Only trim historical data if we have real-time data and user is viewing current data.
+    if (historicalData.value.length > 0 && priceHistory.value.length > 50) {
+      const totalPoints = historicalData.value.length + priceHistory.value.length
+      if (totalPoints > 500) {
+        const removePoints = Math.max(10, Math.floor(historicalData.value.length * 0.1))
+        const keepHistorical = Math.max(300, historicalData.value.length - removePoints)
+        historicalData.value = historicalData.value.slice(-keepHistorical)
+      }
     }
   }
+  else console.log('📊 User has panned away, not updating real-time data')
 }
 
 function handleMarketStatusUpdate(data) {
@@ -681,6 +803,435 @@ function handleMarketStatusUpdate(data) {
   stock.value.marketMessage = data.message
   stock.value.nextOpen = data.nextOpen
   stock.value.nextClose = data.nextClose
+}
+
+// Dynamic Loading Functions
+// --------------------------------------------------------
+async function checkAndLoadAdditionalData(chart, action = 'pan') {
+  if (!chart || !chart.scales || !chart.scales.x) {
+    console.log('📊 Skipping additional data check - invalid chart')
+    return
+  }
+
+  // Use debouncing for both pan and zoom to prevent rapid-fire requests
+  if (action === 'zoom') {
+    clearTimeout(zoomDebounceTimer)
+    zoomDebounceTimer = setTimeout(() => {
+      performDataCheck(chart, action)
+    }, 300) // 300ms debounce for zoom
+  }
+  else if (action === 'pan') {
+    clearTimeout(panDebounceTimer)
+    panDebounceTimer = setTimeout(() => {
+      performDataCheck(chart, action)
+    }, 200) // 200ms debounce for pan
+  }
+  // Immediate execution for other actions.
+  else performDataCheck(chart, action)
+}
+
+async function performDataCheck(chart, action) {
+  if (isLoadingAdditionalData.value) {
+    console.log('📊 Skipping data check - already loading')
+    return
+  }
+
+  const { x: xScale } = chart.scales
+  const viewMin = xScale.min
+  const viewMax = xScale.max
+  const currentRange = viewMax - viewMin
+
+  console.log(`📊 Checking for additional data needed (${action}):`, {
+    viewMin: new Date(viewMin).toISOString(),
+    viewMax: new Date(viewMax).toISOString(),
+    currentRange: Math.round(currentRange / 60000) + 'm',
+    existingDataPoints: historicalData.value.length
+  })
+
+  if (historicalData.value.length === 0) {
+    console.log('📊 No historical data available, cannot load additional data')
+    return
+  }
+
+  const dataStart = Math.min(...historicalData.value.map(d => d.timestamp))
+  const dataEnd = Math.max(...historicalData.value.map(d => d.timestamp))
+
+  // Different strategies for zoom vs pan.
+  let loadStart, loadEnd
+
+  if (action === 'zoom') {
+    // For zoom: load data for the ENTIRE visible range plus reasonable buffer.
+    const zoomBuffer = getZoomBufferTime(selectedPeriod.value, currentRange)
+    loadStart = viewMin - zoomBuffer
+    loadEnd = viewMax + zoomBuffer
+
+    console.log('📊 Zoom operation - loading full visible range:', {
+      dataStart: new Date(dataStart).toISOString(),
+      dataEnd: new Date(dataEnd).toISOString(),
+      loadStart: new Date(loadStart).toISOString(),
+      loadEnd: new Date(loadEnd).toISOString(),
+      needsEarlierData: loadStart < dataStart,
+      needsLaterData: loadEnd > dataEnd,
+      zoomBuffer: Math.round(zoomBuffer / 60000) + 'm'
+    })
+  }
+  else {
+    // For pan: use smaller buffer approach.
+    const bufferTime = getBufferTime(selectedPeriod.value)
+    loadStart = viewMin - bufferTime
+    loadEnd = viewMax + bufferTime
+
+    console.log('📊 Pan operation - loading buffer range:', {
+      dataStart: new Date(dataStart).toISOString(),
+      dataEnd: new Date(dataEnd).toISOString(),
+      loadStart: new Date(loadStart).toISOString(),
+      loadEnd: new Date(loadEnd).toISOString(),
+      needsEarlierData: loadStart < dataStart,
+      needsLaterData: loadEnd > dataEnd,
+      panBuffer: Math.round(bufferTime / 60000) + 'm'
+    })
+  }
+
+  // Load earlier data if needed.
+  if (loadStart < dataStart) {
+    console.log(`📊 Loading additional data: ${new Date(loadStart).toISOString()} to ${new Date(dataStart).toISOString()}`)
+    await loadAdditionalData(loadStart, dataStart)
+  }
+  else console.log('📊 No additional data needed')
+}
+
+async function loadAdditionalData(startTime, endTime) {
+  if (isLoadingAdditionalData.value) {
+    console.log('📊 Already loading additional data, skipping request')
+    return
+  }
+
+  try {
+    isLoadingAdditionalData.value = true
+
+    // Create a more granular cache key that prevents overlapping requests
+    const startKey = Math.floor(startTime / (60 * 1000)) // Round to minutes
+    const endKey = Math.floor(endTime / (60 * 1000))
+    const rangeMinutes = endKey - startKey
+    const cacheKey = `${props.symbol}-${selectedTimeframe.value}-${startKey}-${endKey}-${rangeMinutes}m`
+
+    // Create a broader request key to prevent overlapping requests
+    // Use larger buckets to catch overlapping ranges better
+    const requestStartBucket = Math.floor(startTime / (15 * 60 * 1000)) // 15-minute buckets
+    const requestEndBucket = Math.floor(endTime / (15 * 60 * 1000))
+    const requestKey = `${props.symbol}-${selectedTimeframe.value}-${requestStartBucket}-${requestEndBucket}`
+
+    console.log('📊 Loading data request:', {
+      symbol: props.symbol,
+      timeframe: selectedTimeframe.value,
+      startTime: new Date(startTime).toISOString(),
+      endTime: new Date(endTime).toISOString(),
+      rangeMinutes,
+      cacheKey,
+      requestKey,
+      activeRequests: Array.from(activeRequests.value)
+    })
+
+    // Check if we're already loading this range or an overlapping range
+    const overlappingRequest = Array.from(activeRequests.value).find(key => {
+      if (key.startsWith(`${props.symbol}-${selectedTimeframe.value}-`)) {
+        const [, , , startBucket, endBucket] = key.split('-').map(Number)
+        // Check for overlap
+        return (requestStartBucket <= endBucket && requestEndBucket >= startBucket)
+      }
+      return false
+    })
+
+    if (overlappingRequest) {
+      console.log('📊 Overlapping request detected, skipping:', overlappingRequest)
+      return
+    }
+
+    // Mark this request as active
+    activeRequests.value.add(requestKey)
+
+    // Check cache first
+    if (dataCache.value.has(cacheKey)) {
+      console.log('💾 Using cached data for range:', {
+        cacheKey,
+        cachedDataLength: dataCache.value.get(cacheKey).length
+      })
+      const cachedData = dataCache.value.get(cacheKey)
+      if (Array.isArray(cachedData) && cachedData.length > 0) {
+        await mergeAdditionalData(cachedData, startTime, endTime)
+      }
+      return
+    }
+
+    console.log('🌐 Fetching new data from API:', {
+      symbol: props.symbol,
+      timeframe: selectedTimeframe.value,
+      start: new Date(startTime).toISOString(),
+      end: new Date(endTime).toISOString(),
+      rangeMinutes
+    })
+
+    const response = await fetch(`http://localhost:3000/api/stocks/${props.symbol}/history/range?` +
+      new URLSearchParams({
+        timeframe: selectedTimeframe.value,
+        start: new Date(startTime).toISOString(),
+        end: new Date(endTime).toISOString()
+      }))
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+    const result = await response.json()
+    const additionalData = result.data || []
+
+    console.log(`📊 API returned ${additionalData.length} data points for range`)
+
+    // Cache the result with size limits
+    if (dataCache.value.size > 20) {
+      const firstKey = dataCache.value.keys().next().value
+      dataCache.value.delete(firstKey)
+      console.log('🗑️ Removed oldest cache entry:', firstKey)
+    }
+    dataCache.value.set(cacheKey, additionalData)
+
+    if (additionalData.length > 0) {
+      console.log(`📊 Merging ${additionalData.length} additional data points`)
+      await mergeAdditionalData(additionalData, startTime, endTime)
+    }
+    else console.log('📊 No additional data available for this range')
+  }
+  catch (error) {
+    console.error('❌ Error loading additional data:', error)
+  }
+  finally {
+    isLoadingAdditionalData.value = false
+
+    // Remove this request from active requests
+    const requestStartBucket = Math.floor(startTime / (15 * 60 * 1000))
+    const requestEndBucket = Math.floor(endTime / (15 * 60 * 1000))
+    const requestKey = `${props.symbol}-${selectedTimeframe.value}-${requestStartBucket}-${requestEndBucket}`
+    activeRequests.value.delete(requestKey)
+
+    console.log('📊 Request completed, removed from active:', requestKey)
+  }
+}
+
+async function mergeAdditionalData(newData, expectedStartTime = null, expectedEndTime = null) {
+  if (!Array.isArray(newData) || newData.length === 0) {
+    console.log('📊 No new data to merge')
+    return
+  }
+
+  if (!Array.isArray(historicalData.value)) {
+    console.log('📊 Initializing historical data with new data')
+    historicalData.value = [...newData]
+    return
+  }
+
+  console.log(`📊 Merging ${newData.length} new data points with ${historicalData.value.length} existing`)
+
+  // Validate that new data is within expected time range
+  if (expectedStartTime && expectedEndTime) {
+    const filteredNewData = newData.filter(item => {
+      return item.timestamp >= expectedStartTime && item.timestamp <= expectedEndTime
+    })
+
+    if (filteredNewData.length !== newData.length) {
+      console.log(`📊 Filtered new data from ${newData.length} to ${filteredNewData.length} points (time range validation)`)
+      newData = filteredNewData
+    }
+  }
+
+  // Use nextTick to ensure we're not in the middle of a reactive update
+  await nextTick()
+
+  // Create a comprehensive data map using timestamps as keys
+  const dataMap = new Map()
+
+  // Track existing data range for validation
+  const existingTimestamps = historicalData.value.map(item => item.timestamp).sort((a, b) => a - b)
+  const existingStart = existingTimestamps[0]
+  const existingEnd = existingTimestamps[existingTimestamps.length - 1]
+
+  console.log(`📊 Existing data range: ${new Date(existingStart).toISOString()} to ${new Date(existingEnd).toISOString()}`)
+
+  // First, add all existing data to the map
+  historicalData.value.forEach(item => {
+    if (item && item.timestamp) {
+      dataMap.set(item.timestamp, item)
+    }
+  })
+
+  // Then add/update with new data (new data takes precedence for same timestamps)
+  let addedCount = 0
+  let updatedCount = 0
+  let skippedCount = 0
+
+  newData.forEach(item => {
+    if (item &&
+        item.timestamp &&
+        typeof item.timestamp === 'number' &&
+        typeof item.price === 'number' &&
+        item.price > 0 &&
+        typeof item.open === 'number' &&
+        typeof item.high === 'number' &&
+        typeof item.low === 'number' &&
+        typeof item.close === 'number') {
+
+      // Check if this timestamp already exists
+      const existing = dataMap.has(item.timestamp)
+
+      // Additional validation: check if data makes sense
+      const isValidPrice = item.price > 0 && item.open > 0 && item.high > 0 && item.low > 0 && item.close > 0
+      const isValidOHLC = item.high >= Math.max(item.open, item.close) &&
+                         item.low <= Math.min(item.open, item.close)
+
+      if (!isValidPrice || !isValidOHLC) {
+        console.warn('📊 Skipping invalid OHLC data:', item)
+        skippedCount++
+        return
+      }
+
+      dataMap.set(item.timestamp, item)
+
+      if (existing) updatedCount++
+      else addedCount++
+    }
+    else {
+      console.warn('📊 Skipping invalid data item:', item)
+      skippedCount++
+    }
+  })
+
+  // Convert map back to sorted array
+  const newHistoricalData = Array.from(dataMap.values()).sort((a, b) => a.timestamp - b.timestamp)
+
+  // Validate the merged data for consistency
+  const finalTimestamps = newHistoricalData.map(item => item.timestamp)
+  const duplicateTimestamps = finalTimestamps.filter((timestamp, index) =>
+    finalTimestamps.indexOf(timestamp) !== index
+  )
+
+  if (duplicateTimestamps.length > 0) {
+    console.error('📊 Found duplicate timestamps after merge:', duplicateTimestamps)
+    // Remove duplicates by keeping the last occurrence
+    const deduplicatedMap = new Map()
+    newHistoricalData.forEach(item => {
+      deduplicatedMap.set(item.timestamp, item)
+    })
+    const deduplicatedData = Array.from(deduplicatedMap.values()).sort((a, b) => a.timestamp - b.timestamp)
+    console.log(`📊 Removed ${newHistoricalData.length - deduplicatedData.length} duplicate entries`)
+    historicalData.value = deduplicatedData
+  }
+  else historicalData.value = newHistoricalData
+
+  console.log(`📊 Merge complete: ${addedCount} new points added, ${updatedCount} points updated, ${skippedCount} skipped, total: ${historicalData.value.length}`)
+
+  // Log data range for debugging
+  if (historicalData.value.length > 0) {
+    const firstPoint = historicalData.value[0]
+    const lastPoint = historicalData.value[historicalData.value.length - 1]
+    const priceValues = historicalData.value.map(d => d.price)
+    const timestamps = historicalData.value.map(d => d.timestamp)
+
+    // Check for any timestamp gaps that might indicate data issues.
+    const timeGaps = []
+    for (let i = 1; i < timestamps.length; i++) {
+      const gap = timestamps[i] - timestamps[i - 1]
+      const expectedGap = getTimeframeMs(selectedTimeframe.value)
+      if (gap > expectedGap * 2) { // Allow for some flexibility.
+        timeGaps.push({
+          index: i,
+          gap: Math.round(gap / 60000), // Convert to minutes.
+          expected: Math.round(expectedGap / 60000)
+        })
+      }
+    }
+
+    if (timeGaps.length > 0) {
+      console.warn('📊 Found significant time gaps in data:', timeGaps.slice(0, 5)) // Show first 5 gaps.
+    }
+
+    console.log('📊 Final data range after merge:', {
+      first: new Date(firstPoint.timestamp).toISOString(),
+      last: new Date(lastPoint.timestamp).toISOString(),
+      totalPoints: historicalData.value.length,
+      priceRange: `$${Math.min(...priceValues).toFixed(2)} - $${Math.max(...priceValues).toFixed(2)}`,
+      timeSpan: Math.round((lastPoint.timestamp - firstPoint.timestamp) / (1000 * 60 * 60)) + 'h',
+      significantGaps: timeGaps.length
+    })
+  }
+}
+
+// Helper function to get timeframe in milliseconds.
+function getTimeframeMs(timeframe) {
+  const timeframeMs = {
+    '1Min': 60 * 1000,
+    '5Min': 5 * 60 * 1000,
+    '10Min': 10 * 60 * 1000,
+    '15Min': 15 * 60 * 1000,
+    '30Min': 30 * 60 * 1000,
+    '1Hour': 60 * 60 * 1000,
+    '4Hour': 4 * 60 * 60 * 1000,
+    '1Day': 24 * 60 * 60 * 1000
+  }
+  return timeframeMs[timeframe] || 5 * 60 * 1000
+}
+
+function getBufferTime(period) {
+  const bufferTimes = {
+    '1D': 2 * 60 * 60 * 1000, // 2 hours
+    '1W': 24 * 60 * 60 * 1000, // 1 day
+    '1M': 7 * 24 * 60 * 60 * 1000, // 1 week
+    '3M': 14 * 24 * 60 * 60 * 1000 // 2 weeks
+  }
+  return bufferTimes[period] || bufferTimes['1D']
+}
+
+function getZoomBufferTime(period, currentRange) {
+  // For zoom operations, use a buffer that scales with the current range.
+  // This ensures we load enough data when zooming out to very wide ranges.
+  const baseBuffer = Math.max(currentRange * 0.2, getBufferTime(period)) // 20% of visible range or min buffer.
+  const maxBuffer = {
+    '1D': 6 * 60 * 60 * 1000,      // 6 hours max
+    '1W': 3 * 24 * 60 * 60 * 1000, // 3 days max
+    '1M': 14 * 24 * 60 * 60 * 1000, // 2 weeks max
+    '3M': 30 * 24 * 60 * 60 * 1000  // 1 month max
+  }[period] || 24 * 60 * 60 * 1000 // 1 day default
+
+  const calculatedBuffer = Math.min(baseBuffer, maxBuffer)
+
+  console.log('📊 Zoom buffer calculation:', {
+    currentRangeHours: Math.round(currentRange / (1000 * 60 * 60) * 10) / 10,
+    baseBufferHours: Math.round(baseBuffer / (1000 * 60 * 60) * 10) / 10,
+    maxBufferHours: Math.round(maxBuffer / (1000 * 60 * 60) * 10) / 10,
+    finalBufferHours: Math.round(calculatedBuffer / (1000 * 60 * 60) * 10) / 10,
+    period
+  })
+
+  return calculatedBuffer
+}
+
+function startMarketStatusMonitoring() {
+  if (marketStatusInterval) return
+
+  marketStatusInterval = setInterval(async () => {
+    await refreshMarketStatus()
+  }, 2 * 60 * 1000) // Every 2 minutes.
+}
+
+function stopMarketStatusMonitoring() {
+  if (marketStatusInterval) {
+    clearInterval(marketStatusInterval)
+    marketStatusInterval = null
+  }
+}
+
+function handleChartViewChange(chart, action) {
+  console.log(`📊 Chart ${action} detected`)
+
+  if (action === 'pan' || action === 'zoom') {
+    checkAndLoadAdditionalData(chart, action)
+  }
 }
 
 function setupWebSocket() {
@@ -714,7 +1265,8 @@ async function fetchHistoricalData() {
     if (response?.data) {
       historicalData.value = response.data.sort((a, b) => a.timestamp - b.timestamp)
       console.log(`✅ Loaded ${historicalData.value.length} historical data points`)
-    } else {
+    }
+    else {
       console.warn(`⚠️ No historical data available for ${props.symbol}`)
       historicalData.value = []
     }
@@ -751,16 +1303,52 @@ function changeChartType(type) {
 }
 
 function changePeriod(period) {
+  console.log(`📊 Changing period to ${period}`)
+
   selectedPeriod.value = period
   selectedTimeframe.value = defaultTimeframes[period] || '5Min'
+
+  // Clear cache and reset states to prevent data corruption.
   dataCache.value.clear()
+  activeRequests.value.clear()
   userHasPanned.value = false
+  isPanning.value = false
+
+  // Clear any pending timers.
+  if (panDebounceTimer) {
+    clearTimeout(panDebounceTimer)
+    panDebounceTimer = null
+  }
+  if (zoomDebounceTimer) {
+    clearTimeout(zoomDebounceTimer)
+    zoomDebounceTimer = null
+  }
+
+  console.log(`📊 Period changed to ${period} with timeframe ${selectedTimeframe.value}`)
 }
 
 function changeTimeframe(timeframe) {
+  console.log(`📊 Changing timeframe to ${timeframe}`)
+
   selectedTimeframe.value = timeframe
+
+  // Clear cache and reset states to prevent data corruption.
   dataCache.value.clear()
+  activeRequests.value.clear()
   userHasPanned.value = false
+  isPanning.value = false
+
+  // Clear any pending timers.
+  if (panDebounceTimer) {
+    clearTimeout(panDebounceTimer)
+    panDebounceTimer = null
+  }
+  if (zoomDebounceTimer) {
+    clearTimeout(zoomDebounceTimer)
+    zoomDebounceTimer = null
+  }
+
+  console.log(`📊 Timeframe changed to ${timeframe}`)
 }
 
 async function refreshPrice() {
@@ -835,8 +1423,25 @@ async function placeOrder(side) {
   }
 }
 
+function setQuickQuantity(quantity) {
+  orderForm.value.quantity = quantity
+}
+
 function snapToCurrentTime() {
+  console.log('📊 Snapping to current time')
+
+  // Reset all states immediately.
   userHasPanned.value = false
+  isPanning.value = false
+  dataCache.value.clear()
+
+  // Clear any pending timers.
+  if (panDebounceTimer) {
+    clearTimeout(panDebounceTimer)
+    panDebounceTimer = null
+  }
+
+  // Reset chart zoom.
   resetZoom()
 }
 
@@ -852,6 +1457,19 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopMarketStatusMonitoring()
+
+  // Clear any pending timers.
+  if (panDebounceTimer) {
+    clearTimeout(panDebounceTimer)
+    panDebounceTimer = null
+  }
+  if (zoomDebounceTimer) {
+    clearTimeout(zoomDebounceTimer)
+    zoomDebounceTimer = null
+  }
+
+  // Clear active requests.
+  activeRequests.value.clear()
 })
 
 watch(() => props.symbol, async (newSymbol, oldSymbol) => {
