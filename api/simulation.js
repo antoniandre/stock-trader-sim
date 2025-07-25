@@ -191,64 +191,72 @@ export function generateMockHistoricalDataByRange(symbol, timeframe, startDate, 
 function generateOHLCData(basePrice, startTime, intervalMs, dataPoints, isForward = true, symbol = 'UNKNOWN') {
   const data = []
 
-  // Create a deterministic seed based on symbol and startTime for consistency
-  const seedHash = createDeterministicSeed(symbol, startTime, intervalMs)
-
-  // Create a realistic price progression that ends up at our target price.
-  const priceProgression = []
-
-  // Start from a slightly lower price and trend toward the current (base) price.
-  const startPrice = basePrice * (0.92 + deterministicRandom(seedHash + 1000) * 0.06) // Start 2-8% below current.
-
-  for (let i = 0; i < dataPoints; i++) {
-    // Calculate a gentle upward trend that leads to the current price.
-    const progress = i / (dataPoints - 1)
-    const trendComponent = (basePrice - startPrice) * progress
-    const volatilityComponent = Math.sin(i / 8) * (basePrice * 0.015) +
-      (deterministicRandom(seedHash + i) - 0.5) * (basePrice * 0.008)
-
-    priceProgression[i] = startPrice + trendComponent + volatilityComponent
-    priceProgression[i] = Math.max(priceProgression[i], basePrice * 0.85) // Floor at 85% of current.
-  }
-
-  // Ensure the last few prices converge to the current price.
-  const convergencePoints = Math.min(5, Math.floor(dataPoints * 0.1))
-  for (let i = dataPoints - convergencePoints; i < dataPoints; i++) {
-    const convergenceProgress = (i - (dataPoints - convergencePoints)) / convergencePoints
-    priceProgression[i] = priceProgression[i] * (1 - convergenceProgress) + basePrice * convergenceProgress
-  }
-
-  // Ensure the very last price is very close to current price.
-  priceProgression[dataPoints - 1] = basePrice * (0.995 + deterministicRandom(seedHash + 9999) * 0.01) // Within 0.5% of target.
-
+  // Generate OHLC data purely based on individual timestamps
+  // This ensures identical timestamps always produce identical data regardless of API call context
   for (let i = 0; i < dataPoints; i++) {
     const timestamp = isForward
       ? startTime + (i * intervalMs)
       : startTime + (i * intervalMs)
 
-    const openPrice = priceProgression[i]
-    const closePrice = i < dataPoints - 1 ? priceProgression[i + 1] : priceProgression[i]
-
-    // Generate realistic OHLC based on open and close using deterministic random.
-    const timestampSeed = createDeterministicSeed(symbol, timestamp, 0)
-    const randomHigh = deterministicRandom(timestampSeed + 100) * 0.012 + 0.003 // 0.3% to 1.5% above.
-    const randomLow = deterministicRandom(timestampSeed + 200) * 0.012 + 0.003 // 0.3% to 1.5% below.
-
-    const high = Math.max(openPrice, closePrice) * (1 + randomHigh)
-    const low = Math.min(openPrice, closePrice) * (1 - randomLow)
+    // Generate consistent OHLC data based purely on the timestamp and symbol
+    const ohlcData = generateTimestampBasedOHLC(symbol, timestamp, basePrice, intervalMs)
 
     data.push({
       timestamp,
-      open: Math.round(openPrice * 100) / 100,
-      high: Math.round(high * 100) / 100,
-      low: Math.round(low * 100) / 100,
-      close: Math.round(closePrice * 100) / 100,
-      volume: Math.floor(deterministicRandom(timestampSeed + 300) * 100000) + 10000,
-      price: Math.round(closePrice * 100) / 100
+      open: ohlcData.open,
+      high: ohlcData.high,
+      low: ohlcData.low,
+      close: ohlcData.close,
+      volume: ohlcData.volume,
+      price: ohlcData.close
     })
   }
 
   return data
+}
+
+// Generate consistent OHLC data for any timestamp, regardless of API call context
+function generateTimestampBasedOHLC(symbol, timestamp, basePrice, intervalMs) {
+  // Create seed purely from symbol and timestamp (not dependent on API call start time)
+  const timestampSeed = createDeterministicSeed(symbol, timestamp, 0)
+
+  // Generate a base price variation for this specific timestamp
+  // Use a longer time window to create smooth price trends
+  const timeWindow = 24 * 60 * 60 * 1000 // 24 hour window for trend calculation
+  const timeInWindow = timestamp % timeWindow
+  const trendProgress = timeInWindow / timeWindow
+
+  // Create smooth price variation using deterministic functions
+  const trendVariation = Math.sin(trendProgress * Math.PI * 4) * 0.05 // ±5% trend
+  const dailyCycle = Math.sin(trendProgress * Math.PI * 2) * 0.02 // ±2% daily cycle
+  const shortTermVariation = (deterministicRandom(timestampSeed + 1) - 0.5) * 0.01 // ±0.5% random
+
+  // Calculate the close price for this timestamp
+  const priceVariation = trendVariation + dailyCycle + shortTermVariation
+  const closePrice = basePrice * (1 + priceVariation)
+
+  // Generate open price (close of previous candle with slight variation)
+  const prevTimestampSeed = createDeterministicSeed(symbol, timestamp - intervalMs, 0)
+  const prevPriceVariation = trendVariation + dailyCycle + (deterministicRandom(prevTimestampSeed + 1) - 0.5) * 0.01
+  const openPrice = basePrice * (1 + prevPriceVariation)
+
+  // Generate high and low based on open and close
+  const randomHigh = deterministicRandom(timestampSeed + 100) * 0.012 + 0.003 // 0.3% to 1.5% above
+  const randomLow = deterministicRandom(timestampSeed + 200) * 0.012 + 0.003 // 0.3% to 1.5% below
+
+  const high = Math.max(openPrice, closePrice) * (1 + randomHigh)
+  const low = Math.min(openPrice, closePrice) * (1 - randomLow)
+
+  // Generate volume
+  const volume = Math.floor(deterministicRandom(timestampSeed + 300) * 100000) + 10000
+
+  return {
+    open: Math.round(openPrice * 100) / 100,
+    high: Math.round(high * 100) / 100,
+    low: Math.round(low * 100) / 100,
+    close: Math.round(closePrice * 100) / 100,
+    volume
+  }
 }
 
 // Helper functions for deterministic pseudo-random generation.
