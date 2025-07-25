@@ -4,7 +4,7 @@ import { getEasternTime } from './utils.js'
 // Mock Data
 // --------------------------------------------------------
 export const mockPrices = {
-  AAPL: 175.50,
+  AAPL: 213.90, // Updated to current price
   MSFT: 420.30,
   TSLA: 245.80,
   GOOGL: 192.55, // Updated to match real API price

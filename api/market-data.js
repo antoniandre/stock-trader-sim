@@ -344,7 +344,14 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
 
   try {
     const { alpacaTimeframe, limit, startDate } = getPeriodParameters(period, timeframe)
-    const endDate = getEasternTime()
+    let endDate = getEasternTime()
+
+    // For intraday data, adjust end time to respect free tier 15-minute delay
+    if (['1Min', '5Min', '10Min', '15Min', '30Min', '1Hour'].includes(alpacaTimeframe)) {
+      const fifteenMinutesAgo = new Date(endDate.getTime() - 15 * 60 * 1000)
+      endDate = fifteenMinutesAgo
+    }
+
     const params = new URLSearchParams({
       timeframe: alpacaTimeframe,
       limit: limit.toString(),
@@ -372,20 +379,22 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
       price: bar.c
     }))
 
-    // Check if data is outdated.
-    const latestDataTime = Math.max(...historicalData.map(d => d.timestamp))
-    const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000)
-
-    if (latestDataTime < twoDaysAgo) {
-      console.warn(`⚠️ Data outdated for ${symbol}, using mock`)
-      return generateMockHistoricalData(symbol, period, timeframe)
-    }
-
     console.log(`✅ Fetched ${historicalData.length} data points for ${symbol}`)
+    console.log(`📊 Data range: ${new Date(historicalData[0]?.timestamp).toLocaleString()} to ${new Date(historicalData[historicalData.length - 1]?.timestamp).toLocaleString()}`)
     return { symbol, period, timeframe: alpacaTimeframe, data: historicalData }
   }
   catch (error) {
-    console.error(`❌ Error fetching data for ${symbol}:`, error.message)
+    // Handle free tier limitations gracefully
+    if (error.response?.status === 403 && error.response?.data?.message?.includes('subscription does not permit')) {
+      console.log(`🔒 Free tier limitation for ${symbol} - trying with daily data instead`)
+
+      // Retry with daily timeframe for free tier compatibility
+      if (timeframe !== '1Day') {
+        return getStockHistoricalData(symbol, period, '1Day')
+      }
+    }
+
+    console.error(`❌ Error fetching data for ${symbol}:`, error.response?.data?.message || error.message)
     return generateMockHistoricalData(symbol, period, timeframe)
   }
 }
@@ -461,7 +470,7 @@ function calculateDataLimitForRange(timeframe, rangeDays) {
 
 function getPeriodParameters(period, timeframe = null) {
   const easternTime = getEasternTime()
-  const timeframeMap = { '1D': timeframe || '1Min', '1W': timeframe || '5Min', '1M': timeframe || '1Hour', '3M': timeframe || '1Day' }
+  const timeframeMap = { '1D': timeframe || '5Min', '1W': timeframe || '1Hour', '1M': timeframe || '1Day', '3M': timeframe || '1Day' }
   const selectedTimeframe = timeframe || timeframeMap[period]
   const limit = calculateDataLimit(period, selectedTimeframe)
   const startDate = calculateStartDate(period, easternTime)

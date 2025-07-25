@@ -573,7 +573,8 @@ const candlestickChartData = computed(() => {
           o: item.open || 0,
           h: item.high || 0,
           l: item.low || 0,
-          c: item.close || 0
+          c: item.close || 0,
+          volume: item.volume || 0
         })),
         borderColor: '#10B981',
         backgroundColor: '#10B981'
@@ -775,6 +776,11 @@ function handlePriceUpdate(data) {
   stock.value.marketMessage = data.marketMessage
   stock.value.nextOpen = data.nextOpen
   stock.value.nextClose = data.nextClose
+
+  console.log(`📊 Price update for ${data.symbol}: $${oldPrice.toFixed(2)} → $${data.price.toFixed(2)} (${((data.price - oldPrice) / oldPrice * 100).toFixed(2)}%)`, {
+    marketState: data.marketState,
+    timestamp: new Date().toLocaleString()
+  })
 
   // Only update real-time data if user hasn't panned away.
   if (!userHasPanned.value) {
@@ -1261,10 +1267,29 @@ async function fetchHistoricalData() {
     isLoadingHistoricalData.value = true
     dataCache.value.clear()
 
+    console.log(`📊 Fetching historical data for ${props.symbol}, period: ${selectedPeriod.value}, timeframe: ${selectedTimeframe.value}`)
     const response = await fetchStockHistory(props.symbol, selectedPeriod.value, selectedTimeframe.value)
     if (response?.data) {
       historicalData.value = response.data.sort((a, b) => a.timestamp - b.timestamp)
-      console.log(`✅ Loaded ${historicalData.value.length} historical data points`)
+
+      if (historicalData.value.length > 0) {
+        const firstPoint = historicalData.value[0]
+        const lastPoint = historicalData.value[historicalData.value.length - 1]
+        const prices = historicalData.value.map(d => d.close || d.price || 0)
+        const minPrice = Math.min(...prices)
+        const maxPrice = Math.max(...prices)
+
+        console.log(`✅ Loaded ${historicalData.value.length} historical data points:`, {
+          symbol: props.symbol,
+          period: selectedPeriod.value,
+          timeframe: selectedTimeframe.value,
+          timeRange: `${new Date(firstPoint.timestamp).toLocaleString()} to ${new Date(lastPoint.timestamp).toLocaleString()}`,
+          priceRange: `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`,
+          latestPrice: `$${(lastPoint.close || lastPoint.price || 0).toFixed(2)}`,
+          samplePoint: firstPoint
+        })
+      }
+      else console.log(`✅ Loaded ${historicalData.value.length} historical data points (empty)`)
     }
     else {
       console.warn(`⚠️ No historical data available for ${props.symbol}`)

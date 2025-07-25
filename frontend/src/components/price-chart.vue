@@ -217,7 +217,7 @@ const ohlcData = computed(() => {
         return []
       }
 
-      return props.lineChartData.datasets[0].data.map(point => {
+      const lineData = props.lineChartData.datasets[0].data.map(point => {
         if (!point || typeof point !== 'object') return null
 
         const timestamp = point.x || Date.now()
@@ -230,9 +230,12 @@ const ohlcData = computed(() => {
           high: price,
           low: price,
           close: price,
-          volume: 1000000 // Default volume for line charts.
+          volume: 0 // No volume data for line charts
         }
       }).filter(Boolean) // Remove any null entries.
+
+      console.log(`📊 Line OHLC Data: ${lineData.length} points, price range: $${Math.min(...lineData.map(d => d.price)).toFixed(2)} - $${Math.max(...lineData.map(d => d.price)).toFixed(2)}`)
+      return lineData
     }
     else {
       // Use candlestick data
@@ -240,7 +243,7 @@ const ohlcData = computed(() => {
         return []
       }
 
-      return props.candlestickChartData.datasets[0].data.map(point => {
+      const candleData = props.candlestickChartData.datasets[0].data.map(point => {
         if (!point || typeof point !== 'object') return null
 
         return {
@@ -250,9 +253,27 @@ const ohlcData = computed(() => {
           low: point.l || 0,
           close: point.c || 0,
           price: point.c || 0,
-          volume: point.v || Math.random() * 10000000 // Mock volume data - replace with real volume
+          volume: point.volume || point.v || 0 // Default to 0 if no volume
         }
       }).filter(Boolean) // Remove any null entries
+
+      if (candleData.length > 0) {
+        const prices = candleData.map(d => d.close)
+        const volumes = candleData.map(d => d.volume)
+        const hasVolume = volumes.some(v => v > 0)
+        console.log(`📊 Candlestick OHLC Data: ${candleData.length} points, price range: $${Math.min(...prices).toFixed(2)} - $${Math.max(...prices).toFixed(2)}, has volume: ${hasVolume}`)
+
+        // Log sample data points for debugging
+        if (candleData.length >= 3) {
+          console.log('📊 Sample data points:', {
+            first: candleData[0],
+            middle: candleData[Math.floor(candleData.length / 2)],
+            last: candleData[candleData.length - 1]
+          })
+        }
+      }
+
+      return candleData
     }
   }
   catch (error) {
@@ -286,13 +307,43 @@ const volumeData = computed(() => {
 const vwapData = computed(() => {
   if (!ohlcData.value || ohlcData.value.length === 0) return []
 
+  // Check if we have real volume data (not all the same default value)
+  const volumes = ohlcData.value.map(point => point.volume || 0)
+  const hasRealVolume = volumes.some(v => v > 0) && new Set(volumes).size > 1
+
+  if (!hasRealVolume) {
+    // If no real volume data, return simple moving average of typical price
+    const windowSize = 20
+    const vwapValues = []
+
+    for (let i = 0; i < ohlcData.value.length; i++) {
+      const point = ohlcData.value[i]
+      const typicalPrice = (point.high + point.low + point.close) / 3
+
+      if (i < windowSize - 1) {
+        vwapValues.push({ timestamp: point.timestamp, value: typicalPrice })
+      } else {
+        // Calculate simple average of last 20 typical prices
+        let sum = 0
+        for (let j = i - windowSize + 1; j <= i; j++) {
+          const prevPoint = ohlcData.value[j]
+          sum += (prevPoint.high + prevPoint.low + prevPoint.close) / 3
+        }
+        vwapValues.push({ timestamp: point.timestamp, value: sum / windowSize })
+      }
+    }
+
+    return vwapValues
+  }
+
+  // Calculate real VWAP with actual volume data
   let cumulativeVolumePrice = 0
   let cumulativeVolume = 0
   const vwapValues = []
 
   for (const point of ohlcData.value) {
     const typicalPrice = (point.high + point.low + point.close) / 3
-    const volume = point.volume || 1000000 // Default volume
+    const volume = Math.max(point.volume || 0, 1) // Ensure minimum volume
 
     cumulativeVolumePrice += typicalPrice * volume
     cumulativeVolume += volume
@@ -372,11 +423,9 @@ const enhancedLineChartData = computed(() => {
   // Add EMA overlays if enabled and data is available.
   if (showEMA.value && ohlcData.value.length > 0) {
     const closePrices = ohlcData.value.map(d => d.close || d.price || 0).filter(p => p > 0)
-    console.log(`📊 EMA: Available data points: ${closePrices.length}`)
 
     if (closePrices.length >= 20) {
       const ema20 = calculateSimpleEMA(closePrices, 20)
-      console.log(`📊 EMA 20: Calculated ${ema20.filter(v => v !== null).length} valid points`)
       if (ema20.length > 0) {
         const ema20Data = ema20
           .map((value, index) => ({
@@ -400,7 +449,6 @@ const enhancedLineChartData = computed(() => {
 
     if (closePrices.length >= 50) {
       const ema50 = calculateSimpleEMA(closePrices, 50)
-      console.log(`📊 EMA 50: Calculated ${ema50.filter(v => v !== null).length} valid points`)
       if (ema50.length > 0) {
         const ema50Data = ema50
           .map((value, index) => ({
@@ -424,7 +472,6 @@ const enhancedLineChartData = computed(() => {
 
     if (closePrices.length >= 200) {
       const ema200 = calculateSimpleEMA(closePrices, 200)
-      console.log(`📊 EMA 200: Calculated ${ema200.filter(v => v !== null).length} valid points`)
       if (ema200.length > 0) {
         const ema200Data = ema200
           .map((value, index) => ({
