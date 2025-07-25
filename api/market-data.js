@@ -519,15 +519,9 @@ export function startPricePolling(subscribedStocks, broadcast) {
     try {
       const marketStatus = await getMarketStatus()
 
-      // Determine if we should poll based on market status and time elapsed.
-      const shouldPoll = getShouldPollForStatus(marketStatus.status)
+      // Determine polling interval based on market status.
       const pollIntervalMs = getPollIntervalForStatus(marketStatus.status) * 1000
       const timeSinceLastPoll = Date.now() - lastPollTime
-
-      if (!shouldPoll) {
-        console.log(`📊 Market ${marketStatus.status}, skipping polling`)
-        return
-      }
 
       // Check if enough time has passed for this market status.
       // Don't log every skip to avoid spam.
@@ -580,6 +574,7 @@ export function startPricePolling(subscribedStocks, broadcast) {
   console.log('✅ Price polling started')
 }
 
+// Helper function for polling strategy
 function getPollIntervalForStatus(marketStatus) {
   switch (marketStatus) {
     case 'open':
