@@ -827,7 +827,7 @@ const macdChartOptions = computed(() => ({
       }
     }
   }]
-})
+}))
 
 // Methods used in template - emit events to parent.
 function changeChartType(type) {
