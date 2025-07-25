@@ -10,7 +10,11 @@
       .w-flex.align-center.justify-space-between.gap2
         w-tag.w-flex.gap2.pr1.no-grow(round :bg-color="$waveui.theme === 'dark' ? 'info-dark4' : 'info-light5'")
           strong.size--lg {{ stock.symbol }}
-          icon(:icon="currentStatus.icon" :class="`market-${currentStatus.status}`" :title="currentStatus.message" style="width: 15px")
+          icon(
+            :icon="currentStatus.icon"
+            :class="`market-${currentStatus.status}`"
+            :title="currentStatus.message"
+            style="width: 15px")
         .w-flex.align-center.gap4
           .w-flex.align-center.gap2
             span.size--xs.text-upper(:class="`market-${currentStatus.status}`") {{ currentStatus.message }}
@@ -66,7 +70,6 @@
 
           //- Price Chart Component
           PriceChart(
-            :key="chartKey"
             :chart-type="chartType"
             :selected-period="selectedPeriod"
             :selected-timeframe="selectedTimeframe"
@@ -234,7 +237,6 @@
         bg-color="error"
         round)
       PriceChart(
-        :key="chartKey"
         :chart-type="chartType"
         :selected-period="selectedPeriod"
         :selected-timeframe="selectedTimeframe"
@@ -304,8 +306,7 @@ const isLoadingAdditionalData = ref(false)
 const isPanning = ref(false)
 const userHasPanned = ref(false)
 const dataCache = ref(new Map())
-const panDebounceTimeout = ref(null)
-const chartKey = ref(0)
+
 
 // Chart Configuration
 // --------------------------------------------------------
@@ -380,6 +381,27 @@ const chartDisplayFormats = computed(() => {
 
 const priceChange = computed(() => stock.value.price && stock.value.previousPrice ? stock.value.price - stock.value.previousPrice : null)
 const priceChangePercent = computed(() => priceChange.value && stock.value.previousPrice ? (priceChange.value / stock.value.previousPrice) * 100 : 0)
+
+// Trading Computed Properties
+// --------------------------------------------------------
+const orderValue = computed(() => {
+  if (!stock.value.price || !orderForm.value.quantity) return 0
+
+  let pricePerShare = stock.value.price
+  if (orderForm.value.type === 'limit' && orderForm.value.limitPrice > 0) {
+    pricePerShare = orderForm.value.limitPrice
+  }
+
+  return pricePerShare * orderForm.value.quantity
+})
+
+const isOrderValid = computed(() => {
+  if (!orderForm.value.quantity || orderForm.value.quantity <= 0) return false
+  if (!stock.value.price || stock.value.price <= 0) return false
+  if (orderForm.value.type === 'limit' && (!orderForm.value.limitPrice || orderForm.value.limitPrice <= 0)) return false
+
+  return true
+})
 
 // Chart Data Functions
 // --------------------------------------------------------

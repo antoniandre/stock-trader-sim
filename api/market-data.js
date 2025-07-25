@@ -224,7 +224,7 @@ export async function getPrice(symbol) {
       else if (data.bar?.c) price = data.bar.c
 
       if (price > 0) {
-        console.log(`💲 Got ${symbol} price: $${price.toFixed(3)} from ${url.split('/').pop()}`)
+        console.log(`💲 Got ${symbol} price: $${price.toFixed(3)} from ${endpoint.type}`)
         state.stockPrices[symbol] = price
         return price
       }

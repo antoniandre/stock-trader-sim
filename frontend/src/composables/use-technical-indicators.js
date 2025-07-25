@@ -12,22 +12,29 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
   // EMA Calculation
   // --------------------------------------------------------
   function calculateEMA(prices, period = INDICATOR_PERIODS.EMA) {
-    if (!prices || prices.length === 0) return []
+    if (!prices || prices.length === 0 || prices.length < period) {
+      console.log(`⚠️ EMA: Not enough data (need ${period}, got ${prices.length})`)
+      return []
+    }
 
     const ema = []
     const multiplier = 2 / (period + 1)
-    let sum = 0
 
-    for (let i = 0; i < Math.min(period, prices.length); i++) {
+    // Start with Simple Moving Average for the first value.
+    let sum = 0
+    for (let i = 0; i < period; i++) {
       sum += prices[i]
     }
+    ema[0] = sum / period
 
-    ema[period - 1] = sum / period
-
-    for (let i = period; i < prices.length; i++) {
-      ema[i] = (prices[i] - ema[i - 1]) * multiplier + ema[i - 1]
+    // Calculate EMA for the remaining values.
+    for (let i = 1; i < prices.length - period + 1; i++) {
+      const currentPrice = prices[i + period - 1]
+      const prevEMA = ema[i - 1]
+      ema[i] = (currentPrice * multiplier) + (prevEMA * (1 - multiplier))
     }
 
+    console.log(`✅ EMA calculated: input=${prices.length}, output=${ema.length}, period=${period}`)
     return ema
   }
 
@@ -64,159 +71,326 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
   // MACD Calculation
   // --------------------------------------------------------
   function calculateMACD(prices, fast = INDICATOR_PERIODS.MACD.fast, slow = INDICATOR_PERIODS.MACD.slow, signal = INDICATOR_PERIODS.MACD.signal) {
-    if (!prices || prices.length < slow) return { macd: [], signal: [], histogram: [] }
+    if (!prices || prices.length < slow + signal) {
+      console.log(`⚠️ MACD: Not enough data points (need ${slow + signal}, got ${prices.length})`)
+      return { macd: [], signal: [], histogram: [] }
+    }
 
+    // Calculate EMAs - these will be shorter arrays.
     const emaFast = calculateEMA(prices, fast)
     const emaSlow = calculateEMA(prices, slow)
 
+    if (emaFast.length === 0 || emaSlow.length === 0) {
+      console.log('⚠️ MACD: EMA calculation failed')
+      return { macd: [], signal: [], histogram: [] }
+    }
+
+    // Calculate MACD line (Fast EMA - Slow EMA).
+    // Use the shorter array length to avoid undefined values.
+    const minLength = Math.min(emaFast.length, emaSlow.length)
     const macdLine = []
-    for (let i = slow - 1; i < prices.length; i++) {
-      macdLine.push(emaFast[i] - emaSlow[i])
+
+    for (let i = 0; i < minLength; i++) {
+      const fastVal = emaFast[emaFast.length - minLength + i]
+      const slowVal = emaSlow[emaSlow.length - minLength + i]
+      macdLine.push(fastVal - slowVal)
     }
 
+    if (macdLine.length === 0) {
+      console.log('⚠️ MACD: MACD line calculation failed')
+      return { macd: [], signal: [], histogram: [] }
+    }
+
+    // Calculate Signal line (EMA of MACD line).
     const signalLine = calculateEMA(macdLine, signal)
-    const histogram = []
 
-    for (let i = 0; i < macdLine.length; i++) {
-      if (signalLine[i] !== undefined) {
-        histogram.push(macdLine[i] - signalLine[i])
-      }
+    // Calculate Histogram (MACD - Signal).
+    const histogram = []
+    const histogramLength = Math.min(macdLine.length, signalLine.length)
+
+    for (let i = 0; i < histogramLength; i++) {
+      const macdVal = macdLine[macdLine.length - histogramLength + i]
+      const signalVal = signalLine[signalLine.length - histogramLength + i]
+      histogram.push(macdVal - signalVal)
     }
 
-    return { macd: macdLine, signal: signalLine, histogram }
+    console.log('✅ MACD calculation result:', {
+      inputLength: prices.length,
+      macdPoints: macdLine.length,
+      signalPoints: signalLine.length,
+      histogramPoints: histogram.length,
+      macdSample: macdLine.slice(-3),
+      signalSample: signalLine.slice(-3),
+      histogramSample: histogram.slice(-3)
+    })
+
+    return {
+      macd: macdLine,
+      signal: signalLine,
+      histogram
+    }
   }
 
   // Data Processing
   // --------------------------------------------------------
   function updateIndicators() {
-    if (!ohlcData.value || !Array.isArray(ohlcData.value) || ohlcData.value.length === 0) {
+    try {
+      if (!ohlcData.value || !Array.isArray(ohlcData.value) || ohlcData.value.length === 0) {
+        emaValues.value = []
+        rsiValues.value = []
+        macdValues.value = { macd: [], signal: [], histogram: [] }
+        return
+      }
+
+      const closePrices = ohlcData.value
+        .map(d => d && typeof d === 'object' ? (d.close || d.price || 0) : 0)
+        .filter(price => typeof price === 'number' && price > 0)
+
+      if (closePrices.length === 0) {
+        emaValues.value = []
+        rsiValues.value = []
+        macdValues.value = { macd: [], signal: [], histogram: [] }
+        return
+      }
+
+      // Only calculate if we have enough data points.
+      if (closePrices.length >= INDICATOR_PERIODS.EMA) {
+        emaValues.value = calculateEMA(closePrices)
+      }
+      else emaValues.value = []
+
+      if (closePrices.length >= INDICATOR_PERIODS.RSI) {
+        rsiValues.value = calculateRSI(closePrices)
+      }
+      else rsiValues.value = []
+
+      if (closePrices.length >= INDICATOR_PERIODS.MACD.slow) {
+        macdValues.value = calculateMACD(closePrices)
+      }
+      else macdValues.value = { macd: [], signal: [], histogram: [] }
+    }
+    catch (error) {
+      console.warn('Error updating indicators:', error)
       emaValues.value = []
       rsiValues.value = []
       macdValues.value = { macd: [], signal: [], histogram: [] }
-      return
     }
-
-    const closePrices = ohlcData.value.map(d => d.close || d.price || 0).filter(price => price > 0)
-    if (closePrices.length === 0) return
-
-    emaValues.value = calculateEMA(closePrices)
-    rsiValues.value = calculateRSI(closePrices)
-    macdValues.value = calculateMACD(closePrices)
   }
 
   // Computed Chart Data
   // --------------------------------------------------------
   const emaChartData = computed(() => {
-    if (!ohlcData.value || !ohlcData.value.timestamps || !Array.isArray(ohlcData.value.timestamps)) return null
-    if (emaValues.value.length === 0) return null
+    try {
+      if (!ohlcData.value || !Array.isArray(ohlcData.value) || ohlcData.value.length === 0) {
+        return { labels: [], datasets: [] }
+      }
 
-    return {
-      datasets: [{
-        label: `EMA (${INDICATOR_PERIODS.EMA})`,
-        data: ohlcData.value.timestamps.map((timestamp, i) => ({
-          x: timestamp || Date.now(),
-          y: emaValues.value[i] || null
-        })).filter(point => point.y !== null),
-        borderColor: '#F59E0B',
-        backgroundColor: 'transparent',
-        borderWidth: 2,
-        pointRadius: 0,
-        tension: 0.1
-      }]
+      const timestamps = ohlcData.value.map(d => d && typeof d === 'object' ? d.timestamp : Date.now())
+
+      if (!emaValues.value.length) return { labels: [], datasets: [] }
+
+      return {
+        labels: timestamps,
+        datasets: [{
+          label: `EMA (${INDICATOR_PERIODS.EMA})`,
+          data: emaValues.value.map((value, index) => ({
+            x: timestamps[index] || Date.now(),
+            y: value
+          })),
+          borderColor: '#F59E0B',
+          backgroundColor: '#F59E0B',
+          fill: false
+        }]
+      }
+    }
+    catch (error) {
+      console.warn('Error creating EMA chart data:', error)
+      return { labels: [], datasets: [] }
     }
   })
 
   const rsiChartData = computed(() => {
-    if (!ohlcData.value || !ohlcData.value.timestamps || !Array.isArray(ohlcData.value.timestamps)) return null
-    if (rsiValues.value.length === 0) return null
+    try {
+      if (!rsiValues.value || !rsiValues.value.length) return { labels: [], datasets: [] }
 
-    const startIndex = INDICATOR_PERIODS.RSI
-    return {
-      datasets: [{
-        label: 'RSI',
-        data: ohlcData.value.timestamps.slice(startIndex).map((timestamp, i) => ({
-          x: timestamp || Date.now(),
-          y: rsiValues.value[i] || null
-        })).filter(point => point.y !== null),
-        borderColor: '#8B5CF6',
-        backgroundColor: 'rgba(139, 92, 246, 0.1)',
-        borderWidth: 2,
-        pointRadius: 0,
-        fill: false
-      }]
+      // Ensure we have corresponding OHLC data for timestamps.
+      if (!ohlcData.value || ohlcData.value.length < rsiValues.value.length) return { labels: [], datasets: [] }
+
+      // Get timestamps for the RSI data (skip the first 14 points as RSI needs history).
+      const rsiStartIndex = Math.max(0, ohlcData.value.length - rsiValues.value.length)
+      const timestamps = ohlcData.value.slice(rsiStartIndex).map(d => d.timestamp)
+
+      // Validate RSI values (should be between 0-100)
+      const validRsiValues = rsiValues.value.map((value, index) => {
+        const clampedValue = Math.max(0, Math.min(100, value || 50)) // Clamp to 0-100 range
+        return {
+          x: timestamps[index] || Date.now(),
+          y: clampedValue
+        }
+      })
+
+      return {
+        labels: timestamps,
+        datasets: [{
+          label: 'RSI',
+          data: validRsiValues,
+          borderColor: '#8B5CF6',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: false
+        }]
+      }
+    }
+    catch (error) {
+      console.warn('Error creating RSI chart data:', error)
+      return { labels: [], datasets: [] }
     }
   })
 
   const macdChartData = computed(() => {
-    if (!ohlcData.value || !ohlcData.value.timestamps || !Array.isArray(ohlcData.value.timestamps)) return null
-    if (!macdValues.value.macd || macdValues.value.macd.length === 0) return null
+    try {
+      if (!macdValues.value.macd || macdValues.value.macd.length === 0) {
+        console.log('⚠️ MACD: No MACD data available')
+        return { labels: [], datasets: [] }
+      }
 
-    const startIndex = INDICATOR_PERIODS.MACD.slow - 1
-    const timestamps = ohlcData.value.timestamps.slice(startIndex)
+      const timestamps = ohlcData.value.slice(-macdValues.value.macd.length).map(d => d.timestamp)
 
-    return {
-      datasets: [
-        {
-          label: 'MACD',
-          data: timestamps.map((timestamp, i) => ({
-            x: timestamp || Date.now(),
-            y: macdValues.value.macd[i] || null
-          })).filter(point => point.y !== null),
-          borderColor: '#3B82F6',
-          backgroundColor: 'transparent',
-          borderWidth: 2,
-          pointRadius: 0,
-          type: 'line'
-        },
-        {
-          label: 'Signal',
-          data: timestamps.map((timestamp, i) => ({
-            x: timestamp || Date.now(),
-            y: macdValues.value.signal[i] || null
-          })).filter(point => point.y !== null),
-          borderColor: '#EF4444',
-          backgroundColor: 'transparent',
-          borderWidth: 2,
-          pointRadius: 0,
-          type: 'line'
-        },
-        {
+      // Debug logging to ensure we have both lines
+      console.log('📊 MACD Chart Debug:', {
+        macdLength: macdValues.value.macd.length,
+        signalLength: macdValues.value.signal.length,
+        histogramLength: macdValues.value.histogram.length,
+        timestampsLength: timestamps.length,
+        sampleMacd: macdValues.value.macd.slice(-3),
+        sampleSignal: macdValues.value.signal.slice(-3),
+        sampleHistogram: macdValues.value.histogram.slice(-3)
+      })
+
+      const datasets = []
+
+      // Add histogram bars first (so they're behind the lines)
+      if (macdValues.value.histogram && macdValues.value.histogram.length > 0) {
+        datasets.push({
           label: 'Histogram',
-          data: timestamps.map((timestamp, i) => ({
-            x: timestamp || Date.now(),
-            y: macdValues.value.histogram[i] || null
-          })).filter(point => point.y !== null),
-          backgroundColor: 'rgba(34, 197, 94, 0.6)',
-          borderColor: '#22C55E',
-          borderWidth: 1,
-          type: 'bar'
-        }
-      ]
+          data: macdValues.value.histogram.map((value, index) => ({
+            x: timestamps[index] || Date.now(),
+            y: value || 0
+          })),
+          backgroundColor: macdValues.value.histogram.map(value =>
+            value >= 0 ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)'
+          ),
+          borderColor: 'transparent',
+          borderWidth: 0,
+          type: 'bar',
+          barThickness: 'flex',
+          maxBarThickness: 4,
+          categoryPercentage: 0.8,
+          barPercentage: 0.9,
+          order: 3
+        })
+      }
+
+      // Add MACD line (main line)
+      datasets.push({
+        label: 'MACD',
+        data: macdValues.value.macd.map((value, index) => ({
+          x: timestamps[index] || Date.now(),
+          y: value || 0
+        })),
+        borderColor: '#3B82F6', // Blue
+        backgroundColor: 'transparent',
+        borderWidth: 2, // Make slightly thicker for visibility
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        fill: false,
+        tension: 0,
+        type: 'line',
+        order: 1
+      })
+
+      // Add Signal line ONLY if we have signal data
+      if (macdValues.value.signal && macdValues.value.signal.length > 0) {
+        // Ensure timestamps alignment for signal line
+        const signalTimestamps = timestamps.slice(-macdValues.value.signal.length)
+
+        datasets.push({
+          label: 'Signal',
+          data: macdValues.value.signal.map((value, index) => ({
+            x: signalTimestamps[index] || Date.now(),
+            y: value || 0
+          })),
+          borderColor: '#F59E0B', // Orange
+          backgroundColor: 'transparent',
+          borderWidth: 2, // Make slightly thicker for visibility
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          fill: false,
+          tension: 0,
+          type: 'line',
+          order: 2
+        })
+      }
+      else console.warn('⚠️ MACD: No Signal line data available')
+
+      return {
+        labels: timestamps,
+        datasets
+      }
+    }
+    catch (error) {
+      console.error('❌ Error creating MACD chart data:', error)
+      return { labels: [], datasets: [] }
     }
   })
 
   const volumeChartData = computed(() => {
-    if (!ohlcData.value || !ohlcData.value.timestamps || !Array.isArray(ohlcData.value.timestamps)) return null
-    if (!volumeData.value || !Array.isArray(volumeData.value)) return null
+    try {
+      if (!volumeData.value || !Array.isArray(volumeData.value) || volumeData.value.length === 0) {
+        return { labels: [], datasets: [] }
+      }
 
-    return {
-      datasets: [{
-        label: 'Volume',
-        data: ohlcData.value.timestamps.map((timestamp, i) => ({
-          x: timestamp || Date.now(),
-          y: volumeData.value[i] || 0
-        })),
-        backgroundColor: ohlcData.value.close && Array.isArray(ohlcData.value.close)
-          ? volumeData.value.map((_, i) => {
-              if (i === 0) return 'rgba(34, 197, 94, 0.6)'
-              return ohlcData.value.close[i] > ohlcData.value.close[i - 1]
-                ? 'rgba(34, 197, 94, 0.6)'
-                : 'rgba(239, 68, 68, 0.6)'
-            })
-          : 'rgba(34, 197, 94, 0.6)',
-        borderColor: 'transparent',
-        borderWidth: 0
-      }]
+      const timestamps = volumeData.value.map(d => d && typeof d === 'object' ? d.timestamp : Date.now())
+      const volumes = volumeData.value.map(d => d && typeof d === 'object' ? (d.volume || 0) : 0)
+
+      // Determine colors based on price movement (green for up, red for down)
+      const colors = volumes.map((volume, index) => {
+        if (index === 0 || !ohlcData.value || ohlcData.value.length <= index) {
+          return '#6B7280' // Gray for first bar or missing price data
+        }
+
+        const currentClose = ohlcData.value[index]?.close || ohlcData.value[index]?.price || 0
+        const prevClose = ohlcData.value[index - 1]?.close || ohlcData.value[index - 1]?.price || 0
+
+        if (currentClose > prevClose) {
+          return '#10B981' // Green for up day
+        }
+        else if (currentClose < prevClose) {
+          return '#EF4444' // Red for down day
+        }
+        else {
+          return '#6B7280' // Gray for unchanged
+        }
+      })
+
+      return {
+        labels: timestamps,
+        datasets: [{
+          label: 'Volume',
+          data: volumes.map((value, index) => ({
+            x: timestamps[index] || Date.now(),
+            y: value
+          })),
+          backgroundColor: colors,
+          borderColor: colors,
+          type: 'bar'
+        }]
+      }
+    }
+    catch (error) {
+      console.warn('Error creating volume chart data:', error)
+      return { labels: [], datasets: [] }
     }
   })
 
@@ -266,3 +440,4 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
     updateIndicators
   }
 }
+

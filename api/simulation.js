@@ -7,7 +7,7 @@ export const mockPrices = {
   AAPL: 175.50,
   MSFT: 420.30,
   TSLA: 245.80,
-  GOOGL: 2800.00,
+  GOOGL: 192.55, // Updated to match real API price
   AMZN: 3500.00,
   META: 380.00,
   NVDA: 950.00,
@@ -134,6 +134,8 @@ export function initializeMockPrices() {
 // Mock Historical Data Generation
 // --------------------------------------------------------
 export function generateMockHistoricalData(symbol, periodOrTimeframe, timeframeOrStart = null, endDate = null) {
+  // Use fixed mock price for consistency - don't use real-time prices as they change
+  // This ensures the same historical data is generated for the same time ranges
   const basePrice = mockPrices[symbol] || 100
 
   // Determine if this is period-based or range-based call
@@ -162,7 +164,7 @@ export function generateMockHistoricalData(symbol, periodOrTimeframe, timeframeO
     intervalMs = timeframeMs[timeframe] || 60 * 60 * 1000
     dataPoints = Math.min(Math.ceil((endTime - startTime) / intervalMs), 1000)
 
-    data = generateOHLCData(basePrice, startTime, intervalMs, dataPoints, true)
+    data = generateOHLCData(basePrice, startTime, intervalMs, dataPoints, true, symbol)
     return data // For range-based, return just the data array
   }
   else {
@@ -176,7 +178,7 @@ export function generateMockHistoricalData(symbol, periodOrTimeframe, timeframeO
     intervalMs = interval
     startTime = now - (dataPoints - 1) * intervalMs
 
-    data = generateOHLCData(basePrice, startTime, intervalMs, dataPoints, false)
+    data = generateOHLCData(basePrice, startTime, intervalMs, dataPoints, false, symbol)
     return { symbol, period, timeframe: timeframe || 'auto', data }
   }
 }
@@ -186,42 +188,102 @@ export function generateMockHistoricalDataByRange(symbol, timeframe, startDate, 
   return generateMockHistoricalData(symbol, timeframe, startDate, endDate)
 }
 
-function generateOHLCData(basePrice, startTime, intervalMs, dataPoints, isForward = true) {
+function generateOHLCData(basePrice, startTime, intervalMs, dataPoints, isForward = true, symbol = 'UNKNOWN') {
   const data = []
-  let currentPrice = basePrice
+
+  // Create a deterministic seed based on symbol and startTime for consistency
+  const seedHash = createDeterministicSeed(symbol, startTime, intervalMs)
+
+  // Create a realistic price progression that ends up at our target price.
+  const priceProgression = []
+
+  // Start from a slightly lower price and trend toward the current (base) price.
+  const startPrice = basePrice * (0.92 + deterministicRandom(seedHash + 1000) * 0.06) // Start 2-8% below current.
+
+  for (let i = 0; i < dataPoints; i++) {
+    // Calculate a gentle upward trend that leads to the current price.
+    const progress = i / (dataPoints - 1)
+    const trendComponent = (basePrice - startPrice) * progress
+    const volatilityComponent = Math.sin(i / 8) * (basePrice * 0.015) +
+      (deterministicRandom(seedHash + i) - 0.5) * (basePrice * 0.008)
+
+    priceProgression[i] = startPrice + trendComponent + volatilityComponent
+    priceProgression[i] = Math.max(priceProgression[i], basePrice * 0.85) // Floor at 85% of current.
+  }
+
+  // Ensure the last few prices converge to the current price.
+  const convergencePoints = Math.min(5, Math.floor(dataPoints * 0.1))
+  for (let i = dataPoints - convergencePoints; i < dataPoints; i++) {
+    const convergenceProgress = (i - (dataPoints - convergencePoints)) / convergencePoints
+    priceProgression[i] = priceProgression[i] * (1 - convergenceProgress) + basePrice * convergenceProgress
+  }
+
+  // Ensure the very last price is very close to current price.
+  priceProgression[dataPoints - 1] = basePrice * (0.995 + deterministicRandom(seedHash + 9999) * 0.01) // Within 0.5% of target.
 
   for (let i = 0; i < dataPoints; i++) {
     const timestamp = isForward
-      ? startTime + (i * intervalMs)  // Forward: start + offset
-      : startTime + (i * intervalMs)  // Both should actually be the same since startTime is pre-calculated
+      ? startTime + (i * intervalMs)
+      : startTime + (i * intervalMs)
 
-    // Generate realistic OHLCV data
-    const volatility = 0.02
-    const trend = Math.sin(i / 20) * 0.005
-    const randomChange = (Math.random() - 0.5) * volatility
+    const openPrice = priceProgression[i]
+    const closePrice = i < dataPoints - 1 ? priceProgression[i + 1] : priceProgression[i]
 
-    const openPrice = currentPrice
-    const randomHigh = Math.random() * 0.02 + 0.005
-    const randomLow = Math.random() * 0.02 + 0.005
+    // Generate realistic OHLC based on open and close using deterministic random.
+    const timestampSeed = createDeterministicSeed(symbol, timestamp, 0)
+    const randomHigh = deterministicRandom(timestampSeed + 100) * 0.012 + 0.003 // 0.3% to 1.5% above.
+    const randomLow = deterministicRandom(timestampSeed + 200) * 0.012 + 0.003 // 0.3% to 1.5% below.
 
-    currentPrice = currentPrice * (1 + trend + randomChange)
-    currentPrice = Math.max(currentPrice, basePrice * 0.1)
-
-    const high = Math.max(openPrice, currentPrice) * (1 + randomHigh)
-    const low = Math.min(openPrice, currentPrice) * (1 - randomLow)
+    const high = Math.max(openPrice, closePrice) * (1 + randomHigh)
+    const low = Math.min(openPrice, closePrice) * (1 - randomLow)
 
     data.push({
       timestamp,
       open: Math.round(openPrice * 100) / 100,
       high: Math.round(high * 100) / 100,
       low: Math.round(low * 100) / 100,
-      close: Math.round(currentPrice * 100) / 100,
-      volume: Math.floor(Math.random() * 100000) + 10000,
-      price: Math.round(currentPrice * 100) / 100
+      close: Math.round(closePrice * 100) / 100,
+      volume: Math.floor(deterministicRandom(timestampSeed + 300) * 100000) + 10000,
+      price: Math.round(closePrice * 100) / 100
     })
   }
 
   return data
+}
+
+// Helper functions for deterministic pseudo-random generation.
+function deterministicRandom(seed) {
+  // Use a more robust Linear Congruential Generator.
+  // Park and Miller constants for better distribution.
+  const a = 16807 // 7^5
+  const m = 2147483647 // 2^31 - 1
+
+  // Ensure seed is within valid range.
+  const normalizedSeed = Math.abs(seed) % (m - 1) + 1
+
+  // Apply LCG formula.
+  const result = (a * normalizedSeed) % m
+  return result / m // Return value between 0 and 1.
+}
+
+// Helper functions for deterministic pseudo-random generation.
+function createDeterministicSeed(symbol, timestamp, extra = 0) {
+  let hash = 5381 + extra // DJB2 hash initialization.
+
+  // Hash the symbol
+  for (let i = 0; i < symbol.length; i++) {
+    hash = ((hash << 5) + hash) + symbol.charCodeAt(i)
+    hash = hash & 0x7FFFFFFF // Keep within 32-bit signed integer range.
+  }
+
+  // Add timestamp (rounded to larger intervals for consistency across requests).
+  // Round to 5-minute intervals to ensure same seeds for overlapping requests.
+  const roundedTimestamp = Math.floor(timestamp / (5 * 60 * 1000)) * (5 * 60 * 1000)
+  hash = ((hash << 5) + hash) + Math.floor(roundedTimestamp / 1000)
+  hash = hash & 0x7FFFFFFF
+
+  // Ensure positive result within safe range.
+  return Math.abs(hash) % 2147483646 + 1 // Ensure it's between 1 and m-1.
 }
 
 function getMockDataParams(period, timeframe = null) {
@@ -236,7 +298,7 @@ function getMockDataParams(period, timeframe = null) {
     '1Day': 24 * 60 * 60 * 1000
   }
 
-  // Default timeframes for each period if not specified
+  // Default timeframes for each period if not specified.
   const defaultTimeframes = {
     '1D': '1Min',
     '1W': '5Min',
@@ -247,7 +309,7 @@ function getMockDataParams(period, timeframe = null) {
   const selectedTimeframe = timeframe || defaultTimeframes[period] || '1Hour'
   const intervalMs = timeframeMs[selectedTimeframe] || 60 * 60 * 1000
 
-  // Calculate data points based on period and timeframe
+  // Calculate data points based on period and timeframe.
   const periodDays = {
     '1D': 1,
     '1W': 7,
@@ -257,7 +319,7 @@ function getMockDataParams(period, timeframe = null) {
 
   const days = periodDays[period] || 30
 
-  // For intraday timeframes, calculate based on trading hours (6.5 hours = 390 minutes per day)
+  // For intraday timeframes, calculate based on trading hours (6.5 hours = 390 minutes per day).
   if (intervalMs < 24 * 60 * 60 * 1000) {
     const tradingMinutesPerDay = 390
     const timeframeMinutes = intervalMs / (60 * 1000)
