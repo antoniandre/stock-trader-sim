@@ -207,21 +207,41 @@ export async function getPrice(symbol) {
     return state.stockPrices[symbol]
   }
 
+  // Try multiple endpoints in order of preference for different market conditions.
   const endpoints = [
-    `https://data.alpaca.markets/v2/stocks/${symbol}/quotes/latest`,
-    `https://data.alpaca.markets/v2/stocks/${symbol}/trades/latest`,
-    `https://data.alpaca.markets/v2/stocks/${symbol}/bars/latest?timeframe=1Day`
+    // Real-time quote (best for active trading hours).
+    {
+      url: `https://data.alpaca.markets/v2/stocks/${symbol}/quotes/latest`,
+      type: 'quote',
+      priority: 1
+    },
+    // Latest trade (good for extended hours).
+    {
+      url: `https://data.alpaca.markets/v2/stocks/${symbol}/trades/latest`,
+      type: 'trade',
+      priority: 2
+    },
+    // Daily bar (fallback when markets are closed).
+    {
+      url: `https://data.alpaca.markets/v2/stocks/${symbol}/bars/latest?timeframe=1Day`,
+      type: 'bar',
+      priority: 3
+    }
   ]
 
-  for (const url of endpoints) {
+  for (const endpoint of endpoints) {
     try {
-      const { data } = await axios.get(url, { headers: HEADERS })
+      console.log(`💰 Fetching ${symbol} price from ${endpoint.type} endpoint...`)
+      const { data } = await axios.get(endpoint.url, { headers: HEADERS })
       let price = 0
 
-      if (data.quote?.ap) price = data.quote.ap
-      else if (data.quote?.bp) price = data.quote.bp
-      else if (data.trade?.p) price = data.trade.p
-      else if (data.bar?.c) price = data.bar.c
+      // Extract price based on endpoint type.
+      // For quotes, prefer ask price, fallback to bid.
+      if (endpoint.type === 'quote') price = data.quote?.ap || data.quote?.bp || 0
+      // For trades, use the trade price.
+      else if (endpoint.type === 'trade') price = data.trade?.p || 0
+      // For bars, use the closing price.
+      else if (endpoint.type === 'bar') price = data.bar?.c || 0
 
       if (price > 0) {
         console.log(`💲 Got ${symbol} price: $${price.toFixed(3)} from ${endpoint.type}`)
@@ -229,12 +249,18 @@ export async function getPrice(symbol) {
         return price
       }
     }
-    catch (e) {
-      console.warn(`⚠️ Failed to fetch ${symbol} from ${url.split('/').pop()}: ${e.message}`)
+    catch (error) {
+      console.warn(`⚠️ Failed to fetch ${symbol} from ${endpoint.type}: ${error.message}`)
+
+      // Special handling for common API errors.
+      if (error.response?.status === 429) {
+        console.warn(`🚦 Rate limited on ${endpoint.type}, waiting before trying next endpoint...`)
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
     }
   }
 
-  console.warn(`⚠️ No price data available for ${symbol}`)
+  console.warn(`⚠️ No price data available for ${symbol} from any endpoint`)
   return 0
 }
 
@@ -480,19 +506,35 @@ export async function initializeMarketData() {
 
 // Price Polling Functions
 // --------------------------------------------------------
+let lastPollTime = 0
+
 export function startPricePolling(subscribedStocks, broadcast) {
   if (IS_SIMULATION || isPollingActive) return
 
   console.log('🔄 Starting price polling...')
   isPollingActive = true
+  lastPollTime = Date.now()
 
   pricePollingInterval = setInterval(async () => {
     try {
       const marketStatus = await getMarketStatus()
-      if (marketStatus.status !== 'open') {
-        console.log('📊 Market closed, skipping polling')
+
+      // Determine if we should poll based on market status and time elapsed.
+      const shouldPoll = getShouldPollForStatus(marketStatus.status)
+      const pollIntervalMs = getPollIntervalForStatus(marketStatus.status) * 1000
+      const timeSinceLastPoll = Date.now() - lastPollTime
+
+      if (!shouldPoll) {
+        console.log(`📊 Market ${marketStatus.status}, skipping polling`)
         return
       }
+
+      // Check if enough time has passed for this market status.
+      // Don't log every skip to avoid spam.
+      if (timeSinceLastPoll < pollIntervalMs) return
+
+      console.log(`📊 Market ${marketStatus.status}, polling for price updates...`)
+      lastPollTime = Date.now()
 
       const priceUpdates = []
       for (const symbol of subscribedStocks) {
@@ -525,17 +567,32 @@ export function startPricePolling(subscribedStocks, broadcast) {
         }
       }
 
-      if (priceUpdates.length > 0) {
-        console.log(`📡 Broadcasting ${priceUpdates.length} price updates`)
+      if (priceUpdates.length) {
+        console.log(`📡 Broadcasting ${priceUpdates.length} price updates (${marketStatus.status})`)
         for (const update of priceUpdates) broadcast(update)
       }
     }
     catch (error) {
       console.error('❌ Error in price polling:', error.message)
     }
-  }, 1000)
+  }, 1000) // Check every second, but actual polling frequency controlled by market status.
 
   console.log('✅ Price polling started')
+}
+
+function getPollIntervalForStatus(marketStatus) {
+  switch (marketStatus) {
+    case 'open':
+      return 1 // Poll every 1 second during market hours.
+    case 'premarket':
+    case 'afterhours':
+      return 5 // Poll every 5 seconds during extended hours.
+    case 'overnight':
+    case 'closed':
+      return 30 // Poll every 30 seconds when closed (to get latest available data).
+    default:
+      return 60 // Very slow fallback.
+  }
 }
 
 export function stopPricePolling() {
@@ -543,6 +600,8 @@ export function stopPricePolling() {
     clearInterval(pricePollingInterval)
     pricePollingInterval = null
     isPollingActive = false
+    lastPollTime = 0 // Reset for clean restart.
     console.log('🛑 Price polling stopped')
   }
 }
+
