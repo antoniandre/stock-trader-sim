@@ -236,7 +236,7 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
           data: validRsiValues,
           borderColor: '#8B5CF6',
           backgroundColor: 'transparent',
-          borderWidth: 2,
+          borderWidth: 1,
           pointRadius: 0,
           fill: false
         }]
@@ -301,7 +301,7 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
         })),
         borderColor: '#3B82F6', // Blue
         backgroundColor: 'transparent',
-        borderWidth: 2, // Make slightly thicker for visibility
+        borderWidth: 1,
         pointRadius: 0,
         pointHoverRadius: 0,
         fill: false,
@@ -323,7 +323,7 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
           })),
           borderColor: '#F59E0B', // Orange
           backgroundColor: 'transparent',
-          borderWidth: 2, // Make slightly thicker for visibility
+          borderWidth: 1,
           pointRadius: 0,
           pointHoverRadius: 0,
           fill: false,
