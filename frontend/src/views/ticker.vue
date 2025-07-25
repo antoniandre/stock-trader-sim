@@ -70,6 +70,7 @@
 
           //- Price Chart Component
           PriceChart(
+            :symbol="props.symbol"
             :chart-type="chartType"
             :selected-period="selectedPeriod"
             :selected-timeframe="selectedTimeframe"
@@ -238,6 +239,7 @@
         bg-color="error"
         round)
       PriceChart(
+        :symbol="props.symbol"
         :chart-type="chartType"
         :selected-period="selectedPeriod"
         :selected-timeframe="selectedTimeframe"

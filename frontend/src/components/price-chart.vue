@@ -70,89 +70,95 @@
       size="xs")
       | MACD
 
-  //- Main Chart Display
-  .chart.w-flex.column.align-center.justify-center(:class="`chart--${chartType}`")
-    //- Loading state
-    .w-flex.column.align-center.justify-center(v-if="isLoadingHistoricalData")
-      w-progress.mb4(circle)
-      span.text-info Loading chart data...
+  //- Main Chart Display - Replace the individual chart sections with synchronized panes
+  .synchronized-charts.w-flex.column(v-if="!isLoadingHistoricalData")
+    //- Main Price Chart Pane
+    .chart-pane.price-pane
+      .pane-header.w-flex.align-center.justify-between.pa1
+        .pane-title.size--sm.text-bold {{ symbol }} • {{ chartType === 'line' ? 'Line' : 'Candles' }}
+        .pane-values.size--xs.op7(v-if="currentPrice")
+          span OHLC: {{ formatPrice(currentPrice) }}
 
-    //- Main Price Chart
-    .tradingview-chart(v-else ref="chartContainer" style="position: relative;")
-      Line(
-        v-if="chartType === 'line'"
-        ref="lineChartRef"
-        :data="enhancedLineChartData"
-        :options="lineChartOptions")
-      CandlestickChart(
-        v-else
-        ref="candleChartRef"
-        :data="enhancedCandlestickChartData"
-        :options="candlestickChartOptions")
+      .chart-container(ref="chartContainer" style="position: relative;")
+        Line(
+          v-if="chartType === 'line'"
+          ref="lineChartRef"
+          :data="enhancedLineChartData"
+          :options="synchronizedLineChartOptions")
+        CandlestickChart(
+          v-else
+          ref="candleChartRef"
+          :data="enhancedCandlestickChartData"
+          :options="synchronizedCandlestickChartOptions")
 
-      //- Drawing Tools Overlay (positioned inside chart container)
-      DrawingTools(
-        v-if="!isLoadingHistoricalData"
-        :chart-container="chartContainer")
+        //- Drawing Tools Overlay
+        DrawingTools(
+          :chart-container="chartContainer")
+
+    //- Volume Pane (if enabled)
+    .chart-pane.volume-pane(v-show="showVolume")
+      .pane-header.w-flex.align-center.justify-between.pa1
+        .pane-title.size--sm.text-bold Volume
+        .pane-values.size--xs.op7
+          span SMA 20
+
+      .chart-container
+        Line(
+          ref="volumeChartRef"
+          :data="indicators.volumeChartData.value"
+          :options="synchronizedVolumeChartOptions")
+
+    //- RSI Pane (if enabled)
+    .chart-pane.rsi-pane(v-show="showRSI")
+      .pane-header.w-flex.align-center.justify-between.pa1
+        .pane-title.size--sm.text-bold RSI (14)
+        .pane-values.size--xs.op7
+          span.mr2 {{ currentRSI }}
+          span Overbought: 70 • Oversold: 30
+
+      .chart-container
+        Line(
+          ref="rsiChartRef"
+          :data="indicators.rsiChartData.value"
+          :options="synchronizedRsiChartOptions")
+
+    //- MACD Pane (if enabled)
+    .chart-pane.macd-pane(v-show="showMACD")
+      .pane-header.w-flex.align-center.justify-between.pa1
+        .pane-title.size--sm.text-bold MACD (12,26,9)
+        .pane-values.size--xs.op7
+          span.mr2 MACD: {{ currentMACD }}
+          span.mr2 Signal: {{ currentSignal }}
+          span Histogram: {{ currentHistogram }}
+
+      .chart-container
+        Line(
+          ref="macdChartRef"
+          :data="indicators.macdChartData.value"
+          :options="synchronizedMacdChartOptions")
 
     //- Chart Controls
-    .w-flex.align-center.gap2.size--xs.mt2(v-if="!isLoadingHistoricalData")
-      span.op6 Mouse wheel to zoom • Click &amp; drag to pan
-      //- Additional data loading indicator
-      .w-flex.align-center.gap1(v-if="isLoadingAdditionalData")
-        w-spinner(size="12" color="primary")
-        span.op7 Loading...
+    .chart-controls-bottom.w-flex.align-center.justify-between.pa2
+      .left-controls.w-flex.align-center.gap2.size--xs
+        span.op6 Mouse wheel to zoom • Click &amp; drag to pan
+        .loading-indicator.w-flex.align-center.gap1(v-if="isLoadingAdditionalData")
+          w-spinner(size="12" color="primary")
+          span.op7 Loading...
 
-      w-button.pa0.op8(
-        width="16"
-        height="16"
-        @click="resetZoom"
-        tooltip="Reset Zoom"
-        :tooltip-props="{ sm: true }"
-        round)
-        icon.w-icon(icon="mdi:refresh" style="width: 12px")
+      .right-controls.w-flex.gap1
+        w-button.pa0.op8(
+          width="24"
+          height="24"
+          @click="resetAllCharts"
+          tooltip="Reset Zoom"
+          :tooltip-props="{ sm: true }"
+          round)
+          icon.w-icon(icon="mdi:refresh" style="width: 16px")
 
-  //- Volume Panel
-  .volume-panel.w-card.mt4(v-show="showVolume")
-    .panel-header.w-flex.align-center.justify-between.gap2.pa2.contrast-o05--bg
-      .panel-title.size--sm.text-bold Volume
-      .panel-values.size--xs.op7
-        span.mr2 Volume SMA 20
-    .volume-chart(v-if="!isLoadingHistoricalData")
-      Line(
-        ref="volumeChartRef"
-        :data="indicators.volumeChartData.value"
-        :options="volumeChartOptions")
-    .loading-placeholder(v-else) Loading volume data...
-
-  //- RSI Panel
-  .rsi-panel.w-card.mt4(v-show="showRSI")
-    .panel-header.w-flex.align-center.justify-between.gap2.pa2.contrast-o05--bg
-      .panel-title.size--sm.text-bold RSI (14)
-      .panel-values.size--xs.op7
-        span.mr2 RSI: {{ currentRSI }}
-        span SMA: {{ currentRSISMA }}
-    .rsi-chart(v-if="!isLoadingHistoricalData")
-      Line(
-        ref="rsiChartRef"
-        :data="indicators.rsiChartData.value"
-        :options="rsiChartOptions")
-    .loading-placeholder(v-else) Loading RSI data...
-
-  //- MACD Panel
-  .macd-panel.w-card.mt4(v-show="showMACD")
-    .panel-header.w-flex.align-center.justify-between.gap2.pa2.contrast-o05--bg
-      .panel-title.size--sm.text-bold MACD (12,26,9)
-      .panel-values.size--xs.op7
-        span.mr2 MACD: {{ currentMACD }}
-        span.mr2 Signal: {{ currentSignal }}
-        span Histogram: {{ currentHistogram }}
-    .macd-chart(v-if="!isLoadingHistoricalData")
-      Line(
-        ref="macdChartRef"
-        :data="indicators.macdChartData.value"
-        :options="macdChartOptions")
-    .loading-placeholder(v-else) Loading MACD data...
+  //- Loading state (keep existing)
+  .chart-loading.w-flex.column.align-center.justify-center(v-else)
+    w-progress.mb4(circle)
+    span.text-info Loading chart data...
 </template>
 
 <script setup>
@@ -173,6 +179,7 @@ import { useTechnicalIndicators } from '@/composables/use-technical-indicators'
 Chart.register(zoomPlugin, BarController, BarElement)
 
 const props = defineProps({
+  symbol: { type: String, required: true },
   chartType: { type: String, required: true },
   selectedPeriod: { type: String, required: true },
   selectedTimeframe: { type: String, required: true },
@@ -208,337 +215,328 @@ const showVolume = ref(true)
 const showRSI = ref(true)
 const showMACD = ref(true)
 
+// Synchronization state
+const zoomRange = ref({ min: null, max: null })
+const isInternalZoom = ref(false)
+
+// Helper function to get all chart instances
+const getAllChartInstances = () => {
+  const charts = []
+
+  // Main price chart (line or candlestick)
+  if (lineChartRef.value?.chart) {
+    charts.push(lineChartRef.value.chart)
+  }
+  if (candleChartRef.value?.chart) {
+    charts.push(candleChartRef.value.chart)
+  }
+
+  // Volume chart
+  if (showVolume.value && volumeChartRef.value?.chart) {
+    charts.push(volumeChartRef.value.chart)
+  }
+
+  // RSI chart
+  if (showRSI.value && rsiChartRef.value?.chart) {
+    charts.push(rsiChartRef.value.chart)
+  }
+
+  // MACD chart
+  if (showMACD.value && macdChartRef.value?.chart) {
+    charts.push(macdChartRef.value.chart)
+  }
+
+  // Filter out charts that don't have proper scales
+  return charts.filter(chart => chart && chart.scales && chart.scales.x)
+}
+
+// Synchronize zoom across all charts
+const syncZoom = (sourceChart, zoomState) => {
+  if (isInternalZoom.value) return
+
+  isInternalZoom.value = true
+  zoomRange.value = { min: zoomState.min, max: zoomState.max }
+
+  getAllChartInstances().forEach(chart => {
+    if (chart && chart !== sourceChart && chart.scales && chart.scales.x && chart.scales.x.options) {
+      chart.scales.x.options.min = zoomState.min
+      chart.scales.x.options.max = zoomState.max
+      chart.update('none')
+    }
+  })
+
+  isInternalZoom.value = false
+}
+
+// Reset zoom on all charts
+const resetAllCharts = () => {
+  zoomRange.value = { min: null, max: null }
+  getAllChartInstances().forEach(chart => {
+    if (chart && chart.resetZoom) {
+      chart.resetZoom()
+    }
+  })
+  emit('reset-zoom-complete')
+}
+
+// Base chart options for synchronization
+const baseSynchronizedOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: { duration: 0 },
+  interaction: {
+    intersect: false,
+    mode: 'index'
+  },
+  scales: {
+    x: {
+      type: 'time',
+      time: {
+        displayFormats: { minute: 'HH:mm', hour: 'MMM dd HH:mm' }
+      },
+      grid: { color: 'rgba(255, 255, 255, 0.1)' },
+      ticks: { color: 'rgba(255, 255, 255, 0.7)' },
+      min: zoomRange.value.min,
+      max: zoomRange.value.max
+    }
+  },
+  plugins: {
+    legend: { display: false },
+    zoom: {
+      zoom: {
+        wheel: { enabled: true },
+        pinch: { enabled: true },
+        mode: 'x',
+        onZoomComplete: (context) => {
+          const chart = context.chart
+          if (chart && chart.scales && chart.scales.x) {
+            const { min, max } = chart.scales.x
+            syncZoom(chart, { min, max })
+          }
+        }
+      },
+      pan: {
+        enabled: true,
+        mode: 'x',
+        onPanComplete: (context) => {
+          const chart = context.chart
+          if (chart && chart.scales && chart.scales.x) {
+            const { min, max } = chart.scales.x
+            syncZoom(chart, { min, max })
+          }
+        }
+      }
+    }
+  }
+}))
+
+// Synchronized chart options for each pane
+const synchronizedLineChartOptions = computed(() => ({
+  ...baseSynchronizedOptions.value,
+  scales: {
+    ...baseSynchronizedOptions.value.scales,
+    x: {
+      ...baseSynchronizedOptions.value.scales.x,
+      display: false // Hide x-axis on main chart
+    },
+    y: {
+      position: 'right',
+      grid: { color: 'rgba(255, 255, 255, 0.1)' },
+      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+    }
+  }
+}))
+
+const synchronizedCandlestickChartOptions = computed(() => ({
+  ...baseSynchronizedOptions.value,
+  scales: {
+    ...baseSynchronizedOptions.value.scales,
+    x: {
+      ...baseSynchronizedOptions.value.scales.x,
+      display: false // Hide x-axis on main chart
+    },
+    y: {
+      position: 'right',
+      grid: { color: 'rgba(255, 255, 255, 0.1)' },
+      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+    }
+  }
+}))
+
+const synchronizedVolumeChartOptions = computed(() => ({
+  ...baseSynchronizedOptions.value,
+  scales: {
+    ...baseSynchronizedOptions.value.scales,
+    x: {
+      ...baseSynchronizedOptions.value.scales.x,
+      display: false // Hide x-axis on volume chart
+    },
+    y: {
+      position: 'right',
+      grid: { display: false },
+      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+    }
+  }
+}))
+
+const synchronizedRsiChartOptions = computed(() => ({
+  ...baseSynchronizedOptions.value,
+  scales: {
+    ...baseSynchronizedOptions.value.scales,
+    x: {
+      ...baseSynchronizedOptions.value.scales.x,
+      display: false // Hide x-axis on RSI chart
+    },
+    y: {
+      position: 'right',
+      min: 0,
+      max: 100,
+      grid: {
+        display: true,
+        color: 'rgba(255, 255, 255, 0.1)',
+        drawOnChartArea: false
+      },
+      ticks: {
+        color: 'rgba(255, 255, 255, 0.7)',
+        stepSize: 20,
+        callback: (value) => value
+      }
+    }
+  }
+}))
+
+const synchronizedMacdChartOptions = computed(() => ({
+  ...baseSynchronizedOptions.value,
+  scales: {
+    ...baseSynchronizedOptions.value.scales,
+    x: {
+      ...baseSynchronizedOptions.value.scales.x,
+      display: true // Show x-axis on bottom chart
+    },
+    y: {
+      position: 'right',
+      grid: { color: 'rgba(255, 255, 255, 0.1)' },
+      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+    }
+  }
+}))
+
 // OHLC data processing for technical indicators.
 const ohlcData = computed(() => {
-  try {
-    if (props.chartType === 'line') {
-      // Convert line data to OHLC format
-      if (!props.lineChartData?.datasets?.[0]?.data || !Array.isArray(props.lineChartData.datasets[0].data)) {
-        return []
-      }
+  let sourceData = []
 
-      const lineData = props.lineChartData.datasets[0].data.map(point => {
-        if (!point || typeof point !== 'object') return null
-
-        const timestamp = point.x || Date.now()
-        const price = point.y || 0
-
-        return {
-          timestamp,
-          price,
-          open: price,
-          high: price,
-          low: price,
-          close: price,
-          volume: 0 // No volume data for line charts
-        }
-      }).filter(Boolean) // Remove any null entries.
-
-      console.log(`📊 Line OHLC Data: ${lineData.length} points, price range: $${Math.min(...lineData.map(d => d.price)).toFixed(2)} - $${Math.max(...lineData.map(d => d.price)).toFixed(2)}`)
-      return lineData
-    }
-    else {
-      // Use candlestick data
-      if (!props.candlestickChartData?.datasets?.[0]?.data || !Array.isArray(props.candlestickChartData.datasets[0].data)) {
-        return []
-      }
-
-      const candleData = props.candlestickChartData.datasets[0].data.map(point => {
-        if (!point || typeof point !== 'object') return null
-
-        return {
-          timestamp: point.x || Date.now(),
-          open: point.o || 0,
-          high: point.h || 0,
-          low: point.l || 0,
-          close: point.c || 0,
-          price: point.c || 0,
-          volume: point.volume || point.v || 0 // Default to 0 if no volume
-        }
-      }).filter(Boolean) // Remove any null entries
-
-      if (candleData.length > 0) {
-        const prices = candleData.map(d => d.close)
-        const volumes = candleData.map(d => d.volume)
-        const hasVolume = volumes.some(v => v > 0)
-        console.log(`📊 Candlestick OHLC Data: ${candleData.length} points, price range: $${Math.min(...prices).toFixed(2)} - $${Math.max(...prices).toFixed(2)}, has volume: ${hasVolume}`)
-
-        // Log sample data points for debugging
-        if (candleData.length >= 3) {
-          console.log('📊 Sample data points:', {
-            first: candleData[0],
-            middle: candleData[Math.floor(candleData.length / 2)],
-            last: candleData[candleData.length - 1]
-          })
-        }
-      }
-
-      return candleData
-    }
+  if (props.chartType === 'line' && props.lineChartData?.datasets?.[0]?.data) {
+    // Convert line data to OHLC format for indicator calculations
+    sourceData = props.lineChartData.datasets[0].data.map(point => ({
+      timestamp: point.x,
+      open: point.y,
+      high: point.y,
+      low: point.y,
+      close: point.y,
+      volume: 1000000, // Default volume for line charts
+      price: point.y
+    }))
+  } else if (props.chartType === 'candlestick' && props.candlestickChartData?.datasets?.[0]?.data) {
+    // Use candlestick data directly
+    sourceData = props.candlestickChartData.datasets[0].data.map(item => ({
+      timestamp: item.x,
+      open: item.o,
+      high: item.h,
+      low: item.l,
+      close: item.c,
+      volume: item.volume || 0,
+      price: item.c
+    }))
   }
-  catch (error) {
-    console.warn('Error processing OHLC data:', error)
-    return []
+
+  // Debug logging for data integrity
+  if (sourceData.length > 0) {
+    const priceRange = {
+      min: Math.min(...sourceData.map(d => d.close)),
+      max: Math.max(...sourceData.map(d => d.close))
+    }
+    const hasVolume = sourceData.some(d => d.volume > 0)
+    console.log(`📊 OHLC Data: ${sourceData.length} points, price range: $${priceRange.min.toFixed(2)}-$${priceRange.max.toFixed(2)}, has volume: ${hasVolume}`)
   }
+
+  return sourceData
 })
 
-// Extract volume data for technical indicators.
+// Volume data for indicators
 const volumeData = computed(() => {
-  try {
-    if (!Array.isArray(ohlcData.value)) return []
-
-    return ohlcData.value.map(point => {
-      if (!point || typeof point !== 'object') return null
-
-      return {
-        timestamp: point.timestamp || Date.now(),
-        volume: point.volume || 0
-      }
-    }).filter(Boolean) // Remove any null entries
-  }
-  catch (error) {
-    console.warn('Error processing volume data:', error)
-    return []
-  }
+  return ohlcData.value.map(point => ({
+    timestamp: point.timestamp,
+    volume: point.volume || 0
+  }))
 })
 
-// VWAP Calculation
-// --------------------------------------------------------
-const vwapData = computed(() => {
-  if (!ohlcData.value || ohlcData.value.length === 0) return []
+// Technical indicators from composable
+const indicators = useTechnicalIndicators(ohlcData, volumeData)
 
-  // Check if we have real volume data (not all the same default value)
+// VWAP calculation
+const vwapData = computed(() => {
+  if (ohlcData.value.length === 0) return []
+
+  // Check if we have real volume data
   const volumes = ohlcData.value.map(point => point.volume || 0)
   const hasRealVolume = volumes.some(v => v > 0) && new Set(volumes).size > 1
 
   if (!hasRealVolume) {
-    // If no real volume data, return simple moving average of typical price
-    const windowSize = 20
-    const vwapValues = []
+    // Fallback to simple moving average of typical price
+    const typicalPrices = ohlcData.value.map(point => (point.high + point.low + point.close) / 3)
+    const period = 20
+    const smaData = []
 
-    for (let i = 0; i < ohlcData.value.length; i++) {
-      const point = ohlcData.value[i]
+    for (let i = period - 1; i < typicalPrices.length; i++) {
+      const sum = typicalPrices.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0)
+      smaData.push({
+        x: ohlcData.value[i].timestamp,
+        y: sum / period
+      })
+    }
+    return smaData
+  } else {
+    // Calculate real VWAP with actual volume data
+    let cumulativeTpv = 0 // Typical Price * Volume
+    let cumulativeVolume = 0
+    const vwap = []
+
+    for (const point of ohlcData.value) {
       const typicalPrice = (point.high + point.low + point.close) / 3
+      const volume = Math.max(point.volume || 0, 1) // Ensure volume is at least 1
 
-      if (i < windowSize - 1) {
-        vwapValues.push({ timestamp: point.timestamp, value: typicalPrice })
-      } else {
-        // Calculate simple average of last 20 typical prices
-        let sum = 0
-        for (let j = i - windowSize + 1; j <= i; j++) {
-          const prevPoint = ohlcData.value[j]
-          sum += (prevPoint.high + prevPoint.low + prevPoint.close) / 3
-        }
-        vwapValues.push({ timestamp: point.timestamp, value: sum / windowSize })
-      }
+      cumulativeTpv += typicalPrice * volume
+      cumulativeVolume += volume
+
+      vwap.push({
+        x: point.timestamp,
+        y: cumulativeTpv / cumulativeVolume
+      })
     }
-
-    return vwapValues
+    return vwap
   }
-
-  // Calculate real VWAP with actual volume data
-  let cumulativeVolumePrice = 0
-  let cumulativeVolume = 0
-  const vwapValues = []
-
-  for (const point of ohlcData.value) {
-    const typicalPrice = (point.high + point.low + point.close) / 3
-    const volume = Math.max(point.volume || 0, 1) // Ensure minimum volume
-
-    cumulativeVolumePrice += typicalPrice * volume
-    cumulativeVolume += volume
-
-    const vwap = cumulativeVolume > 0 ? cumulativeVolumePrice / cumulativeVolume : typicalPrice
-
-    vwapValues.push({ timestamp: point.timestamp, value: vwap })
-  }
-
-  return vwapValues
 })
 
-// Initialize technical indicators.
-const indicators = useTechnicalIndicators(ohlcData, volumeData)
-
-// Current indicator values for display.
-const currentRSI = computed(() => {
-  // Try to get from composable first
-  if (indicators.currentRSI?.value != null) {
-    return typeof indicators.currentRSI.value === 'number' ? indicators.currentRSI.value.toFixed(2) : indicators.currentRSI.value
-  }
-
-  // Fallback: calculate manually if needed
-  const closePrices = ohlcData.value.map(d => d.close || d.price || 0).filter(p => p > 0)
-  if (closePrices.length < 14) return '--'
-
-  const rsi = calculateSimpleRSI(closePrices, 14)
-  return rsi.length > 0 ? rsi[rsi.length - 1].toFixed(2) : '--'
-})
-
-const currentRSISMA = computed(() => {
-  return '--' // RSI SMA not implemented in indicators composable.
-})
-
-const currentMACD = computed(() => {
-  // Try to get from composable first.
-  if (indicators.currentMACD?.value != null) {
-    return typeof indicators.currentMACD.value === 'number' ? indicators.currentMACD.value.toFixed(4) : indicators.currentMACD.value
-  }
-  return '--'
-})
-
-const currentSignal = computed(() => {
-  // Try to get from composable first.
-  if (indicators.currentSignal?.value != null) {
-    return typeof indicators.currentSignal.value === 'number' ? indicators.currentSignal.value.toFixed(4) : indicators.currentSignal.value
-  }
-  return '--'
-})
-
-const currentHistogram = computed(() => {
-  // Try to get from composable first.
-  if (indicators.currentHistogram?.value != null) {
-    return typeof indicators.currentHistogram.value === 'number' ? indicators.currentHistogram.value.toFixed(4) : indicators.currentHistogram.value
-  }
-  return '--'
-})
-
-// Enhanced chart data with indicators.
-const enhancedLineChartData = computed(() => {
-  // Ensure we always return a valid chart data structure.
-  const defaultData = {
-    labels: [],
-    datasets: []
-  }
-
-  if (!props.lineChartData || !props.lineChartData.datasets || !Array.isArray(props.lineChartData.datasets)) {
-    return defaultData
-  }
-
-  const baseData = {
-    labels: props.lineChartData.labels || [],
-    datasets: [...props.lineChartData.datasets]
-  }
-  const datasets = [...baseData.datasets]
-
-  // Add EMA overlays if enabled and data is available.
-  if (showEMA.value && ohlcData.value.length > 0) {
-    const closePrices = ohlcData.value.map(d => d.close || d.price || 0).filter(p => p > 0)
-
-    if (closePrices.length >= 20) {
-      const ema20 = calculateSimpleEMA(closePrices, 20)
-      if (ema20.length > 0) {
-        const ema20Data = ema20
-          .map((value, index) => ({
-            x: ohlcData.value[index]?.timestamp || Date.now(),
-            y: value
-          }))
-          .filter(point => point.y !== null) // Remove null values
-
-        datasets.push({
-          label: 'EMA 20',
-          data: ema20Data,
-          borderColor: '#10B981', // Green
-          backgroundColor: 'transparent',
-          borderWidth: 0.5,
-          pointRadius: 0,
-          tension: 0.1,
-          fill: false
-        })
-      }
-    }
-
-    if (closePrices.length >= 50) {
-      const ema50 = calculateSimpleEMA(closePrices, 50)
-      if (ema50.length > 0) {
-        const ema50Data = ema50
-          .map((value, index) => ({
-            x: ohlcData.value[index]?.timestamp || Date.now(),
-            y: value
-          }))
-          .filter(point => point.y !== null) // Remove null values
-
-        datasets.push({
-          label: 'EMA 50',
-          data: ema50Data,
-          borderColor: '#3B82F6', // Blue
-          backgroundColor: 'transparent',
-          borderWidth: 0.5,
-          pointRadius: 0,
-          tension: 0.1,
-          fill: false
-        })
-      }
-    }
-
-    if (closePrices.length >= 200) {
-      const ema200 = calculateSimpleEMA(closePrices, 200)
-      if (ema200.length > 0) {
-        const ema200Data = ema200
-          .map((value, index) => ({
-            x: ohlcData.value[index]?.timestamp || Date.now(),
-            y: value
-          }))
-          .filter(point => point.y !== null) // Remove null values
-
-        datasets.push({
-          label: 'EMA 200',
-          data: ema200Data,
-          borderColor: '#8B5CF6', // Purple
-          backgroundColor: 'transparent',
-          borderWidth: 0.5,
-          pointRadius: 0,
-          tension: 0.1,
-          fill: false
-        })
-      }
-    }
-    else {
-      console.log(`📊 EMA 200: Skipped - need 200 data points, have ${closePrices.length}`)
-    }
-  }
-
-  // Add VWAP overlay if enabled
-  if (showVWAP.value && vwapData.value.length > 0) {
-    const vwapChartData = vwapData.value.map(point => ({
-      x: point.timestamp,
-      y: point.value
-    }))
-
-    datasets.push({
-      label: 'VWAP',
-      data: vwapChartData,
-      borderColor: '#F59E0B', // Orange color
-      backgroundColor: 'transparent',
-      borderWidth: 0.5,
-      pointRadius: 0,
-      tension: 0.1,
-      fill: false
-    })
-  }
-
-  return { ...baseData, datasets }
-})
-
-// EMA calculation function - improved for continuity.
+// EMA calculation function
 function calculateSimpleEMA(prices, period) {
   if (!prices || !Array.isArray(prices) || prices.length < period) return []
 
   const ema = []
   const multiplier = 2 / (period + 1)
 
-  // Start with simple moving average for first value at index (period - 1).
+  // Start with simple moving average for first value
   let sum = 0
   for (let i = 0; i < period; i++) {
     sum += prices[i]
   }
 
-  // Fill the EMA array with null values for the initial period, then add the first EMA value.
+  // Fill the EMA array with null values for the initial period
   for (let i = 0; i < period - 1; i++) {
     ema[i] = null
   }
-  ema[period - 1] = sum / period
+  ema[period - 1] = sum / period // First valid EMA value
 
-  // Calculate EMA for remaining values using the standard formula.
+  // Calculate EMA for remaining values
   for (let i = period; i < prices.length; i++) {
     const currentPrice = prices[i]
     const prevEMA = ema[i - 1]
@@ -548,118 +546,210 @@ function calculateSimpleEMA(prices, period) {
   return ema
 }
 
-const enhancedCandlestickChartData = computed(() => {
-  // Ensure we always return a valid chart data structure.
-  const defaultData = {
-    labels: [],
-    datasets: []
-  }
+// Helper functions
+const formatPrice = (price) => {
+  if (!price) return '0.00'
+  return typeof price === 'number' ? price.toFixed(2) : price
+}
 
-  if (!props.candlestickChartData || !props.candlestickChartData.datasets || !Array.isArray(props.candlestickChartData.datasets)) {
-    return defaultData
-  }
+// Current values for display
+const currentPrice = computed(() => {
+  const data = props.chartType === 'line' ? props.lineChartData : props.candlestickChartData
+  const lastPoint = data?.datasets?.[0]?.data?.slice(-1)[0]
+  return lastPoint?.y || lastPoint?.c || 0
+})
 
-  const baseData = {
-    labels: props.candlestickChartData.labels || [],
-    datasets: [...props.candlestickChartData.datasets]
-  }
-  const datasets = [...baseData.datasets]
+const currentRSI = computed(() => {
+  const rsiData = indicators.rsiChartData.value?.datasets?.[0]?.data
+  const lastRSI = rsiData?.slice(-1)[0]?.y
+  return lastRSI ? lastRSI.toFixed(1) : '--'
+})
 
-  // Add EMA overlays if enabled and data is available.
+const currentMACD = computed(() => {
+  const macdData = indicators.macdChartData.value?.datasets?.[0]?.data
+  const lastMACD = macdData?.slice(-1)[0]?.y
+  return lastMACD ? lastMACD.toFixed(4) : '--'
+})
+
+const currentSignal = computed(() => {
+  const signalData = indicators.macdChartData.value?.datasets?.[1]?.data
+  const lastSignal = signalData?.slice(-1)[0]?.y
+  return lastSignal ? lastSignal.toFixed(4) : '--'
+})
+
+const currentHistogram = computed(() => {
+  const histogramData = indicators.macdChartData.value?.datasets?.[2]?.data
+  const lastHistogram = histogramData?.slice(-1)[0]?.y
+  return lastHistogram ? lastHistogram.toFixed(4) : '--'
+})
+
+// Enhanced chart data with technical indicators
+const enhancedLineChartData = computed(() => {
+  if (!props.lineChartData?.datasets?.[0]?.data) return props.lineChartData
+
+  const baseDataset = props.lineChartData.datasets[0]
+  const datasets = [baseDataset]
+
+  // Add EMA lines if enabled
   if (showEMA.value && ohlcData.value.length > 0) {
-    const timestamps = ohlcData.value.map(d => d.timestamp)
     const closePrices = ohlcData.value.map(d => d.close || d.price || 0)
 
+    // EMA 20 (Green)
     if (closePrices.length >= 20) {
-      // Calculate EMA 20.
       const ema20 = calculateSimpleEMA(closePrices, 20)
-      if (ema20.length > 0) {
-        datasets.push({
-          label: 'EMA 20',
-          type: 'line',
-          data: ema20
-            .map((value, index) => ({
-              x: timestamps[index] || Date.now(),
-              y: value
-            }))
-            .filter(point => point.y !== null), // Remove null values
-          borderColor: '#10B981', // Green
-          backgroundColor: '#10B981',
-          borderWidth: 0.5,
-          fill: false,
-          pointRadius: 0
-        })
-      }
+      const ema20Data = ema20.map((value, index) => ({
+        x: ohlcData.value[index]?.timestamp,
+        y: value
+      })).filter(point => point.y !== null)
+
+      datasets.push({
+        label: 'EMA 20',
+        data: ema20Data,
+        borderColor: '#00ff88',
+        backgroundColor: 'transparent',
+        borderWidth: 0.5,
+        pointRadius: 0,
+        fill: false
+      })
     }
 
+    // EMA 50 (Blue)
     if (closePrices.length >= 50) {
-      // Calculate EMA 50.
       const ema50 = calculateSimpleEMA(closePrices, 50)
-      if (ema50.length > 0) {
-        datasets.push({
-          label: 'EMA 50',
-          type: 'line',
-          data: ema50
-            .map((value, index) => ({
-              x: timestamps[index] || Date.now(),
-              y: value
-            }))
-            .filter(point => point.y !== null), // Remove null values
-          borderColor: '#3B82F6', // Blue
-          backgroundColor: '#3B82F6',
-          borderWidth: 0.5,
-          fill: false,
-          pointRadius: 0
-        })
-      }
+      const ema50Data = ema50.map((value, index) => ({
+        x: ohlcData.value[index]?.timestamp,
+        y: value
+      })).filter(point => point.y !== null)
+
+      datasets.push({
+        label: 'EMA 50',
+        data: ema50Data,
+        borderColor: '#0088ff',
+        backgroundColor: 'transparent',
+        borderWidth: 0.5,
+        pointRadius: 0,
+        fill: false
+      })
     }
 
+    // EMA 200 (Orange)
     if (closePrices.length >= 200) {
-      // Calculate EMA 200.
       const ema200 = calculateSimpleEMA(closePrices, 200)
-      if (ema200.length > 0) {
-        datasets.push({
-          label: 'EMA 200',
-          type: 'line',
-          data: ema200
-            .map((value, index) => ({
-              x: timestamps[index] || Date.now(),
-              y: value
-            }))
-            .filter(point => point.y !== null), // Remove null values.
-          borderColor: '#8B5CF6', // Purple
-          backgroundColor: '#8B5CF6',
-          borderWidth: 0.5,
-          fill: false,
-          pointRadius: 0
-        })
-      }
+      const ema200Data = ema200.map((value, index) => ({
+        x: ohlcData.value[index]?.timestamp,
+        y: value
+      })).filter(point => point.y !== null)
+
+      datasets.push({
+        label: 'EMA 200',
+        data: ema200Data,
+        borderColor: '#ff8800',
+        backgroundColor: 'transparent',
+        borderWidth: 0.5,
+        pointRadius: 0,
+        fill: false
+      })
     }
   }
 
-  // Add VWAP overlay if enabled.
+  // Add VWAP if enabled
   if (showVWAP.value && vwapData.value.length > 0) {
-    const vwapChartData = vwapData.value.map(point => ({
-      x: point.timestamp,
-      y: point.value
-    }))
-
     datasets.push({
       label: 'VWAP',
-      type: 'line',
-      data: vwapChartData,
-      borderColor: '#F59E0B', // Orange color
-      backgroundColor: '#F59E0B',
+      data: vwapData.value,
+      borderColor: '#ff00ff',
+      backgroundColor: 'transparent',
       borderWidth: 0.5,
-      fill: false,
-      pointRadius: 0
+      pointRadius: 0,
+      fill: false
     })
   }
 
-  return {
-    labels: baseData.labels,
-    datasets
+  return { ...props.lineChartData, datasets }
+})
+
+const enhancedCandlestickChartData = computed(() => {
+  if (!props.candlestickChartData?.datasets?.[0]?.data) return props.candlestickChartData
+
+  const datasets = [...props.candlestickChartData.datasets]
+
+  // Add EMA lines if enabled (same logic as line chart)
+  if (showEMA.value && ohlcData.value.length > 0) {
+    const closePrices = ohlcData.value.map(d => d.close || d.price || 0)
+
+    if (closePrices.length >= 20) {
+      const ema20 = calculateSimpleEMA(closePrices, 20)
+      const ema20Data = ema20.map((value, index) => ({
+        x: ohlcData.value[index]?.timestamp,
+        y: value
+      })).filter(point => point.y !== null)
+
+      datasets.push({
+        type: 'line',
+        label: 'EMA 20',
+        data: ema20Data,
+        borderColor: '#00ff88',
+        backgroundColor: 'transparent',
+        borderWidth: 0.5,
+        pointRadius: 0,
+        fill: false
+      })
+    }
+
+    if (closePrices.length >= 50) {
+      const ema50 = calculateSimpleEMA(closePrices, 50)
+      const ema50Data = ema50.map((value, index) => ({
+        x: ohlcData.value[index]?.timestamp,
+        y: value
+      })).filter(point => point.y !== null)
+
+      datasets.push({
+        type: 'line',
+        label: 'EMA 50',
+        data: ema50Data,
+        borderColor: '#0088ff',
+        backgroundColor: 'transparent',
+        borderWidth: 0.5,
+        pointRadius: 0,
+        fill: false
+      })
+    }
+
+    if (closePrices.length >= 200) {
+      const ema200 = calculateSimpleEMA(closePrices, 200)
+      const ema200Data = ema200.map((value, index) => ({
+        x: ohlcData.value[index]?.timestamp,
+        y: value
+      })).filter(point => point.y !== null)
+
+      datasets.push({
+        type: 'line',
+        label: 'EMA 200',
+        data: ema200Data,
+        borderColor: '#ff8800',
+        backgroundColor: 'transparent',
+        borderWidth: 0.5,
+        pointRadius: 0,
+        fill: false
+      })
+    }
   }
+
+  // Add VWAP if enabled
+  if (showVWAP.value && vwapData.value.length > 0) {
+    datasets.push({
+      type: 'line',
+      label: 'VWAP',
+      data: vwapData.value,
+      borderColor: '#ff00ff',
+      backgroundColor: 'transparent',
+      borderWidth: 0.5,
+      pointRadius: 0,
+      fill: false
+    })
+  }
+
+  return { ...props.candlestickChartData, datasets }
 })
 
 // Simple RSI calculation function.
@@ -876,38 +966,14 @@ const macdChartOptions = computed(() => ({
   }]
 }))
 
-// Methods used in template - emit events to parent.
-function changeChartType(type) {
-  emit('change-chart-type', type)
-}
-
-function changePeriod(period) {
-  emit('change-period', period)
-}
-
-function changeTimeframe(timeframe) {
-  emit('change-timeframe', timeframe)
-}
+// Event handlers
+const changeChartType = (type) => emit('change-chart-type', type)
+const changePeriod = (period) => emit('change-period', period)
+const changeTimeframe = (timeframe) => emit('change-timeframe', timeframe)
 
 function resetZoom() {
-  // Reset zoom for both chart types with correct chart access.
-  try {
-    if (props.chartType === 'line' && lineChartRef.value?.chart) {
-      // Line chart from vue-chartjs exposes chart as a property.
-      lineChartRef.value.chart.resetZoom()
-      console.log('📊 Line chart zoom reset')
-    } else if (props.chartType === 'candlestick' && candleChartRef.value?.chart) {
-      // Candlestick chart exposes chart as a function that returns the instance.
-      candleChartRef.value.chart().resetZoom()
-      console.log('📊 Candlestick chart zoom reset')
-    }
-
-    // Emit event to parent to handle state reset and data refresh.
-    emit('reset-zoom-complete')
-  }
-  catch (error) {
-    console.error('❌ Error resetting chart zoom:', error)
-  }
+  // Legacy function for compatibility - delegates to resetAllCharts
+  resetAllCharts()
 }
 
 // Expose refs and methods for parent access if needed.
@@ -926,7 +992,7 @@ defineExpose({
     gap: 1rem;
   }
 
-  .timeframe-selector .w-select__selection-wrap {min-height: 24px;}
+  .timeframe-selector .w-select__selection-wrap { min-height: 24px; }
 
   .period-selector, .chart-type-toggle {
     .period-btn, .chart-type-btn {
@@ -960,47 +1026,118 @@ defineExpose({
     }
   }
 
-  .chart {
-    border: 1px solid rgba(255, 255, 255, 0.1);
+  // TradingView-style synchronized charts
+  .synchronized-charts {
+    background: #1e1e1e;
+    border: 1px solid #333;
     border-radius: 8px;
-    padding: 1rem;
-    background: rgba(0, 0, 0, 0.2);
-
-    &--line {height: 450px;}
-    &--candlestick {height: 450px;}
-  }
-
-  .tradingview-chart {
-    background: var(--chart-bg-color);
-    border-radius: 12px;
     overflow: hidden;
-    padding: 12px;
-    height: 100%;
-    width: 100%;
-  }
 
-  // Enhanced chart styling - override some properties but keep height.
-  .chart--line, .chart--candlestick {
-    padding: 0;
-    background: transparent;
-    border: none;
-  }
+    .chart-pane {
+      position: relative;
+      border-bottom: 1px solid #333;
 
-  .volume-chart, .rsi-chart, .macd-chart {
-    height: 120px;
-    padding: 0.5rem;
-  }
-  .macd-chart {height: 140px;}
+      &:last-child {
+        border-bottom: none;
+      }
 
-  // Responsive enhancements
-  @media (max-width: 768px) {
-    .chart {
-      &--line, &--candlestick {height: 350px;}
+      .pane-header {
+        background: #2a2a2a;
+        border-bottom: 1px solid #333;
+        min-height: 32px;
+
+        .pane-title {
+          color: #e0e0e0;
+          font-weight: 600;
+        }
+
+        .pane-values {
+          color: #999;
+          font-family: monospace;
+        }
+      }
+
+      .chart-container {
+        background: #1e1e1e;
+
+        canvas {
+          background: transparent !important;
+        }
+      }
+
+      // Individual pane heights
+      &.price-pane {
+        .chart-container {
+          height: 320px;
+        }
+      }
+
+      &.volume-pane {
+        .chart-container {
+          height: 120px;
+        }
+      }
+
+      &.rsi-pane {
+        .chart-container {
+          height: 100px;
+        }
+      }
+
+      &.macd-pane {
+        .chart-container {
+          height: 120px;
+        }
+      }
     }
 
-    .indicators-panel {flex-wrap: wrap;}
+    .chart-controls-bottom {
+      background: #2a2a2a;
+      border-top: 1px solid #333;
+      min-height: 36px;
 
-    .volume-chart, .rsi-chart, .macd-chart {height: 100px;}
+      .left-controls {
+        color: #999;
+
+        .loading-indicator {
+          color: #ccc;
+        }
+      }
+
+      .right-controls {
+        button {
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid #444;
+
+          &:hover {
+            background: rgba(255, 255, 255, 0.2);
+          }
+        }
+      }
+    }
+  }
+
+  // Loading state
+  .chart-loading {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 4rem;
+    min-height: 400px;
+  }
+
+  // Responsive design
+  @media (max-width: 768px) {
+    .synchronized-charts {
+      .chart-pane {
+        &.price-pane .chart-container { height: 250px; }
+        &.volume-pane .chart-container { height: 80px; }
+        &.rsi-pane .chart-container { height: 80px; }
+        &.macd-pane .chart-container { height: 100px; }
+      }
+    }
+
+    .indicators-panel { flex-wrap: wrap; }
   }
 }
 </style>
