@@ -45,7 +45,7 @@
                 span.op6 Price Unavailable
               .caption.mt1.op7.absolute Last updated: {{ lastUpdate }}
 
-            .price-change.text-center(v-if="priceChange && stock.price" :class="priceChange >= 0 ? 'success-light3' : 'error'")
+            .price-change.text-center(v-if="priceChange && stock.price" :class="priceChange >= 0 ? 'currency-positive' : 'currency-negative'")
               .text-bold
                 span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
               .size--xs ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)

@@ -24,7 +24,7 @@
             span.op6 $
             span {{ formatNumber(position.market_value) }}
 
-          .unrealized-pl(:class="parseFloat(position.unrealized_pl) >= 0 ? 'success-light3' : 'error'")
+          .unrealized-pl(:class="parseFloat(position.unrealized_pl) >= 0 ? 'currency-positive' : 'currency-negative'")
             span.op6.mr1 $
             span {{ formatNumber(position.unrealized_pl) }}
             span.mx1 ({{ formatPercentage(position.unrealized_plpc) }}%)
@@ -35,7 +35,7 @@
             span.op6.mr1 $
             span {{ formatNumber(position.current_price) }}
 
-          .price-change.size--sm(:class="parseFloat(position.change_today || 0) >= 0 ? 'success-light3' : 'error'")
+          .price-change.size--sm(:class="parseFloat(position.change_today || 0) >= 0 ? 'currency-positive' : 'currency-negative'")
             span.op6.mr1 $
             span {{ formatNumber(position.change_today || 0) }}
 

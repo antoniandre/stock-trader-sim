@@ -12,10 +12,18 @@ app.use(WaveUI, {
   theme: 'auto',
   colors: {
     light: {
-      primary: '#3d9ff5'
+      primary: '#3d9ff5',
+      light1: '#00000066',
+      light2: '#00000018',
+      'currency-positive': '#5acc4a',
+      'currency-negative': '#f53d3d'
     },
     dark: {
-      primary: '#3d9ff5'
+      primary: '#3d9ff5',
+      light1: '#ffffff66',
+      light2: '#ffffff18',
+      'currency-positive': '#a6db9f',
+      'currency-negative': '#e46c6c'
     }
   }
 })

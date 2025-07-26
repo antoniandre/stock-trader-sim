@@ -15,13 +15,14 @@
 </template>
 
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, inject } from 'vue'
 import { Line } from 'vue-chartjs'
 import 'chart.js/auto'
 
 const props = defineProps(['history'])
 const emit = defineEmits(['period-change'])
 const chartRef = ref(null)
+const $waveui = inject('$waveui')
 
 // ===== Configuration =====
 const periods = [
@@ -270,9 +271,9 @@ const chartOptions = {
   scales: {
     y: {
       beginAtZero: false,
-      grid: { color: 'rgba(255, 255, 255, 0.05)' },
+      grid: { color: $waveui.colors.light2 },
       ticks: {
-        color: '#C9D1D9',
+        color: $waveui.colors.light1,
         callback: value => '$' + value.toLocaleString('en-US', {
           minimumFractionDigits: 0,
           maximumFractionDigits: 0
@@ -281,7 +282,7 @@ const chartOptions = {
     },
     x: {
       grid: { display: false },
-      ticks: { color: '#C9D1D9' }
+      ticks: { color: $waveui.colors.light1 }
     }
   }
 }
@@ -308,7 +309,10 @@ watch(() => props.history, () => {
   .period-btn {
     background-color: rgba(255, 255, 255, 0.1);
 
-    &--active {background-color: var(--w-primary-color);}
+    &--active {
+      background-color: var(--w-primary-color);
+      color: #fff;
+    }
   }
 }
 </style>

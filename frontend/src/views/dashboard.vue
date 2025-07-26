@@ -13,21 +13,21 @@
         .text-upper.size--xs.op5 Account Balance
         .title2.mt3.text-center
           span.op6.mr1 $
-          span(:class="account.cash > 0 ? 'success-light3' : (account.cash ? 'error' : 'white')")
+          span(:class="account.cash > 0 ? 'currency-positive' : (account.cash ? 'currency-negative' : 'base')")
             | {{ account.cash ? parseFloat(account.cash).toLocaleString() : '0.00' }}
     .gradient-card.grow
       .gradient-card__wrap
         .text-upper.size--xs.op5 Portfolio Value
         .title2.mt3.text-center
           span.op6.mr1 $
-          span(:class="account.portfolio_value > 0 ? 'success-light3' : (account.portfolio_value ? 'error' : 'white')")
+          span(:class="account.portfolio_value > 0 ? 'currency-positive' : (account.portfolio_value ? 'currency-negative' : 'base')")
             | {{ account.portfolio_value ? parseFloat(account.portfolio_value).toLocaleString() : '0.00' }}
     .gradient-card.grow
       .gradient-card__wrap
         .text-upper.size--xs.op5 Buying Power
         .title2.mt3.text-center
           span.op6.mr1 $
-          span(:class="account.buying_power > 0 ? 'success-light3' : (account.buying_power ? 'error' : 'white')")
+          span(:class="account.buying_power > 0 ? 'currency-positive' : (account.buying_power ? 'currency-negative' : 'base')")
             | {{ account.buying_power ? parseFloat(account.buying_power).toLocaleString() : '0.00' }}
 
   portfolio-chart.mt6(:history="portfolio.portfolioHistory" @period-change="onPeriodChange")
