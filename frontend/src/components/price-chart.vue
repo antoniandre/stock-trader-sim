@@ -162,7 +162,8 @@
 </template>
 
 <script setup>
-// Import Chart.js dependencies
+// Imports
+// --------------------------------------------------------
 import { Line } from 'vue-chartjs'
 import { Chart } from 'chart.js'
 import 'chart.js/auto'
@@ -175,9 +176,11 @@ import DrawingTools from './drawing-tools.vue'
 import { ref, computed } from 'vue'
 import { useTechnicalIndicators } from '@/composables/use-technical-indicators'
 
-// Register zoom plugin and bar chart components for mixed MACD chart
+// Register Chart.js plugins and components.
 Chart.register(zoomPlugin, BarController, BarElement)
 
+// Props & Emits
+// --------------------------------------------------------
 const props = defineProps({
   symbol: { type: String, required: true },
   chartType: { type: String, required: true },
@@ -200,7 +203,8 @@ const emit = defineEmits([
   'reset-zoom-complete'
 ])
 
-// Template refs
+// Template Refs & State
+// --------------------------------------------------------
 const chartContainer = ref(null)
 const lineChartRef = ref(null)
 const candleChartRef = ref(null)
@@ -208,49 +212,44 @@ const volumeChartRef = ref(null)
 const rsiChartRef = ref(null)
 const macdChartRef = ref(null)
 
-// Indicator visibility toggles
+// Indicator visibility toggles.
 const showEMA = ref(true)
 const showVWAP = ref(true)
 const showVolume = ref(true)
 const showRSI = ref(true)
 const showMACD = ref(true)
 
-// Synchronization state
+// Synchronization state.
 const zoomRange = ref({ min: null, max: null })
 const isInternalZoom = ref(false)
 
-// Helper function to get all chart instances
+// Helper Functions
+// --------------------------------------------------------
+const formatPrice = (price) => {
+  if (!price) return '0.00'
+  return typeof price === 'number' ? price.toFixed(2) : price
+}
+
+// Get all active chart instances.
 const getAllChartInstances = () => {
   const charts = []
 
-  // Main price chart (line or candlestick)
-  if (lineChartRef.value?.chart) {
-    charts.push(lineChartRef.value.chart)
-  }
-  if (candleChartRef.value?.chart) {
-    charts.push(candleChartRef.value.chart)
-  }
+  // Main price chart (line or candlestick).
+  if (lineChartRef.value?.chart) charts.push(lineChartRef.value.chart)
+  if (candleChartRef.value?.chart) charts.push(candleChartRef.value.chart)
 
-  // Volume chart
-  if (showVolume.value && volumeChartRef.value?.chart) {
-    charts.push(volumeChartRef.value.chart)
-  }
+  // Indicator charts.
+  if (showVolume.value && volumeChartRef.value?.chart) charts.push(volumeChartRef.value.chart)
+  if (showRSI.value && rsiChartRef.value?.chart) charts.push(rsiChartRef.value.chart)
+  if (showMACD.value && macdChartRef.value?.chart) charts.push(macdChartRef.value.chart)
 
-  // RSI chart
-  if (showRSI.value && rsiChartRef.value?.chart) {
-    charts.push(rsiChartRef.value.chart)
-  }
-
-  // MACD chart
-  if (showMACD.value && macdChartRef.value?.chart) {
-    charts.push(macdChartRef.value.chart)
-  }
-
-  // Filter out charts that don't have proper scales
+  // Filter out charts that don't have proper scales.
   return charts.filter(chart => chart && chart.scales && chart.scales.x)
 }
 
-// Synchronize zoom across all charts
+// Chart Synchronization
+// --------------------------------------------------------
+// Synchronize zoom across all charts.
 const syncZoom = (sourceChart, zoomState) => {
   if (isInternalZoom.value) return
 
@@ -268,176 +267,34 @@ const syncZoom = (sourceChart, zoomState) => {
   isInternalZoom.value = false
 }
 
-// Reset zoom on all charts
+// Reset zoom on all charts.
 const resetAllCharts = () => {
   zoomRange.value = { min: null, max: null }
   getAllChartInstances().forEach(chart => {
-    if (chart && chart.resetZoom) {
-      chart.resetZoom()
-    }
+    if (chart && chart.resetZoom) chart.resetZoom()
   })
   emit('reset-zoom-complete')
 }
 
-// Base chart options for synchronization
-const baseSynchronizedOptions = computed(() => ({
-  responsive: true,
-  maintainAspectRatio: false,
-  animation: { duration: 0 },
-  interaction: {
-    intersect: false,
-    mode: 'index'
-  },
-  scales: {
-    x: {
-      type: 'time',
-      time: {
-        displayFormats: { minute: 'HH:mm', hour: 'MMM dd HH:mm' }
-      },
-      grid: { color: 'rgba(255, 255, 255, 0.1)' },
-      ticks: { color: 'rgba(255, 255, 255, 0.7)' },
-      min: zoomRange.value.min,
-      max: zoomRange.value.max
-    }
-  },
-  plugins: {
-    legend: { display: false },
-    zoom: {
-      zoom: {
-        wheel: { enabled: true },
-        pinch: { enabled: true },
-        mode: 'x',
-        onZoomComplete: (context) => {
-          const chart = context.chart
-          if (chart && chart.scales && chart.scales.x) {
-            const { min, max } = chart.scales.x
-            syncZoom(chart, { min, max })
-          }
-        }
-      },
-      pan: {
-        enabled: true,
-        mode: 'x',
-        onPanComplete: (context) => {
-          const chart = context.chart
-          if (chart && chart.scales && chart.scales.x) {
-            const { min, max } = chart.scales.x
-            syncZoom(chart, { min, max })
-          }
-        }
-      }
-    }
-  }
-}))
-
-// Synchronized chart options for each pane
-const synchronizedLineChartOptions = computed(() => ({
-  ...baseSynchronizedOptions.value,
-  scales: {
-    ...baseSynchronizedOptions.value.scales,
-    x: {
-      ...baseSynchronizedOptions.value.scales.x,
-      display: false // Hide x-axis on main chart
-    },
-    y: {
-      position: 'right',
-      grid: { color: 'rgba(255, 255, 255, 0.1)' },
-      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
-    }
-  }
-}))
-
-const synchronizedCandlestickChartOptions = computed(() => ({
-  ...baseSynchronizedOptions.value,
-  scales: {
-    ...baseSynchronizedOptions.value.scales,
-    x: {
-      ...baseSynchronizedOptions.value.scales.x,
-      display: false // Hide x-axis on main chart
-    },
-    y: {
-      position: 'right',
-      grid: { color: 'rgba(255, 255, 255, 0.1)' },
-      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
-    }
-  }
-}))
-
-const synchronizedVolumeChartOptions = computed(() => ({
-  ...baseSynchronizedOptions.value,
-  scales: {
-    ...baseSynchronizedOptions.value.scales,
-    x: {
-      ...baseSynchronizedOptions.value.scales.x,
-      display: false // Hide x-axis on volume chart
-    },
-    y: {
-      position: 'right',
-      grid: { display: false },
-      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
-    }
-  }
-}))
-
-const synchronizedRsiChartOptions = computed(() => ({
-  ...baseSynchronizedOptions.value,
-  scales: {
-    ...baseSynchronizedOptions.value.scales,
-    x: {
-      ...baseSynchronizedOptions.value.scales.x,
-      display: false // Hide x-axis on RSI chart
-    },
-    y: {
-      position: 'right',
-      min: 0,
-      max: 100,
-      grid: {
-        display: true,
-        color: 'rgba(255, 255, 255, 0.1)',
-        drawOnChartArea: false
-      },
-      ticks: {
-        color: 'rgba(255, 255, 255, 0.7)',
-        stepSize: 20,
-        callback: (value) => value
-      }
-    }
-  }
-}))
-
-const synchronizedMacdChartOptions = computed(() => ({
-  ...baseSynchronizedOptions.value,
-  scales: {
-    ...baseSynchronizedOptions.value.scales,
-    x: {
-      ...baseSynchronizedOptions.value.scales.x,
-      display: true // Show x-axis on bottom chart
-    },
-    y: {
-      position: 'right',
-      grid: { color: 'rgba(255, 255, 255, 0.1)' },
-      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
-    }
-  }
-}))
-
+// Data Processing
+// --------------------------------------------------------
 // OHLC data processing for technical indicators.
 const ohlcData = computed(() => {
   let sourceData = []
 
   if (props.chartType === 'line' && props.lineChartData?.datasets?.[0]?.data) {
-    // Convert line data to OHLC format for indicator calculations
+    // Convert line data to OHLC format for indicator calculations.
     sourceData = props.lineChartData.datasets[0].data.map(point => ({
       timestamp: point.x,
       open: point.y,
       high: point.y,
       low: point.y,
       close: point.y,
-      volume: 1000000, // Default volume for line charts
+      volume: 1000000, // Default volume for line charts.
       price: point.y
     }))
   } else if (props.chartType === 'candlestick' && props.candlestickChartData?.datasets?.[0]?.data) {
-    // Use candlestick data directly
+    // Use candlestick data directly.
     sourceData = props.candlestickChartData.datasets[0].data.map(item => ({
       timestamp: item.x,
       open: item.o,
@@ -449,7 +306,7 @@ const ohlcData = computed(() => {
     }))
   }
 
-  // Debug logging for data integrity
+  // Debug logging for data integrity.
   if (sourceData.length > 0) {
     const priceRange = {
       min: Math.min(...sourceData.map(d => d.close)),
@@ -462,7 +319,7 @@ const ohlcData = computed(() => {
   return sourceData
 })
 
-// Volume data for indicators
+// Volume data for indicators.
 const volumeData = computed(() => {
   return ohlcData.value.map(point => ({
     timestamp: point.timestamp,
@@ -470,7 +327,7 @@ const volumeData = computed(() => {
   }))
 })
 
-// Technical indicators from composable
+// Technical indicators from composable.
 const indicators = useTechnicalIndicators(ohlcData, volumeData)
 
 // VWAP calculation
@@ -545,43 +402,6 @@ function calculateSimpleEMA(prices, period) {
 
   return ema
 }
-
-// Helper functions
-const formatPrice = (price) => {
-  if (!price) return '0.00'
-  return typeof price === 'number' ? price.toFixed(2) : price
-}
-
-// Current values for display
-const currentPrice = computed(() => {
-  const data = props.chartType === 'line' ? props.lineChartData : props.candlestickChartData
-  const lastPoint = data?.datasets?.[0]?.data?.slice(-1)[0]
-  return lastPoint?.y || lastPoint?.c || 0
-})
-
-const currentRSI = computed(() => {
-  const rsiData = indicators.rsiChartData.value?.datasets?.[0]?.data
-  const lastRSI = rsiData?.slice(-1)[0]?.y
-  return lastRSI ? lastRSI.toFixed(1) : '--'
-})
-
-const currentMACD = computed(() => {
-  const macdData = indicators.macdChartData.value?.datasets?.[0]?.data
-  const lastMACD = macdData?.slice(-1)[0]?.y
-  return lastMACD ? lastMACD.toFixed(4) : '--'
-})
-
-const currentSignal = computed(() => {
-  const signalData = indicators.macdChartData.value?.datasets?.[1]?.data
-  const lastSignal = signalData?.slice(-1)[0]?.y
-  return lastSignal ? lastSignal.toFixed(4) : '--'
-})
-
-const currentHistogram = computed(() => {
-  const histogramData = indicators.macdChartData.value?.datasets?.[2]?.data
-  const lastHistogram = histogramData?.slice(-1)[0]?.y
-  return lastHistogram ? lastHistogram.toFixed(4) : '--'
-})
 
 // Enhanced chart data with technical indicators
 const enhancedLineChartData = computed(() => {
@@ -966,13 +786,190 @@ const macdChartOptions = computed(() => ({
   }]
 }))
 
-// Event handlers
+// Current Values for Display
+// --------------------------------------------------------
+const currentPrice = computed(() => {
+  const data = props.chartType === 'line' ? props.lineChartData : props.candlestickChartData
+  const lastPoint = data?.datasets?.[0]?.data?.slice(-1)[0]
+  return lastPoint?.y || lastPoint?.c || 0
+})
+
+const currentRSI = computed(() => {
+  const rsiData = indicators.rsiChartData.value?.datasets?.[0]?.data
+  const lastRSI = rsiData?.slice(-1)[0]?.y
+  return lastRSI ? lastRSI.toFixed(1) : '--'
+})
+
+const currentMACD = computed(() => {
+  const macdData = indicators.macdChartData.value?.datasets?.[0]?.data
+  const lastMACD = macdData?.slice(-1)[0]?.y
+  return lastMACD ? lastMACD.toFixed(4) : '--'
+})
+
+const currentSignal = computed(() => {
+  const signalData = indicators.macdChartData.value?.datasets?.[1]?.data
+  const lastSignal = signalData?.slice(-1)[0]?.y
+  return lastSignal ? lastSignal.toFixed(4) : '--'
+})
+
+const currentHistogram = computed(() => {
+  const histogramData = indicators.macdChartData.value?.datasets?.[2]?.data
+  const lastHistogram = histogramData?.slice(-1)[0]?.y
+  return lastHistogram ? lastHistogram.toFixed(4) : '--'
+})
+
+// Chart Options
+// --------------------------------------------------------
+// Base chart options for synchronization.
+const baseSynchronizedOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: { duration: 0 },
+  interaction: {
+    intersect: false,
+    mode: 'index'
+  },
+  scales: {
+    x: {
+      type: 'time',
+      time: {
+        displayFormats: { minute: 'HH:mm', hour: 'MMM dd HH:mm' }
+      },
+      grid: { color: 'rgba(255, 255, 255, 0.1)' },
+      ticks: { color: 'rgba(255, 255, 255, 0.7)' },
+      min: zoomRange.value.min,
+      max: zoomRange.value.max
+    }
+  },
+  plugins: {
+    legend: { display: false },
+    zoom: {
+      zoom: {
+        wheel: { enabled: true },
+        pinch: { enabled: true },
+        mode: 'x',
+        onZoomComplete: (context) => {
+          const chart = context.chart
+          if (chart && chart.scales && chart.scales.x) {
+            const { min, max } = chart.scales.x
+            syncZoom(chart, { min, max })
+          }
+        }
+      },
+      pan: {
+        enabled: true,
+        mode: 'x',
+        onPanComplete: (context) => {
+          const chart = context.chart
+          if (chart && chart.scales && chart.scales.x) {
+            const { min, max } = chart.scales.x
+            syncZoom(chart, { min, max })
+          }
+        }
+      }
+    }
+  }
+}))
+
+// Synchronized chart options for each pane.
+const synchronizedLineChartOptions = computed(() => ({
+  ...baseSynchronizedOptions.value,
+  scales: {
+    ...baseSynchronizedOptions.value.scales,
+    x: {
+      ...baseSynchronizedOptions.value.scales.x,
+      display: false // Hide x-axis on main chart.
+    },
+    y: {
+      position: 'right',
+      grid: { color: 'rgba(255, 255, 255, 0.1)' },
+      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+    }
+  }
+}))
+
+const synchronizedCandlestickChartOptions = computed(() => ({
+  ...baseSynchronizedOptions.value,
+  scales: {
+    ...baseSynchronizedOptions.value.scales,
+    x: {
+      ...baseSynchronizedOptions.value.scales.x,
+      display: false // Hide x-axis on main chart.
+    },
+    y: {
+      position: 'right',
+      grid: { color: 'rgba(255, 255, 255, 0.1)' },
+      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+    }
+  }
+}))
+
+const synchronizedVolumeChartOptions = computed(() => ({
+  ...baseSynchronizedOptions.value,
+  scales: {
+    ...baseSynchronizedOptions.value.scales,
+    x: {
+      ...baseSynchronizedOptions.value.scales.x,
+      display: false // Hide x-axis on volume chart.
+    },
+    y: {
+      position: 'right',
+      grid: { display: false },
+      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+    }
+  }
+}))
+
+const synchronizedRsiChartOptions = computed(() => ({
+  ...baseSynchronizedOptions.value,
+  scales: {
+    ...baseSynchronizedOptions.value.scales,
+    x: {
+      ...baseSynchronizedOptions.value.scales.x,
+      display: false // Hide x-axis on RSI chart.
+    },
+    y: {
+      position: 'right',
+      min: 0,
+      max: 100,
+      grid: {
+        display: true,
+        color: 'rgba(255, 255, 255, 0.1)',
+        drawOnChartArea: false
+      },
+      ticks: {
+        color: 'rgba(255, 255, 255, 0.7)',
+        stepSize: 20,
+        callback: (value) => value
+      }
+    }
+  }
+}))
+
+const synchronizedMacdChartOptions = computed(() => ({
+  ...baseSynchronizedOptions.value,
+  scales: {
+    ...baseSynchronizedOptions.value.scales,
+    x: {
+      ...baseSynchronizedOptions.value.scales.x,
+      display: true // Show x-axis on bottom chart.
+    },
+    y: {
+      position: 'right',
+      grid: { color: 'rgba(255, 255, 255, 0.1)' },
+      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+    }
+  }
+}))
+
+// Event Handlers
+// --------------------------------------------------------
 const changeChartType = (type) => emit('change-chart-type', type)
 const changePeriod = (period) => emit('change-period', period)
 const changeTimeframe = (timeframe) => emit('change-timeframe', timeframe)
 
+// Legacy function for compatibility - delegates to resetAllCharts.
 function resetZoom() {
-  // Legacy function for compatibility - delegates to resetAllCharts
   resetAllCharts()
 }
 
@@ -1026,7 +1023,7 @@ defineExpose({
     }
   }
 
-  // TradingView-style synchronized charts
+  // TradingView-style synchronized charts.
   .synchronized-charts {
     background: #1e1e1e;
     border: 1px solid #333;
@@ -1037,9 +1034,7 @@ defineExpose({
       position: relative;
       border-bottom: 1px solid #333;
 
-      &:last-child {
-        border-bottom: none;
-      }
+      &:last-child {border-bottom: none;}
 
       .pane-header {
         background: #2a2a2a;
@@ -1060,35 +1055,14 @@ defineExpose({
       .chart-container {
         background: #1e1e1e;
 
-        canvas {
-          background: transparent !important;
-        }
+        canvas {background: transparent !important;}
       }
 
-      // Individual pane heights
-      &.price-pane {
-        .chart-container {
-          height: 320px;
-        }
-      }
-
-      &.volume-pane {
-        .chart-container {
-          height: 120px;
-        }
-      }
-
-      &.rsi-pane {
-        .chart-container {
-          height: 100px;
-        }
-      }
-
-      &.macd-pane {
-        .chart-container {
-          height: 120px;
-        }
-      }
+      // Individual pane heights.
+      &.price-pane .chart-container {height: 320px;}
+      &.volume-pane .chart-container {height: 120px;}
+      &.rsi-pane .chart-container {height: 100px;}
+      &.macd-pane .chart-container {height: 120px;}
     }
 
     .chart-controls-bottom {
@@ -1099,9 +1073,7 @@ defineExpose({
       .left-controls {
         color: #999;
 
-        .loading-indicator {
-          color: #ccc;
-        }
+        .loading-indicator {color: #ccc;}
       }
 
       .right-controls {
@@ -1109,15 +1081,13 @@ defineExpose({
           background: rgba(255, 255, 255, 0.1);
           border: 1px solid #444;
 
-          &:hover {
-            background: rgba(255, 255, 255, 0.2);
-          }
+          &:hover {background: rgba(255, 255, 255, 0.2);}
         }
       }
     }
   }
 
-  // Loading state
+  // Loading state.
   .chart-loading {
     background: #1e1e1e;
     border: 1px solid #333;
@@ -1126,18 +1096,18 @@ defineExpose({
     min-height: 400px;
   }
 
-  // Responsive design
+  // Responsive design.
   @media (max-width: 768px) {
     .synchronized-charts {
       .chart-pane {
-        &.price-pane .chart-container { height: 250px; }
-        &.volume-pane .chart-container { height: 80px; }
-        &.rsi-pane .chart-container { height: 80px; }
-        &.macd-pane .chart-container { height: 100px; }
+        &.price-pane .chart-container {height: 250px;}
+        &.volume-pane .chart-container {height: 80px;}
+        &.rsi-pane .chart-container {height: 80px;}
+        &.macd-pane .chart-container {height: 100px;}
       }
     }
 
-    .indicators-panel { flex-wrap: wrap; }
+    .indicators-panel {flex-wrap: wrap;}
   }
 }
 </style>
