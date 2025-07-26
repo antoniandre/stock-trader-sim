@@ -1,7 +1,9 @@
 <template lang="pug">
 .price-chart
+  .pane-values.size--xs.op7(v-if="currentPrice") OHLC: {{ formatPrice(currentPrice) }}
+
   //- Chart Controls
-  .chart-controls.w-flex.justify-between.align-center.mt6.mb2
+  .chart-controls.w-flex.justify-space-between.align-center.mt6.mb2
     .chart-selectors.w-flex.gap2
       //- Chart Type Toggle
       .chart-type-toggle.w-flex.gap1.no-grow
@@ -31,8 +33,7 @@
           :key="period.value"
           color="base"
           :class="{ 'period-btn--active': selectedPeriod === period.value }"
-          @click="changePeriod(period.value)")
-          | {{ period.label }}
+          @click="changePeriod(period.value)") {{ period.label }}
 
       //- Timeframe Selector
       .timeframe-selector.w-flex.gap1.no-grow
@@ -44,74 +45,40 @@
 
   //- Indicators Toggle
   .indicators-panel.w-flex.gap2.mb4
-    w-button.indicator-btn(
-      :outline="!showEMA"
-      @click="showEMA = !showEMA"
-      size="xs")
-      | EMA (20,50,200)
-    w-button.indicator-btn(
-      :outline="!showVWAP"
-      @click="showVWAP = !showVWAP"
-      size="xs")
-      | VWAP
-    w-button.indicator-btn(
-      :outline="!showVolume"
-      @click="showVolume = !showVolume"
-      size="xs")
-      | Volume
-    w-button.indicator-btn(
-      :outline="!showRSI"
-      @click="showRSI = !showRSI"
-      size="xs")
-      | RSI
-    w-button.indicator-btn(
-      :outline="!showMACD"
-      @click="showMACD = !showMACD"
-      size="xs")
-      | MACD
+    w-button.indicator-btn(:outline="!showEMA" @click="showEMA = !showEMA" xs) EMA (20,50,200)
+    w-button.indicator-btn(:outline="!showVWAP" @click="showVWAP = !showVWAP" xs) VWAP
+    w-button.indicator-btn(:outline="!showVolume" @click="showVolume = !showVolume" xs) Volume
+    w-button.indicator-btn(:outline="!showRSI" @click="showRSI = !showRSI" xs) RSI
+    w-button.indicator-btn(:outline="!showMACD" @click="showMACD = !showMACD" xs) MACD
 
   //- Main Chart Display - Replace the individual chart sections with synchronized panes
-  .synchronized-charts.w-flex.column(v-if="!isLoadingHistoricalData")
+  .charts-wrap.w-flex.column.bdrs2.pa4.w-card(v-if="!isLoadingHistoricalData")
     //- Main Price Chart Pane
-    .chart-pane.price-pane
-      .pane-header.w-flex.align-center.justify-between.pa1
-        .pane-title.size--sm.text-bold {{ symbol }} • {{ chartType === 'line' ? 'Line' : 'Candles' }}
-        .pane-values.size--xs.op7(v-if="currentPrice")
-          span OHLC: {{ formatPrice(currentPrice) }}
-
-      .chart-container(ref="chartContainer" style="position: relative;")
+    .charts(ref="chartContainer")
+      Line.chart.chart--price.chart--line(
+        v-if="chartType === 'line'"
+        ref="lineChartRef"
+        :data="enhancedLineChartData"
+        :options="synchronizedLineChartOptions")
+      CandlestickChart.chart.chart--price.chart--candles(
+        v-else
+        ref="candleChartRef"
+        :data="enhancedCandlestickChartData"
+        :options="synchronizedCandlestickChartOptions")
+      .chart.chart--volume
         Line(
-          v-if="chartType === 'line'"
-          ref="lineChartRef"
-          :data="enhancedLineChartData"
-          :options="synchronizedLineChartOptions")
-        CandlestickChart(
-          v-else
-          ref="candleChartRef"
-          :data="enhancedCandlestickChartData"
-          :options="synchronizedCandlestickChartOptions")
-
-        //- Drawing Tools Overlay
-        DrawingTools(
-          :chart-container="chartContainer")
-
-    //- Volume Pane (if enabled)
-    .chart-pane.volume-pane(v-show="showVolume")
-      .pane-header.w-flex.align-center.justify-between.pa1
-        .pane-title.size--sm.text-bold Volume
-        .pane-values.size--xs.op7
-          span SMA 20
-
-      .chart-container
-        Line(
+          v-show="showVolume"
           ref="volumeChartRef"
           :data="indicators.volumeChartData.value"
           :options="synchronizedVolumeChartOptions")
 
+    //- Drawing Tools Overlay
+    DrawingTools(:chart-container="chartContainer")
+
     //- RSI Pane (if enabled)
-    .chart-pane.rsi-pane(v-show="showRSI")
-      .pane-header.w-flex.align-center.justify-between.pa1
-        .pane-title.size--sm.text-bold RSI (14)
+    .chart-pane.bd1.bdrs2.ovh.mt2.rsi-pane(v-show="showRSI")
+      .pane-header.w-flex.align-center.justify-space-between.pa1.contrast-o05--bg
+        .pane-title.size--sm.text-bold.ml8 RSI (14)
         .pane-values.size--xs.op7
           span.mr2 {{ currentRSI }}
           span Overbought: 70 • Oversold: 30
@@ -123,9 +90,9 @@
           :options="synchronizedRsiChartOptions")
 
     //- MACD Pane (if enabled)
-    .chart-pane.macd-pane(v-show="showMACD")
-      .pane-header.w-flex.align-center.justify-between.pa1
-        .pane-title.size--sm.text-bold MACD (12,26,9)
+    .chart-pane.bd1.bdrs2.ovh.mt2.macd-pane(v-show="showMACD")
+      .pane-header.w-flex.align-center.justify-space-between.pa1.contrast-o05--bg
+        .pane-title.size--sm.text-bold.ml8 MACD (12,26,9)
         .pane-values.size--xs.op7
           span.mr2 MACD: {{ currentMACD }}
           span.mr2 Signal: {{ currentSignal }}
@@ -138,22 +105,20 @@
           :options="synchronizedMacdChartOptions")
 
     //- Chart Controls
-    .chart-controls-bottom.w-flex.align-center.justify-between.pa2
-      .left-controls.w-flex.align-center.gap2.size--xs
+    .chart-controls-bottom.w-flex.align-center.justify-space-between.pa2
+      .w-flex.align-center.gap2.size--xs.ml8
         span.op6 Mouse wheel to zoom • Click &amp; drag to pan
-        .loading-indicator.w-flex.align-center.gap1(v-if="isLoadingAdditionalData")
-          w-spinner(size="12" color="primary")
-          span.op7 Loading...
-
-      .right-controls.w-flex.gap1
         w-button.pa0.op8(
-          width="24"
-          height="24"
+          width="18"
+          height="18"
           @click="resetAllCharts"
           tooltip="Reset Zoom"
           :tooltip-props="{ sm: true }"
           round)
-          icon.w-icon(icon="mdi:refresh" style="width: 16px")
+          icon.size--xs(icon="mdi:refresh")
+        .loading-indicator.w-flex.align-center.gap1(v-if="isLoadingAdditionalData")
+          w-spinner(size="12" color="primary")
+          span.op7 Loading...
 
   //- Loading state (keep existing)
   .chart-loading.w-flex.column.align-center.justify-center(v-else)
@@ -1014,76 +979,31 @@ defineExpose({
     }
   }
 
-  .chart-type-toggle {
-    .chart-type-btn {
-      &--active {
-        background-color: var(--w-secondary-color);
-        color: white;
-      }
-    }
-  }
-
   // TradingView-style synchronized charts.
-  .synchronized-charts {
-    background: #1e1e1e;
-    border: 1px solid #333;
-    border-radius: 8px;
+  .charts-wrap {
+    position: relative;
+    background: var(--w-base-bg-color);
     overflow: hidden;
+
+    .charts {
+      position: relative;
+      height: 400px;
+    }
 
     .chart-pane {
       position: relative;
-      border-bottom: 1px solid #333;
-
-      &:last-child {border-bottom: none;}
-
-      .pane-header {
-        background: #2a2a2a;
-        border-bottom: 1px solid #333;
-        min-height: 32px;
-
-        .pane-title {
-          color: #e0e0e0;
-          font-weight: 600;
-        }
-
-        .pane-values {
-          color: #999;
-          font-family: monospace;
-        }
-      }
-
-      .chart-container {
-        background: #1e1e1e;
-
-        canvas {background: transparent !important;}
-      }
 
       // Individual pane heights.
-      &.price-pane .chart-container {height: 320px;}
-      &.volume-pane .chart-container {height: 120px;}
-      &.rsi-pane .chart-container {height: 100px;}
-      &.macd-pane .chart-container {height: 120px;}
+      &.chart--price {height: 400px;}
+      &.chart--rsi {height: 110px;}
+      &.chart--macd {height: 110px;}
     }
-
-    .chart-controls-bottom {
-      background: #2a2a2a;
-      border-top: 1px solid #333;
-      min-height: 36px;
-
-      .left-controls {
-        color: #999;
-
-        .loading-indicator {color: #ccc;}
-      }
-
-      .right-controls {
-        button {
-          background: rgba(255, 255, 255, 0.1);
-          border: 1px solid #444;
-
-          &:hover {background: rgba(255, 255, 255, 0.2);}
-        }
-      }
+    .chart--volume {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 115px;
     }
   }
 
@@ -1098,7 +1018,7 @@ defineExpose({
 
   // Responsive design.
   @media (max-width: 768px) {
-    .synchronized-charts {
+    .charts-wrap {
       .chart-pane {
         &.price-pane .chart-container {height: 250px;}
         &.volume-pane .chart-container {height: 80px;}
