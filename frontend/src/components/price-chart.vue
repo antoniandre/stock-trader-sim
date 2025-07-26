@@ -79,7 +79,7 @@
     .chart-pane.bd1.bdrs2.ovh.mt2.rsi-pane(v-show="showRSI")
       .pane-header.w-flex.align-center.justify-space-between.pa1.contrast-o05--bg
         .pane-title.size--sm.text-bold.ml8 RSI (14)
-        .pane-values.size--xs.op7
+        .pane-values.size--xs.op4
           span.mr2 {{ currentRSI }}
           span Overbought: 70 • Oversold: 30
 
@@ -93,7 +93,7 @@
     .chart-pane.bd1.bdrs2.ovh.mt2.macd-pane(v-show="showMACD")
       .pane-header.w-flex.align-center.justify-space-between.pa1.contrast-o05--bg
         .pane-title.size--sm.text-bold.ml8 MACD (12,26,9)
-        .pane-values.size--xs.op7
+        .pane-values.size--xs.op4
           span.mr2 MACD: {{ currentMACD }}
           span.mr2 Signal: {{ currentSignal }}
           span Histogram: {{ currentHistogram }}
@@ -138,8 +138,10 @@ import zoomPlugin from 'chartjs-plugin-zoom'
 import { BarController, BarElement } from 'chart.js'
 import CandlestickChart from './candlestick-chart.vue'
 import DrawingTools from './drawing-tools.vue'
-import { ref, computed } from 'vue'
+import { ref, computed, inject } from 'vue'
 import { useTechnicalIndicators } from '@/composables/use-technical-indicators'
+
+const $waveui = inject('$waveui')
 
 // Register Chart.js plugins and components.
 Chart.register(zoomPlugin, BarController, BarElement)
@@ -258,7 +260,8 @@ const ohlcData = computed(() => {
       volume: 1000000, // Default volume for line charts.
       price: point.y
     }))
-  } else if (props.chartType === 'candlestick' && props.candlestickChartData?.datasets?.[0]?.data) {
+  }
+  else if (props.chartType === 'candlestick' && props.candlestickChartData?.datasets?.[0]?.data) {
     // Use candlestick data directly.
     sourceData = props.candlestickChartData.datasets[0].data.map(item => ({
       timestamp: item.x,
@@ -317,7 +320,8 @@ const vwapData = computed(() => {
       })
     }
     return smaData
-  } else {
+  }
+  else {
     // Calculate real VWAP with actual volume data
     let cumulativeTpv = 0 // Typical Price * Volume
     let cumulativeVolume = 0
@@ -438,7 +442,7 @@ const enhancedLineChartData = computed(() => {
   }
 
   // Add VWAP if enabled
-  if (showVWAP.value && vwapData.value.length > 0) {
+  if (showVWAP.value && vwapData.value.length) {
     datasets.push({
       label: 'VWAP',
       data: vwapData.value,
@@ -553,7 +557,8 @@ function calculateSimpleRSI(prices, period = 14) {
     if (diff > 0) {
       gainSum += diff
       lossSum += 0
-    } else {
+    }
+    else {
       gainSum += 0
       lossSum += Math.abs(diff)
     }
@@ -575,7 +580,8 @@ function calculateSimpleRSI(prices, period = 14) {
 
     if (avgLoss[i - period] === 0) {
       rsi.push(100)
-    } else {
+    }
+    else {
       const rs = avgGain[i - period] / avgLoss[i - period]
       rsi.push(100 - (100 / (1 + rs)))
     }
@@ -601,8 +607,8 @@ const volumeChartOptions = computed(() => ({
     y: {
       position: 'right',
       beginAtZero: true,
-      grid: { color: 'rgba(255, 255, 255, 0.05)' },
-      ticks: { color: '#C9D1D9', maxTicksLimit: 4 }
+      grid: { color: $waveui.colors.light2 },
+      ticks: { color: $waveui.colors.light1, maxTicksLimit: 4 }
     }
   }
 }))
@@ -625,11 +631,11 @@ const rsiChartOptions = computed(() => ({
       min: 0,
       max: 100,
       grid: {
-        color: 'rgba(255, 255, 255, 0.05)',
+        color: $waveui.colors.light2,
         drawOnChartArea: true
       },
       ticks: {
-        color: '#C9D1D9',
+        color: $waveui.colors.light1,
         stepSize: 10,
         // Show all major levels for better readability.
         callback: function(value, index, values) {
@@ -711,11 +717,11 @@ const macdChartOptions = computed(() => ({
     y: {
       position: 'right',
       grid: {
-        color: 'rgba(255, 255, 255, 0.05)',
+        color: $waveui.colors.light2,
         drawOnChartArea: true
       },
       ticks: {
-        color: '#C9D1D9',
+        color: $waveui.colors.light1,
         maxTicksLimit: 5,
         callback: function(value) {
           return value.toFixed(4)
@@ -800,8 +806,8 @@ const baseSynchronizedOptions = computed(() => ({
       time: {
         displayFormats: { minute: 'HH:mm', hour: 'MMM dd HH:mm' }
       },
-      grid: { color: 'rgba(255, 255, 255, 0.1)' },
-      ticks: { color: 'rgba(255, 255, 255, 0.7)' },
+      grid: { color: $waveui.colors.light2 },
+      ticks: { color: $waveui.colors.light1 },
       min: zoomRange.value.min,
       max: zoomRange.value.max
     }
@@ -847,8 +853,8 @@ const synchronizedLineChartOptions = computed(() => ({
     },
     y: {
       position: 'right',
-      grid: { color: 'rgba(255, 255, 255, 0.1)' },
-      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+      grid: { color: $waveui.colors.light2 },
+      ticks: { color: $waveui.colors.light1 }
     }
   }
 }))
@@ -863,8 +869,8 @@ const synchronizedCandlestickChartOptions = computed(() => ({
     },
     y: {
       position: 'right',
-      grid: { color: 'rgba(255, 255, 255, 0.1)' },
-      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+      grid: { color: $waveui.colors.light2 },
+      ticks: { color: $waveui.colors.light1 }
     }
   }
 }))
@@ -880,7 +886,7 @@ const synchronizedVolumeChartOptions = computed(() => ({
     y: {
       position: 'right',
       grid: { display: false },
-      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+      ticks: { color: $waveui.colors.light1 }
     }
   }
 }))
@@ -899,11 +905,11 @@ const synchronizedRsiChartOptions = computed(() => ({
       max: 100,
       grid: {
         display: true,
-        color: 'rgba(255, 255, 255, 0.1)',
+        color: $waveui.colors.light2,
         drawOnChartArea: false
       },
       ticks: {
-        color: 'rgba(255, 255, 255, 0.7)',
+        color: $waveui.colors.light1,
         stepSize: 20,
         callback: (value) => value
       }
@@ -921,8 +927,8 @@ const synchronizedMacdChartOptions = computed(() => ({
     },
     y: {
       position: 'right',
-      grid: { color: 'rgba(255, 255, 255, 0.1)' },
-      ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+      grid: { color: $waveui.colors.light2 },
+      ticks: { color: $waveui.colors.light1 }
     }
   }
 }))
@@ -1005,15 +1011,6 @@ defineExpose({
       right: 0;
       height: 115px;
     }
-  }
-
-  // Loading state.
-  .chart-loading {
-    background: #1e1e1e;
-    border: 1px solid #333;
-    border-radius: 8px;
-    padding: 4rem;
-    min-height: 400px;
   }
 
   // Responsive design.

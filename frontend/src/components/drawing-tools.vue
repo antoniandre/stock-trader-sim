@@ -545,7 +545,8 @@ onUnmounted(() => {
           flex: 0;
           overflow: hidden;
           padding: 0.2rem;
-          background: rgba(255, 255, 255, 0.1);
+          background: color-mix(in srgb, var(--w-contrast-bg-color) 10%, transparent);
+          color: color-mix(in srgb, var(--w-base-color) 80%, transparent);
 
           &--active {
             background: rgba(59, 130, 246, 0.8);
@@ -559,10 +560,13 @@ onUnmounted(() => {
 
   .drawing-canvas-overlay {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    // top: 0;
+    // left: 0;
+    // width: 100%;
+    // height: 100%;
+    height: 400px;
+    top: 16px;
+    left: 16px;
     cursor: crosshair;
     z-index: 9; // Below the toolbar.
     pointer-events: auto;
