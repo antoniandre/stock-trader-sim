@@ -15,6 +15,7 @@ app.use(WaveUI, {
       primary: '#3d9ff5',
       light1: '#00000066',
       light2: '#00000018',
+      light3: '#ccc',
       'currency-positive': '#5acc4a',
       'currency-negative': '#f53d3d'
     },
@@ -22,6 +23,7 @@ app.use(WaveUI, {
       primary: '#3d9ff5',
       light1: '#ffffff66',
       light2: '#ffffff18',
+      light3: '#333',
       'currency-positive': '#a6db9f',
       'currency-negative': '#e46c6c'
     }

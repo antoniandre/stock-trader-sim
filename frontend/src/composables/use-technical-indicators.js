@@ -114,21 +114,7 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
       histogram.push(macdVal - signalVal)
     }
 
-    console.log('✅ MACD calculation result:', {
-      inputLength: prices.length,
-      macdPoints: macdLine.length,
-      signalPoints: signalLine.length,
-      histogramPoints: histogram.length,
-      macdSample: macdLine.slice(-3),
-      signalSample: signalLine.slice(-3),
-      histogramSample: histogram.slice(-3)
-    })
-
-    return {
-      macd: macdLine,
-      signal: signalLine,
-      histogram
-    }
+    return { macd: macdLine, signal: signalLine, histogram }
   }
 
   // Data Processing

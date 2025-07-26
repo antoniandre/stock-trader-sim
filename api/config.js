@@ -8,6 +8,7 @@ export const {
   ALPACA_KEY,
   ALPACA_SECRET,
   ALPACA_BASE_URL,
+  ALPACA_API_BASE_URL,
   ALPACA_DATA_STREAM_URL,
   SIMULATION
 } = process.env

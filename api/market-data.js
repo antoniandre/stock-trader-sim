@@ -1,6 +1,6 @@
 import axios from 'axios'
-import { ALPACA_BASE_URL, HEADERS, IS_SIMULATION, state } from './config.js'
-import { getEasternTime, formatErrorResponse, getCurrencyInfo } from './utils.js'
+import { ALPACA_BASE_URL, ALPACA_API_BASE_URL, HEADERS, IS_SIMULATION, state } from './config.js'
+import { getEasternTime, getCurrencyInfo } from './utils.js'
 import { getMockPrice, initializeMockPrices, getMockTradableStocks, generateMockHistoricalData, generateMockHistoricalDataByRange } from './simulation.js'
 
 // Market Calendar Functions
@@ -211,19 +211,19 @@ export async function getPrice(symbol) {
   const endpoints = [
     // Real-time quote (best for active trading hours).
     {
-      url: `https://data.alpaca.markets/v2/stocks/${symbol}/quotes/latest`,
+      url: `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/quotes/latest`,
       type: 'quote',
       priority: 1
     },
     // Latest trade (good for extended hours).
     {
-      url: `https://data.alpaca.markets/v2/stocks/${symbol}/trades/latest`,
+      url: `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/trades/latest`,
       type: 'trade',
       priority: 2
     },
     // Daily bar (fallback when markets are closed).
     {
-      url: `https://data.alpaca.markets/v2/stocks/${symbol}/bars/latest?timeframe=1Day`,
+      url: `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars/latest?timeframe=1Day`,
       type: 'bar',
       priority: 3
     }
@@ -329,7 +329,6 @@ export async function getAllTradableStocks() {
   }
   catch (error) {
     console.error('❌ Error fetching tradable stocks:', error.message)
-    state.allStocks = getMockTradableStocks()
     return state.allStocks
   }
 }
@@ -359,7 +358,7 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
       end: endDate.toISOString()
     })
 
-    const url = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?${params}`
+    const url = `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars?${params}`
     console.log(`📊 Fetching ${symbol} data: ${period}/${alpacaTimeframe}`)
 
     const { data } = await axios.get(url, { headers: HEADERS })
@@ -417,7 +416,7 @@ export async function getStockHistoricalDataByRange(symbol, timeframe, startDate
       end: end.toISOString()
     })
 
-    const url = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?${params}`
+    const url = `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars?${params}`
     console.log(`📊 Fetching range data for ${symbol}: ${timeframe}`)
 
     const { data } = await axios.get(url, { headers: HEADERS })
