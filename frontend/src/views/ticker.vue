@@ -35,7 +35,7 @@
       //- Price Chart
       .glass-box.pa6
         .chart-wrap
-          .chart-info.w-flex.align-center.gap6
+          .chart-info.w-flex.align-center.gap2
             .price-display
               .title2.text-bold(v-if="stock.price")
                 span.op6.mr2 {{ stock.currencySymbol }}
@@ -45,7 +45,9 @@
                 span.op6 Price Unavailable
               .caption.mt1.op7.absolute Last updated: {{ lastUpdate }}
 
-            .price-change.text-center(v-if="priceChange && stock.price" :class="priceChange >= 0 ? 'currency-positive' : 'currency-negative'")
+            .price-change.text-center.lh0(
+              v-if="priceChange && stock.price"
+              :class="priceChange >= 0 ? 'currency-positive' : 'currency-negative'")
               .text-bold
                 span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
               .size--xs ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
@@ -96,8 +98,8 @@
         .title2.mb4.w-flex.gap2
           | Place
           w-select.no-grow(
-                v-model="orderForm.type"
-                :items="orderTypes"
+            v-model="orderForm.type"
+            :items="orderTypes"
             outline
             round)
             template(#selection="{ item }")

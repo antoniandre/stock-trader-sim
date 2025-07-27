@@ -38,7 +38,7 @@
       //- Timeframe Selector
       .timeframe-selector.w-flex.gap1.no-grow
         w-select.timeframe-btn(
-          :value="selectedTimeframe"
+          :model-value="selectedTimeframe"
           :items="availableTimeframes"
           @input="changeTimeframe"
           outline)
