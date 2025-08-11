@@ -342,7 +342,7 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
   }
 
   try {
-    const { alpacaTimeframe, limit, startDate } = getPeriodParameters(period, timeframe)
+    const { alpacaTimeframe, limit } = getPeriodParameters(period, timeframe)
     let endDate = getEasternTime()
 
     // For intraday data, adjust end time to respect free tier 15-minute delay
@@ -351,15 +351,20 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
       endDate = fifteenMinutesAgo
     }
 
+    // FIXED: For primary data request, get recent data first, then extend backwards if needed
+    // Start from a reasonable recent point to ensure we get current data, not old data due to limits
+    const recentStartDate = getRecentStartDate(period, endDate)
+
     const params = new URLSearchParams({
       timeframe: alpacaTimeframe,
       limit: limit.toString(),
-      start: startDate.toISOString(),
+      start: recentStartDate.toISOString(),
       end: endDate.toISOString()
     })
 
     const url = `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars?${params}`
     console.log(`📊 Fetching ${symbol} data: ${period}/${alpacaTimeframe}`)
+    console.log(`📅 Date range: ${recentStartDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]} (today: ${new Date().toISOString().split('T')[0]})`)
 
     const { data } = await axios.get(url, { headers: HEADERS })
 
@@ -380,6 +385,15 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
 
     console.log(`✅ Fetched ${historicalData.length} data points for ${symbol}`)
     console.log(`📊 Data range: ${new Date(historicalData[0]?.timestamp).toLocaleString()} to ${new Date(historicalData[historicalData.length - 1]?.timestamp).toLocaleString()}`)
+
+    // Check if the data ends more than 2 days ago (indicating stale data)
+    const lastDataTime = historicalData[historicalData.length - 1]?.timestamp
+    const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000)
+    if (lastDataTime < twoDaysAgo) {
+      console.warn(`⚠️ Data for ${symbol} ends on ${new Date(lastDataTime).toDateString()}, which is more than 2 days old. Today is ${new Date().toDateString()}`)
+      console.warn(`⚠️ This could be due to: market closure, weekends, holidays, or API limitations`)
+    }
+
     return { symbol, period, timeframe: alpacaTimeframe, data: historicalData }
   }
   catch (error) {
@@ -468,13 +482,11 @@ function calculateDataLimitForRange(timeframe, rangeDays) {
 }
 
 function getPeriodParameters(period, timeframe = null) {
-  const easternTime = getEasternTime()
   const timeframeMap = { '1D': timeframe || '5Min', '1W': timeframe || '1Hour', '1M': timeframe || '1Day', '3M': timeframe || '1Day' }
   const selectedTimeframe = timeframe || timeframeMap[period]
   const limit = calculateDataLimit(period, selectedTimeframe)
-  const startDate = calculateStartDate(period, easternTime)
 
-  return { alpacaTimeframe: selectedTimeframe, limit, startDate }
+  return { alpacaTimeframe: selectedTimeframe, limit }
 }
 
 function calculateDataLimit(period, timeframe) {
@@ -495,9 +507,25 @@ function calculateDataLimit(period, timeframe) {
 }
 
 function calculateStartDate(period, easternTime) {
+  // Start date should be far back to allow for chart panning/scrolling
+  // For 1D period, go back 7 days so users can pan back in the chart to see historical context
   const periodDays = { '1D': 7, '1W': 14, '1M': 45, '3M': 120, '12M': 400 }
   const days = periodDays[period] || 30
   return new Date(easternTime.getTime() - days * 24 * 60 * 60 * 1000)
+}
+
+function getRecentStartDate(period, endDate) {
+  // For the primary data request, start from a recent point to ensure we get current data
+  // This prevents hitting limits with old data when we actually want recent data
+  const recentDays = {
+    '1D': 3,    // For intraday, go back 3 days to ensure we get the most recent trading day
+    '1W': 10,   // For weekly, go back 10 days
+    '1M': 35,   // For monthly, go back 35 days
+    '3M': 100,  // For 3M, go back 100 days
+    '12M': 380  // For yearly, go back 380 days
+  }
+  const days = recentDays[period] || 7
+  return new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000)
 }
 
 export async function initializeMarketData() {
@@ -518,6 +546,12 @@ let lastPollTime = 0
 
 export function startPricePolling(subscribedStocks, broadcast) {
   if (IS_SIMULATION || isPollingActive) return
+
+  // Don't start polling if WebSocket is connected and active
+  if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1) {
+    console.log('🔄 WebSocket is active - skipping price polling to avoid conflicts')
+    return
+  }
 
   console.log('🔄 Starting price polling...')
   isPollingActive = true

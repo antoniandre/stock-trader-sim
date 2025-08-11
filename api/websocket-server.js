@@ -32,6 +32,14 @@ function cleanupAlpacaConnection() {
   }
   isAuthenticated = false
   console.log('🧹 Alpaca WebSocket connection cleaned up')
+
+  // Restart price polling as fallback when WebSocket is disconnected
+  if (subscribedStocks.size > 0) {
+    import('./market-data.js').then(({ startPricePolling }) => {
+      console.log('🔄 WebSocket disconnected - restarting price polling as fallback')
+      startPricePolling(subscribedStocks, broadcast)
+    })
+  }
 }
 
 // Market Status Functions
@@ -272,6 +280,12 @@ function handleAlpacaMessage(message) {
     isAuthenticated = true
     reconnectAttempts = 0
 
+    // Stop price polling since WebSocket is now active
+    import('./market-data.js').then(({ stopPricePolling }) => {
+      stopPricePolling()
+      console.log('🔄 Stopped price polling - WebSocket now handling real-time updates')
+    })
+
     if (subscribedStocks.size > 0) {
       const stocksArray = Array.from(subscribedStocks)
       const subscribeMessage = { action: 'subscribe', trades: stocksArray, quotes: stocksArray }
@@ -287,6 +301,8 @@ function handleAlpacaMessage(message) {
     const symbol = message.S
     const price = message.p
     console.log(`💰 Trade received: ${symbol} @ $${price}`)
+
+    // Always update and broadcast trade prices as they represent actual transactions
     state.stockPrices[symbol] = price
     broadcastPriceUpdate(symbol, price)
   }
@@ -299,8 +315,13 @@ function handleAlpacaMessage(message) {
 
     if (price > 0) {
       console.log(`📈 Quote received: ${symbol} @ $${price}`)
-      state.stockPrices[symbol] = price
-      broadcastPriceUpdate(symbol, price)
+
+      // Only update and broadcast if price actually changed to avoid spam
+      const currentPrice = state.stockPrices[symbol]
+      if (!currentPrice || Math.abs(currentPrice - price) > 0.001) {
+        state.stockPrices[symbol] = price
+        broadcastPriceUpdate(symbol, price)
+      }
     }
   }
 
