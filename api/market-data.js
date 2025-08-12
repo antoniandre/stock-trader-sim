@@ -343,13 +343,7 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
 
   try {
     const { alpacaTimeframe, limit, maxHistoricalDays } = getPeriodParameters(period, timeframe)
-    let endDate = getEasternTime()
-
-    // For intraday data, adjust end time to respect free tier 15-minute delay
-    if (['1Min', '5Min', '10Min', '15Min', '30Min', '1Hour'].includes(alpacaTimeframe)) {
-      const fifteenMinutesAgo = new Date(endDate.getTime() - 15 * 60 * 1000)
-      endDate = fifteenMinutesAgo
-    }
+    const endDate = getEasternTime()
 
     // Calculate optimal start date to maximize historical data while staying within limits.
     const startDate = calculateOptimalStartDate(period, endDate, maxHistoricalDays)
@@ -417,13 +411,7 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
 
   try {
     const { alpacaTimeframe, limit, maxHistoricalDays } = getPeriodParameters(period, timeframe)
-    let endDate = getEasternTime()
-
-    // For intraday data, adjust end time to respect free tier 15-minute delay.
-    if (['1Min', '5Min', '10Min', '15Min', '30Min', '1Hour'].includes(alpacaTimeframe)) {
-      const fifteenMinutesAgo = new Date(endDate.getTime() - 15 * 60 * 60 * 1000)
-      endDate = fifteenMinutesAgo
-    }
+    const endDate = getEasternTime()
 
     // Progressive loading: Start with recent data for immediate display.
     const recentStartDate = getRecentStartDate(period, endDate)
