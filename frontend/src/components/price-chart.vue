@@ -366,27 +366,10 @@ const focusOnRecentData = () => {
 
   console.log(`📊 Starting intelligent auto-focus with ${chartData.length} data points`)
 
-  // Enhanced focus logic for large datasets.
   const totalPoints = chartData.length
 
-  // Calculate intelligent focus range based on dataset size and timeframe.
-  let focusPoints
-  if (totalPoints <= 100) {
-    // Small dataset: show most of it
-    focusPoints = Math.max(20, Math.floor(totalPoints * 0.8))
-  }
-  else if (totalPoints <= 500) {
-    // Medium dataset: show recent 30-50%.
-    focusPoints = Math.max(50, Math.floor(totalPoints * 0.4))
-  }
-  else if (totalPoints <= 2000) {
-    // Large dataset: show recent 15-25%.
-    focusPoints = Math.max(100, Math.floor(totalPoints * 0.2))
-  }
-  else {
-    // Very large dataset: show recent 10-15% but cap for performance.
-    focusPoints = Math.min(400, Math.max(200, Math.floor(totalPoints * 0.12)))
-  }
+  // Smart focus calculation based on timeframe and period.
+  let focusPoints = calculateSmartFocusPoints(totalPoints)
 
   // Ensure we're focusing on the most recent data.
   const startIndex = Math.max(0, totalPoints - focusPoints)
@@ -397,29 +380,9 @@ const focusOnRecentData = () => {
   const startTime = recentData[0].x
   const endTime = recentData[recentData.length - 1].x
 
-  // Smart padding calculation based on data density and timeframe
+  // Smart padding calculation based on timeframe.
   const timeRange = endTime - startTime
-  let timePadding
-
-  // Determine timeframe from data density.
-  const avgTimeBetweenPoints = timeRange / recentData.length
-  const isIntraday = avgTimeBetweenPoints < 24 * 60 * 60 * 1000 // Less than 1 day between points.
-
-  if (isIntraday) {
-    // For intraday data: 5-10% padding with minimum of 30 minutes.
-    timePadding = Math.max(30 * 60 * 1000, timeRange * 0.08)
-  }
-  else {
-    // For daily data: 3-5% padding with minimum of 1 day
-    timePadding = Math.max(24 * 60 * 60 * 1000, timeRange * 0.05)
-  }
-
-  // Ensure minimum readable time range
-  const minimumTimeRange = isIntraday ? 30 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000 // 30 min or 1 week.
-  if (timeRange < minimumTimeRange) {
-    const additionalPadding = (minimumTimeRange - timeRange) / 2
-    timePadding = Math.max(timePadding, additionalPadding)
-  }
+  const timePadding = calculateSmartTimePadding(timeRange)
 
   const focusMin = new Date(startTime - timePadding)
   const focusMax = new Date(endTime + timePadding)
@@ -443,7 +406,7 @@ const focusOnRecentData = () => {
     }
   })
 
-  // Smart Y-axis padding based on price volatility
+  // Smart Y-axis padding based on price volatility.
   const priceRange = maxPrice - minPrice
   const volatilityRatio = priceRange / ((minPrice + maxPrice) / 2) // Relative volatility.
 
@@ -466,15 +429,14 @@ const focusOnRecentData = () => {
   const yMin = minPrice - pricePadding
   const yMax = maxPrice + pricePadding
 
-  // Enhanced logging with more context.
-  const datasetAge = totalPoints > 0 ? new Date() - new Date(chartData[0].x) : 0
-  const datasetAgeDays = Math.floor(datasetAge / (24 * 60 * 60 * 1000))
+  // Enhanced logging with timeframe context.
+  const timeframeInfo = getTimeframeDisplayInfo(props.selectedTimeframe, timeRange)
 
-  console.log(`📊 Intelligent auto-focus applied:`)
-  console.log(`   - Dataset: ${totalPoints} total points spanning ${datasetAgeDays} days`)
-  console.log(`   - Focus: ${focusPoints} recent points (${((focusPoints/totalPoints)*100).toFixed(1)}% of dataset)`)
+  console.log(`📊 Smart auto-focus applied:`)
+  console.log(`   - Timeframe: ${props.selectedTimeframe} (${timeframeInfo.description})`)
+  console.log(`   - Dataset: ${totalPoints} total points, focusing on ${focusPoints} recent points`)
+  console.log(`   - Focus coverage: ${timeframeInfo.coverage}`)
   console.log(`   - Time range: ${focusMin.toLocaleString()} to ${focusMax.toLocaleString()}`)
-  console.log(`   - Duration: ${isIntraday ? ((focusMax - focusMin) / (60 * 1000)).toFixed(0) + ' minutes' : ((focusMax - focusMin) / (24 * 60 * 60 * 1000)).toFixed(1) + ' days'}`)
   console.log(`   - Price range: $${yMin.toFixed(2)} - $${yMax.toFixed(2)} (volatility: ${(volatilityRatio*100).toFixed(2)}%)`)
 
   zoomRange.value = { min: focusMin, max: focusMax }
@@ -496,6 +458,122 @@ const focusOnRecentData = () => {
       chart.update('none')
     }
   })
+}
+
+// Smart focus calculation based on timeframe.
+function calculateSmartFocusPoints(totalPoints) {
+  const timeframe = props.selectedTimeframe
+  const period = props.selectedPeriod
+
+  // Timeframe-specific focus logic.
+  const focusStrategy = {
+    '1Min': {
+      '1D': Math.min(totalPoints, 120),   // 2 hours of 1-min data
+      '1W': Math.min(totalPoints, 240),   // 4 hours of 1-min data
+      '1M': Math.min(totalPoints, 480),   // 8 hours of 1-min data
+      '3M': Math.min(totalPoints, 960)    // 16 hours of 1-min data
+    },
+    '5Min': {
+      '1D': Math.min(totalPoints, 48),    // 4 hours of 5-min data
+      '1W': Math.min(totalPoints, 96),    // 8 hours of 5-min data
+      '1M': Math.min(totalPoints, 144),   // 12 hours of 5-min data
+      '3M': Math.min(totalPoints, 288)    // 24 hours of 5-min data
+    },
+    '15Min': {
+      '1D': Math.min(totalPoints, 26),    // ~6.5 hours (1 trading day)
+      '1W': Math.min(totalPoints, 52),    // ~2 trading days
+      '1M': Math.min(totalPoints, 104),   // ~4 trading days
+      '3M': Math.min(totalPoints, 208)    // ~8 trading days
+    },
+    '30Min': {
+      '1D': Math.min(totalPoints, 13),    // ~6.5 hours (1 trading day)
+      '1W': Math.min(totalPoints, 26),    // ~2 trading days
+      '1M': Math.min(totalPoints, 52),    // ~4 trading days
+      '3M': Math.min(totalPoints, 104)    // ~8 trading days
+    },
+    '1Hour': {
+      '1D': Math.min(totalPoints, 20),    // ~3 trading days
+      '1W': Math.min(totalPoints, 35),    // ~1 trading week
+      '1M': Math.min(totalPoints, 140),   // ~1 trading month
+      '3M': Math.min(totalPoints, 280)    // ~2 trading months
+    },
+    '1Day': {
+      '1D': Math.min(totalPoints, 5),     // 5 days
+      '1W': Math.min(totalPoints, 10),    // 2 weeks
+      '1M': Math.min(totalPoints, 30),    // 1 month
+      '3M': Math.min(totalPoints, 90),    // 3 months
+      '12M': Math.min(totalPoints, 365)   // 1 year
+    }
+  }
+
+  const strategy = focusStrategy[timeframe]
+  if (strategy && strategy[period]) {
+    return strategy[period]
+  }
+
+  // Fallback logic for unknown combinations.
+  if (totalPoints <= 50) return Math.max(10, Math.floor(totalPoints * 0.8))
+  if (totalPoints <= 200) return Math.max(30, Math.floor(totalPoints * 0.4))
+  if (totalPoints <= 1000) return Math.max(60, Math.floor(totalPoints * 0.2))
+
+  return Math.min(200, Math.max(100, Math.floor(totalPoints * 0.1)))
+}
+
+// Smart time padding based on timeframe.
+function calculateSmartTimePadding(timeRange) {
+  const timeframe = props.selectedTimeframe
+
+  // Base padding as percentage of time range.
+  const basePaddingRatio = {
+    '1Min': 0.05,   // 5% padding for 1-min (tight focus)
+    '5Min': 0.08,   // 8% padding for 5-min
+    '15Min': 0.10,  // 10% padding for 15-min
+    '30Min': 0.12,  // 12% padding for 30-min
+    '1Hour': 0.15,  // 15% padding for 1-hour
+    '1Day': 0.20    // 20% padding for daily
+  }
+
+  const paddingRatio = basePaddingRatio[timeframe] || 0.10
+  const calculatedPadding = timeRange * paddingRatio
+
+  // Minimum padding based on timeframe.
+  const minimumPadding = {
+    '1Min': 5 * 60 * 1000,      // 5 minutes minimum
+    '5Min': 15 * 60 * 1000,     // 15 minutes minimum
+    '15Min': 30 * 60 * 1000,    // 30 minutes minimum
+    '30Min': 60 * 60 * 1000,    // 1 hour minimum
+    '1Hour': 2 * 60 * 60 * 1000, // 2 hours minimum
+    '1Day': 24 * 60 * 60 * 1000  // 1 day minimum
+  }
+
+  const minPadding = minimumPadding[timeframe] || 15 * 60 * 1000
+
+  return Math.max(calculatedPadding, minPadding)
+}
+
+// Helper function for display information.
+function getTimeframeDisplayInfo(timeframe, timeRange) {
+  const hours = timeRange / (60 * 60 * 1000)
+  const days = timeRange / (24 * 60 * 60 * 1000)
+
+  let coverage, description
+
+  if (hours < 1) coverage = `${Math.round(timeRange / (60 * 1000))} minutes`
+  else if (hours < 24) coverage = `${hours.toFixed(1)} hours`
+  else coverage = `${days.toFixed(1)} days`
+
+  const descriptions = {
+    '1Min': 'High-resolution intraday',
+    '5Min': 'Detailed intraday',
+    '15Min': 'Standard intraday',
+    '30Min': 'Broad intraday',
+    '1Hour': 'Hourly data',
+    '1Day': 'Daily data'
+  }
+
+  description = descriptions[timeframe] || 'Unknown timeframe'
+
+  return { coverage, description }
 }
 
 // Data Processing
@@ -557,12 +635,12 @@ const indicators = useTechnicalIndicators(ohlcData, volumeData)
 const vwapData = computed(() => {
   if (ohlcData.value.length === 0) return []
 
-  // Check if we have real volume data
+  // Check if we have real volume data.
   const volumes = ohlcData.value.map(point => point.volume || 0)
   const hasRealVolume = volumes.some(v => v > 0) && new Set(volumes).size > 1
 
   if (!hasRealVolume) {
-    // Fallback to simple moving average of typical price
+    // Fallback to simple moving average of typical price.
     const typicalPrices = ohlcData.value.map(point => (point.high + point.low + point.close) / 3)
     const period = 20
     const smaData = []
@@ -577,8 +655,8 @@ const vwapData = computed(() => {
     return smaData
   }
   else {
-    // Calculate real VWAP with actual volume data
-    let cumulativeTpv = 0 // Typical Price * Volume
+    // Calculate real VWAP with actual volume data.
+    let cumulativeTpv = 0 // Typical Price * Volume.
     let cumulativeVolume = 0
     const vwap = []
 
@@ -598,24 +676,24 @@ const vwapData = computed(() => {
   }
 })
 
-// EMA calculation function
+// EMA calculation function.
 function calculateSimpleEMA(prices, period) {
   if (!prices || !Array.isArray(prices) || prices.length < period) return []
 
   const ema = []
   const multiplier = 2 / (period + 1)
 
-  // Start with simple moving average for first value
+  // Start with simple moving average for first value.
   let sum = 0
   for (let i = 0; i < period; i++) {
     sum += prices[i]
   }
 
-  // Fill the EMA array with null values for the initial period
+  // Fill the EMA array with null values for the initial period.
   for (let i = 0; i < period - 1; i++) {
     ema[i] = null
   }
-  ema[period - 1] = sum / period // First valid EMA value
+  ema[period - 1] = sum / period // First valid EMA value.
 
   // Calculate EMA for remaining values
   for (let i = period; i < prices.length; i++) {

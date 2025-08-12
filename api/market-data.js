@@ -447,11 +447,11 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
 
     if (!recentBars || recentBars.length === 0) {
       console.warn(`⚠️ No recent data for ${symbol}, trying full range`)
-      // Fallback to original method
+      // Fallback to original method.
       return getStockHistoricalData(symbol, period, timeframe)
     }
 
-    // Convert recent data
+    // Convert recent data.
     const recentHistoricalData = recentBars.map(bar => ({
       timestamp: new Date(bar.t).getTime(),
       open: bar.o,
@@ -663,8 +663,8 @@ function getPeriodParameters(period, timeframe = null) {
 }
 
 function calculateDataLimit(period, timeframe) {
-  // Use Alpaca's maximum limit of 10,000 for optimal data retrieval
-  // Adjust based on period and timeframe to balance historical coverage with performance
+  // Use Alpaca's maximum limit of 10,000 for optimal data retrieval.
+  // Adjust based on period and timeframe to balance historical coverage with performance.
 
   if (timeframe === '1Day') {
     // For daily data, we can fetch several years of data efficiently.
@@ -678,7 +678,7 @@ function calculateDataLimit(period, timeframe) {
     return periodLimits[period] || 2000
   }
 
-  // For intraday data, calculate based on trading minutes and desired coverage
+  // For intraday data, calculate based on trading minutes and desired coverage.
   const tradingMinutesPerDay = 390 // 6.5 hours * 60 minutes
   const timeframeMinutes = {
     '1Min': 1,
@@ -704,7 +704,7 @@ function calculateDataLimit(period, timeframe) {
   const days = optimalCoverageDays[period] || 30
   const estimatedDataPoints = Math.ceil((days * tradingMinutesPerDay) / minutes)
 
-  // Ensure we don't exceed Alpaca's 10,000 limit but aim high for maximum coverage
+  // Ensure we don't exceed Alpaca's 10,000 limit but aim high for maximum coverage.
   const targetLimit = Math.min(estimatedDataPoints * 1.2, 10000) // 20% buffer
 
   // Set higher minimums to ensure we get meaningful data.
@@ -722,8 +722,8 @@ function calculateDataLimit(period, timeframe) {
 }
 
 function calculateStartDate(period, easternTime) {
-  // Calculate start dates to maximize historical coverage while being practical
-  // These are generous ranges that will be constrained by the API limits above
+  // Calculate start dates to maximize historical coverage while being practical.
+  // These are generous ranges that will be constrained by the API limits above.
   const periodDays = {
     '1D': 30,    // 1 month back for 1D period
     '1W': 90,    // 3 months back for 1W period
@@ -736,8 +736,8 @@ function calculateStartDate(period, easternTime) {
 }
 
 function getRecentStartDate(period, endDate) {
-  // This function is now used as a fallback for when we need recent data focus
-  // Kept for backward compatibility but optimized for better coverage
+  // This function is now used as a fallback for when we need recent data focus.
+  // Kept for backward compatibility but optimized for better coverage.
   const recentDays = {
     '1D': 7,     // 1 week for recent focus
     '1W': 21,    // 3 weeks for recent focus
@@ -750,22 +750,22 @@ function getRecentStartDate(period, endDate) {
 }
 
 function calculateOptimalStartDate(period, endDate, maxHistoricalDays) {
-  // Start with our ideal start date for maximum coverage
+  // Start with our ideal start date for maximum coverage.
   const idealStartDate = calculateStartDate(period, endDate)
   const daysSinceIdealStart = Math.ceil((endDate - idealStartDate) / (24 * 60 * 60 * 1000))
 
-  // If our ideal range fits within limits, use it
+  // If our ideal range fits within limits, use it.
   if (daysSinceIdealStart <= maxHistoricalDays) {
     return idealStartDate
   }
 
-  // Otherwise, go back as far as we're allowed
+  // Otherwise, go back as far as we're allowed.
   return new Date(endDate.getTime() - maxHistoricalDays * 24 * 60 * 60 * 1000)
 }
 
 function calculateMaxHistoricalDays(period) {
-  // Maximum days we'll go back based on period and practical limits
-  // These align with our data limit calculations above
+  // Maximum days we'll go back based on period and practical limits.
+  // These align with our data limit calculations above.
   const maxDays = {
     '1D': 90,    // 3 months max for 1D
     '1W': 180,   // 6 months max for 1W

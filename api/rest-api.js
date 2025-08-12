@@ -320,13 +320,14 @@ export function createRestApiRoutes() {
   app.get('/api/stocks/:symbol/history', async (req, res) => {
     try {
       const { symbol } = req.params
-      const { period = '1D', timeframe, progressive = 'false' } = req.query
+      const { period = '1D', timeframe, progressive = 'true' } = req.query
 
-      // Use progressive loading if requested for better UX.
+      // Use progressive loading by default for better UX, allow override.
       if (progressive === 'true') {
         const historicalData = await getStockHistoricalDataProgressive(symbol, period, timeframe)
         res.json(historicalData)
-      } else {
+      }
+      else {
         const historicalData = await getStockHistoricalData(symbol, period, timeframe)
         res.json(historicalData)
       }
@@ -337,11 +338,14 @@ export function createRestApiRoutes() {
     }
   })
 
-  // Endpoint for progressive data loading.
+  // Legacy endpoint for progressive data loading (redirects to main endpoint).
   app.get('/api/stocks/:symbol/history/progressive', async (req, res) => {
     try {
       const { symbol } = req.params
       const { period = '1D', timeframe } = req.query
+
+      // Redirect to main endpoint with progressive=true.
+      req.query.progressive = 'true'
       const historicalData = await getStockHistoricalDataProgressive(symbol, period, timeframe)
       res.json(historicalData)
     }
