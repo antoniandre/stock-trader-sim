@@ -51,7 +51,7 @@
     w-button.indicator-btn(:outline="!showRSI" @click="showRSI = !showRSI" xs) RSI
     w-button.indicator-btn(:outline="!showMACD" @click="showMACD = !showMACD" xs) MACD
 
-  //- Main Chart Display - Replace the individual chart sections with synchronized panes
+  //- Main Chart Display
   .charts-wrap.w-flex.column.bdrs2.pa4.w-card(v-if="!isLoadingHistoricalData")
     //- Main Price Chart Pane
     .charts(ref="chartContainer")
@@ -116,6 +116,14 @@
           :tooltip-props="{ sm: true }"
           round)
           icon.size--xs(icon="mdi:refresh")
+        w-button.pa0.op8(
+          width="18"
+          height="18"
+          @click="() => { hasInitialized = false; focusOnRecentData() }"
+          tooltip="Focus on Latest Data"
+          :tooltip-props="{ sm: true }"
+          round)
+          icon.size--xs(icon="mdi:skip-forward")
         .loading-indicator.w-flex.align-center.gap1(v-if="isLoadingAdditionalData")
           w-spinner(size="12" color="primary")
           span.op7 Loading...
@@ -138,7 +146,7 @@ import zoomPlugin from 'chartjs-plugin-zoom'
 import { BarController, BarElement } from 'chart.js'
 import CandlestickChart from './candlestick-chart.vue'
 import DrawingTools from './drawing-tools.vue'
-import { ref, computed, inject } from 'vue'
+import { ref, computed, inject, watch, nextTick } from 'vue'
 import { useTechnicalIndicators } from '@/composables/use-technical-indicators'
 
 const $waveui = inject('$waveui')
@@ -189,6 +197,7 @@ const showMACD = ref(true)
 // Synchronization state.
 const zoomRange = ref({ min: null, max: null })
 const isInternalZoom = ref(false)
+const hasInitialized = ref(false)
 
 // Helper Functions
 // --------------------------------------------------------
@@ -237,10 +246,126 @@ const syncZoom = (sourceChart, zoomState) => {
 // Reset zoom on all charts.
 const resetAllCharts = () => {
   zoomRange.value = { min: null, max: null }
+  hasInitialized.value = false
   getAllChartInstances().forEach(chart => {
-    if (chart && chart.resetZoom) chart.resetZoom()
+    if (chart && chart.resetZoom) {
+      chart.resetZoom()
+
+      // Also reset Y-axis constraints for price charts
+      if (chart.scales.y && !chart.canvas.parentElement.classList.contains('rsi-pane') &&
+          !chart.canvas.parentElement.classList.contains('macd-pane')) {
+        delete chart.scales.y.options.min
+        delete chart.scales.y.options.max
+      }
+    }
   })
   emit('reset-zoom-complete')
+}
+
+// Auto-focus on recent data when chart loads
+const focusOnRecentData = () => {
+  if (hasInitialized.value) {
+    console.log('📊 Auto-focus skipped: already initialized')
+    return
+  }
+
+  const data = props.chartType === 'line' ? props.lineChartData : props.candlestickChartData
+  const chartData = data?.datasets?.[0]?.data
+
+  if (!chartData || chartData.length === 0) {
+    console.log('📊 Auto-focus skipped: no chart data available')
+    return
+  }
+
+  // Don't auto-focus if we're still loading data
+  if (props.isLoadingHistoricalData) {
+    console.log('📊 Auto-focus skipped: still loading historical data')
+    return
+  }
+
+  // Ensure we have a reasonable amount of data before focusing (reduced threshold)
+  if (chartData.length < 5) {
+    console.log(`📊 Auto-focus skipped: insufficient data (${chartData.length} points)`)
+    return
+  }
+
+  console.log(`📊 Starting auto-focus with ${chartData.length} data points`)
+
+  // Focus on the most recent portion of data (last 15% or minimum 100 points, max 300 points)
+  const totalPoints = chartData.length
+  const focusPoints = Math.min(300, Math.max(100, Math.floor(totalPoints * 0.15)))
+  const startIndex = Math.max(0, totalPoints - focusPoints)
+
+  const recentData = chartData.slice(startIndex)
+  if (recentData.length === 0) return
+
+  const startTime = recentData[0].x
+  const endTime = recentData[recentData.length - 1].x
+
+  // Add some padding (10% on each side for time)
+  const timeRange = endTime - startTime
+  let timePadding = timeRange * 0.10
+
+  // Ensure minimum time range for readability (at least 30 minutes for intraday data)
+  const minimumTimeRange = 30 * 60 * 1000 // 30 minutes in milliseconds
+  if (timeRange < minimumTimeRange) {
+    const additionalPadding = (minimumTimeRange - timeRange) / 2
+    timePadding = Math.max(timePadding, additionalPadding)
+  }
+
+  const focusMin = new Date(startTime - timePadding)
+  const focusMax = new Date(endTime + timePadding)
+
+  // Calculate Y-axis range for recent data
+  let minPrice = Infinity
+  let maxPrice = -Infinity
+
+  recentData.forEach(point => {
+    if (props.chartType === 'line') {
+      const price = point.y
+      if (price < minPrice) minPrice = price
+      if (price > maxPrice) maxPrice = price
+    }
+    else {
+      // Candlestick data
+      const high = point.h || point.high
+      const low = point.l || point.low
+      if (low < minPrice) minPrice = low
+      if (high > maxPrice) maxPrice = high
+    }
+  })
+
+  // Add Y-axis padding (3% on each side)
+  const priceRange = maxPrice - minPrice
+  const pricePadding = priceRange * 0.03
+  const yMin = minPrice - pricePadding
+  const yMax = maxPrice + pricePadding
+
+  console.log(`📊 Auto-focusing on recent data:`)
+  console.log(`   - Total points: ${totalPoints}, Focus points: ${focusPoints}`)
+  console.log(`   - Time range: ${focusMin.toLocaleString()} to ${focusMax.toLocaleString()}`)
+  console.log(`   - Time span: ${((focusMax - focusMin) / (60 * 1000)).toFixed(1)} minutes`)
+  console.log(`   - Price range: $${yMin.toFixed(2)} - $${yMax.toFixed(2)}`)
+
+  zoomRange.value = { min: focusMin, max: focusMax }
+  hasInitialized.value = true
+
+  // Apply the zoom to all charts
+  getAllChartInstances().forEach(chart => {
+    if (chart && chart.scales && chart.scales.x && chart.scales.x.options) {
+      chart.scales.x.options.min = focusMin
+      chart.scales.x.options.max = focusMax
+
+      // Set Y-axis range for price charts (not indicators)
+      if (chart.scales.y && !chart.canvas.parentElement.classList.contains('rsi-pane') &&
+          !chart.canvas.parentElement.classList.contains('macd-pane')) {
+        chart.scales.y.options.min = yMin
+        chart.scales.y.options.max = yMax
+      }
+
+      chart.update('none')
+    }
+  })
 }
 
 // Data Processing
@@ -944,12 +1069,53 @@ function resetZoom() {
   resetAllCharts()
 }
 
+// Watchers for auto-focusing on data changes
+// --------------------------------------------------------
+watch(
+  () => [props.lineChartData, props.candlestickChartData, props.isLoadingHistoricalData],
+  async ([lineData, candleData, isLoading]) => {
+    if (isLoading) return
+
+    // Only auto-focus if we have meaningful data
+    const data = props.chartType === 'line' ? lineData : candleData
+    const chartData = data?.datasets?.[0]?.data
+
+    if (!chartData || chartData.length < 5) {  // Reduced from 10 to 5
+      console.log('📊 Data watcher: insufficient data for auto-focus')
+      return
+    }
+
+    console.log(`📊 Data watcher triggered: ${chartData.length} points available, hasInitialized: ${hasInitialized.value}`)
+
+    // Wait for next tick to ensure charts are rendered
+    await nextTick()
+
+    // Small delay to ensure chart instances are fully ready
+    setTimeout(() => {
+      focusOnRecentData()
+    }, 100) // Reduced delay back to 100ms
+  },
+  { deep: true, immediate: true } // Changed to immediate: true to trigger on mount
+)
+
+// Watch for symbol changes to reset initialization
+watch(() => props.symbol, () => {
+  hasInitialized.value = false
+})
+
+// Watch for period/timeframe changes to reset initialization
+watch(() => [props.selectedPeriod, props.selectedTimeframe], () => {
+  console.log('📊 Period/timeframe changed - resetting initialization')
+  hasInitialized.value = false
+})
+
 // Expose refs and methods for parent access if needed.
 defineExpose({
   chartContainer,
   lineChartRef,
   candleChartRef,
-  resetZoom
+  resetZoom,
+  focusOnRecentData
 })
 </script>
 
