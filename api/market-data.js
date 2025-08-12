@@ -335,6 +335,10 @@ export async function getAllTradableStocks() {
 
 // Historical Data Functions
 // --------------------------------------------------------
+// STRATEGY: We fetch substantial amounts of historical data to enable seamless chart interaction.
+// This allows users to pan back in time and zoom out without additional API calls or loading delays.
+// The frontend chart will auto-focus on recent data but keeps all historical data available.
+
 export async function getStockHistoricalData(symbol, period = '1D', timeframe = null) {
   if (IS_SIMULATION) {
     console.log(`🧪 [SIM] Generating mock data for ${symbol} (${period}, ${timeframe || 'auto'})`)
@@ -346,6 +350,7 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
     const endDate = getEasternTime()
 
     // Calculate optimal start date to maximize historical data while staying within limits.
+    // This gives users plenty of data to pan back through without hitting API limits.
     const startDate = calculateOptimalStartDate(period, endDate, maxHistoricalDays)
 
     console.log(`📊 Fetching ${symbol} data: ${period}/${alpacaTimeframe}`)
@@ -353,6 +358,7 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
     console.log(`📈 Expected data points: ~${limit} (limit: ${limit})`)
 
     // Fetch data with pagination support for maximum historical coverage.
+    // This ensures we get as much data as possible within Alpaca's limits.
     const allBars = await fetchHistoricalDataWithPagination(symbol, alpacaTimeframe, startDate, endDate, limit)
 
     if (!allBars || allBars.length === 0) {
@@ -403,6 +409,10 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
 }
 
 // Enhanced function with progressive loading strategy.
+// PROGRESSIVE LOADING STRATEGY:
+// Phase 1: Fetch recent data first for immediate chart display (better UX)
+// Phase 2: Load full historical data in background for seamless panning/zooming
+// This approach gives users instant charts while building a rich dataset behind the scenes.
 export async function getStockHistoricalDataProgressive(symbol, period = '1D', timeframe = null) {
   if (IS_SIMULATION) {
     console.log(`🧪 [SIM] Generating mock data for ${symbol} (${period}, ${timeframe || 'auto'})`)
@@ -414,6 +424,7 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
     const endDate = getEasternTime()
 
     // Progressive loading: Start with recent data for immediate display.
+    // For 1D period, this focuses on current trading day for immediate intraday view.
     const recentStartDate = getRecentStartDate(period, endDate)
     const fullStartDate = calculateOptimalStartDate(period, endDate, maxHistoricalDays)
 
@@ -421,7 +432,8 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
     console.log(`📅 Phase 1 - Recent data: ${recentStartDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`)
     console.log(`📅 Phase 2 - Full range: ${fullStartDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`)
 
-    // Phase 1: Fetch recent data first (larger initial request for better UX).
+    // Phase 1: Fetch recent data first (60% of limit for immediate display).
+    // This ensures users see charts quickly, especially important for intraday trading.
     const recentLimit = Math.min(2000, Math.floor(limit * 0.6)) // 60% of total limit for recent data.
     console.log(`📊 Fetching recent data (${recentLimit} points max)...`)
 
@@ -463,16 +475,17 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
     }
 
     // Phase 2: Load full historical data in background if needed.
+    // This runs asynchronously so users can interact with charts while data loads.
     if (fullStartDate < recentStartDate) {
       console.log(`📊 Starting background load of historical data...`)
 
-      // Don't await this - let it load in background.
+      // Don't await this - let it load in background for seamless UX.
       fetchHistoricalDataWithPagination(
         symbol,
         alpacaTimeframe,
         fullStartDate,
         recentStartDate, // End where recent data began.
-        limit - recentLimit // Remaining limit.
+        limit - recentLimit // Remaining limit for historical data.
       ).then(historicalBars => {
         if (historicalBars && historicalBars.length > 0) {
           const historicalData = historicalBars.map(bar => ({
@@ -488,6 +501,7 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
           console.log(`✅ Phase 2 complete: ${historicalData.length} additional historical points`)
 
           // Broadcast the additional data to any listeners.
+          // This allows charts to seamlessly extend their dataset without user interaction.
           if (typeof global !== 'undefined' && global.broadcastHistoricalDataUpdate) {
             global.broadcastHistoricalDataUpdate({
               symbol,
@@ -513,17 +527,22 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
 }
 
 // New function to fetch data with pagination support.
+// PAGINATION STRATEGY:
+// Alpaca limits individual requests to 10,000 bars, but we want more historical data.
+// This function automatically handles pagination using next_page_token to fetch
+// comprehensive datasets that exceed the single-request limit.
+// Result: Users get seamless charts with extensive historical data for analysis.
 async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, endDate, maxLimit = 10000) {
   const allBars = []
   let pageToken = null
   let requestCount = 0
-  const maxRequests = 10 // Prevent infinite loops.
+  const maxRequests = 10 // Prevent infinite loops and respect API rate limits.
 
   do {
     try {
       const params = new URLSearchParams({
         timeframe: timeframe,
-        limit: Math.min(10000, maxLimit).toString(), // Use Alpaca's maximum limit of 10,000.
+        limit: Math.min(10000, maxLimit).toString(), // Use Alpaca's maximum limit of 10,000 per request.
         start: startDate.toISOString(),
         end: endDate.toISOString()
       })
@@ -542,22 +561,22 @@ async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, e
         console.log(`📊 Fetched ${data.bars.length} bars (total: ${allBars.length})`)
       }
 
-      // Check for next page.
+      // Check for next page - Alpaca provides this token when more data is available.
       pageToken = data.next_page_token
       requestCount++
 
-      // Safety check to prevent too many requests.
+      // Safety check to prevent too many requests and respect API rate limits.
       if (requestCount >= maxRequests) {
         console.warn(`⚠️ Reached maximum pagination requests (${maxRequests}) for ${symbol}`)
         break
       }
 
-      // Stop if we have enough data or no more pages.
+      // Stop if we have enough data or no more pages available.
       if (!pageToken || allBars.length >= maxLimit) {
         break
       }
 
-      // Small delay between requests to be respectful to API.
+      // Small delay between requests to be respectful to API rate limits.
       await new Promise(resolve => setTimeout(resolve, 100))
 
     }
@@ -658,24 +677,31 @@ function getPeriodParameters(period, timeframe = null) {
 }
 
 function calculateDataLimit(period, timeframe) {
+  // DATA FETCHING STRATEGY:
+  // We aim to fetch substantial historical data to enable seamless chart interactions.
+  // Users can pan back weeks/months and zoom out without additional API calls.
+  // We balance this with API limits (10,000 max) and performance considerations.
+
   // Use Alpaca's maximum limit of 10,000 for optimal data retrieval.
   // Adjust based on period and timeframe to balance historical coverage with performance.
 
   if (timeframe === '1Day') {
     // For daily data, we can fetch several years of data efficiently.
+    // Daily bars are lightweight so we can afford more historical coverage.
     const periodLimits = {
-      '1D': 100,    // ~3 months of daily data.
-      '1W': 500,    // ~2 years of daily data.
-      '1M': 2000,   // ~5 years of daily data.
-      '3M': 5000,   // ~13 years of daily data.
-      '1Y': 8000,   // ~22 years of daily data (1Y period gets more context).
-      '5Y': 10000,  // Maximum 10,000 daily bars (~27 years, will be limited by date range).
-      '12M': 10000  // Maximum available daily data.
+      '1D': 100,    // ~3 months of daily data (for context when zooming out).
+      '1W': 500,    // ~2 years of daily data (weekly view needs more context).
+      '1M': 2000,   // ~5 years of daily data (monthly view benefits from long history).
+      '3M': 5000,   // ~13 years of daily data (quarterly analysis needs extensive history).
+      '1Y': 8000,   // ~22 years of daily data (yearly view gets maximum context).
+      '5Y': 10000,  // Maximum 10,000 daily bars (~27 years, limited by date range).
+      '12M': 10000  // Maximum available daily data for comprehensive analysis.
     }
     return periodLimits[period] || 2000
   }
 
   // For intraday data, calculate based on trading minutes and desired coverage.
+  // Intraday bars are more data-intensive but provide granular detail for active trading.
   const tradingMinutesPerDay = 390 // 6.5 hours * 60 minutes.
   const timeframeMinutes = {
     '1Min': 1,
@@ -690,31 +716,34 @@ function calculateDataLimit(period, timeframe) {
   const minutes = timeframeMinutes[timeframe] || 5
 
   // Calculate optimal coverage days based on period.
+  // More coverage = better panning/zooming experience but higher API usage.
   const optimalCoverageDays = {
-    '1D': 15,   // 3 weeks for intraday (more context).
-    '1W': 30,   // 1 month for intraday.
-    '1M': 90,   // 3 months for intraday.
-    '3M': 180,  // 6 months for intraday.
-    '1Y': 365,  // 1 year for intraday (maximum useful coverage).
-    '5Y': 730,  // 2 years for intraday (practical limit for intraday data).
-    '12M': 365  // 1 year for intraday (maximum useful coverage).
+    '1D': 15,   // 3 weeks for intraday (allows panning back to see patterns).
+    '1W': 30,   // 1 month for weekly view (sufficient context for weekly analysis).
+    '1M': 90,   // 3 months for monthly view (quarterly context for monthly trends).
+    '3M': 180,  // 6 months for quarterly view (semi-annual context).
+    '1Y': 365,  // 1 year for yearly view (full year of intraday data).
+    '5Y': 730,  // 2 years for 5-year view (practical limit for intraday storage).
+    '12M': 365  // 1 year for 12-month view (balance between detail and coverage).
   }
 
   const days = optimalCoverageDays[period] || 30
   const estimatedDataPoints = Math.ceil((days * tradingMinutesPerDay) / minutes)
 
   // Ensure we don't exceed Alpaca's 10,000 limit but aim high for maximum coverage.
+  // The 20% buffer accounts for market holidays and partial trading days.
   const targetLimit = Math.min(estimatedDataPoints * 1.2, 10000) // 20% buffer.
 
   // Set higher minimums to ensure we get meaningful data.
+  // These minimums prevent too-sparse datasets that would hurt chart quality.
   const minimumPoints = {
-    '1D': 1000,  // At least 1000 points for 1D period (more data for better analysis).
-    '1W': 2000,  // At least 2000 points for 1W period.
-    '1M': 3000,  // At least 3000 points for 1M period.
-    '3M': 5000,  // At least 5000 points for 3M period.
-    '1Y': 8000,  // At least 8000 points for 1Y period.
-    '5Y': 10000, // Maximum 10000 points for 5Y period.
-    '12M': 8000  // At least 8000 points for 12M period.
+    '1D': 1000,  // At least 1000 points for 1D period (ensures detailed intraday view).
+    '1W': 2000,  // At least 2000 points for 1W period (weekly patterns need density).
+    '1M': 3000,  // At least 3000 points for 1M period (monthly trends require detail).
+    '3M': 5000,  // At least 5000 points for 3M period (quarterly analysis needs depth).
+    '1Y': 8000,  // At least 8000 points for 1Y period (yearly view gets priority).
+    '5Y': 10000, // Maximum 10000 points for 5Y period (use full API allowance).
+    '12M': 8000  // At least 8000 points for 12M period (comprehensive annual data).
   }
 
   const minPoints = minimumPoints[period] || 1000
@@ -723,32 +752,42 @@ function calculateDataLimit(period, timeframe) {
 }
 
 function calculateStartDate(period, easternTime) {
+  // HISTORICAL RANGE CALCULATION:
+  // These are generous start dates that maximize historical coverage for seamless chart interaction.
+  // The actual data fetched will be constrained by the limits calculated above.
+  // Goal: Give users as much historical context as possible for panning and analysis.
+
   // Calculate start dates to maximize historical coverage while being practical.
   // These are generous ranges that will be constrained by the API limits above.
   const periodDays = {
-    '1D': 30,    // 1 month back for 1D period.
-    '1W': 90,    // 3 months back for 1W period.
-    '1M': 365,   // 1 year back for 1M period.
-    '3M': 1095,  // 3 years back for 3M period.
-    '1Y': 1825,  // 5 years back for 1Y period (maximum historical context).
+    '1D': 30,    // 1 month back for 1D period (allows seeing recent patterns/trends).
+    '1W': 90,    // 3 months back for 1W period (quarterly context for weekly analysis).
+    '1M': 365,   // 1 year back for 1M period (full year context for monthly trends).
+    '3M': 1095,  // 3 years back for 3M period (long-term context for quarterly analysis).
+    '1Y': 1825,  // 5 years back for 1Y period (maximum historical context for yearly view).
     '5Y': 1825,  // 5 years back for 5Y period (exactly what user requested).
-    '12M': 1825  // 5 years back for 12M period.
+    '12M': 1825  // 5 years back for 12M period (comprehensive historical analysis).
   }
   const days = periodDays[period] || 90
   return new Date(easternTime.getTime() - days * 24 * 60 * 60 * 1000)
 }
 
 function getRecentStartDate(period, endDate) {
-  // This function is now used as a fallback for when we need recent data focus.
-  // Kept for backward compatibility but optimized for better coverage.
+  // PROGRESSIVE LOADING - RECENT DATA FOCUS:
+  // This function determines how much "recent" data to fetch in Phase 1 of progressive loading.
+  // For 1D period: Focus on current trading day for immediate intraday chart display.
+  // For longer periods: Fetch proportionally recent data for quick initial chart rendering.
+
+  // This function is used for progressive loading - fetch recent data first for immediate display.
+  // For 1D period, focus on current trading day for initial view.
   const recentDays = {
-    '1D': 7,     // 1 week for recent focus.
-    '1W': 21,    // 3 weeks for recent focus.
-    '1M': 60,    // 2 months for recent focus.
-    '3M': 120,   // 4 months for recent focus.
-    '1Y': 365,   // 1 year for recent focus (full year context).
-    '5Y': 730,   // 2 years for recent focus (recent context for 5Y period).
-    '12M': 365   // 1 year for recent focus.
+    '1D': 1,     // Current trading day for immediate intraday focus (key for day traders).
+    '1W': 7,     // 1 week for recent focus (shows recent weekly activity).
+    '1M': 30,    // 1 month for recent focus (recent monthly trends).
+    '3M': 60,    // 2 months for recent focus (recent quarterly activity).
+    '1Y': 180,   // 6 months for recent focus (recent activity in yearly context).
+    '5Y': 365,   // 1 year for recent focus (recent trends in 5-year context).
+    '12M': 180   // 6 months for recent focus (recent annual trends).
   }
   const days = recentDays[period] || 14
   return new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000)

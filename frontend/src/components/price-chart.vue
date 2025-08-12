@@ -368,17 +368,44 @@ const focusOnRecentData = () => {
 
   const totalPoints = chartData.length
 
-  // Smart focus calculation based on timeframe and period.
-  let focusPoints = calculateSmartFocusPoints(totalPoints)
+  // ENHANCED: For 1D period, focus specifically on today's trading session
+  let focusData, focusDescription
 
-  // Ensure we're focusing on the most recent data.
-  const startIndex = Math.max(0, totalPoints - focusPoints)
-  const recentData = chartData.slice(startIndex)
+  if (props.selectedPeriod === '1D') {
+    // Find today's data specifically for 1D period
+    const today = new Date()
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 30) // 9:30 AM
+    const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 16, 0)   // 4:00 PM
 
-  if (recentData.length === 0) return
+    // Filter data to today's trading session
+    const todaysData = chartData.filter(point => {
+      const pointTime = new Date(point.x)
+      return pointTime >= todayStart && pointTime <= todayEnd
+    })
 
-  const startTime = recentData[0].x
-  const endTime = recentData[recentData.length - 1].x
+    if (todaysData.length > 0) {
+      focusData = todaysData
+      focusDescription = `today's trading session (${todaysData.length} points)`
+      console.log(`📊 1D Period: Focusing on today's trading session with ${todaysData.length} data points`)
+    } else {
+      // Fallback to most recent trading day if today has no data
+      const recentData = chartData.slice(-Math.min(totalPoints, 100)) // Last 100 points as fallback
+      focusData = recentData
+      focusDescription = `most recent trading session (${recentData.length} points)`
+      console.log(`📊 1D Period: No today's data found, focusing on most recent ${recentData.length} points`)
+    }
+  } else {
+    // For other periods, use smart focus calculation based on timeframe and period
+    const focusPoints = calculateSmartFocusPoints(totalPoints)
+    const startIndex = Math.max(0, totalPoints - focusPoints)
+    focusData = chartData.slice(startIndex)
+    focusDescription = `${focusPoints} recent points`
+  }
+
+  if (focusData.length === 0) return
+
+  const startTime = focusData[0].x
+  const endTime = focusData[focusData.length - 1].x
 
   // Smart padding calculation based on timeframe.
   const timeRange = endTime - startTime
@@ -391,13 +418,13 @@ const focusOnRecentData = () => {
   let minPrice = Infinity
   let maxPrice = -Infinity
 
-  recentData.forEach(point => {
-    if (props.chartType === 'line') {
+  focusData.forEach(point => {
+    if (point.y !== undefined) {
+      // Line chart data
       const price = point.y
       if (price < minPrice) minPrice = price
       if (price > maxPrice) maxPrice = price
-    }
-    else {
+    } else {
       // Candlestick data
       const high = point.h || point.high
       const low = point.l || point.low
@@ -433,8 +460,8 @@ const focusOnRecentData = () => {
   const timeframeInfo = getTimeframeDisplayInfo(props.selectedTimeframe, timeRange)
 
   console.log(`📊 Smart auto-focus applied:`)
-  console.log(`   - Timeframe: ${props.selectedTimeframe} (${timeframeInfo.description})`)
-  console.log(`   - Dataset: ${totalPoints} total points, focusing on ${focusPoints} recent points`)
+  console.log(`   - Period: ${props.selectedPeriod}, Timeframe: ${props.selectedTimeframe}`)
+  console.log(`   - Dataset: ${totalPoints} total points, focusing on ${focusDescription}`)
   console.log(`   - Focus coverage: ${timeframeInfo.coverage}`)
   console.log(`   - Time range: ${focusMin.toLocaleString()} to ${focusMax.toLocaleString()}`)
   console.log(`   - Price range: $${yMin.toFixed(2)} - $${yMax.toFixed(2)} (volatility: ${(volatilityRatio*100).toFixed(2)}%)`)
