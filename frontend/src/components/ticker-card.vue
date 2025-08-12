@@ -3,13 +3,21 @@
   .gradient-card__wrap
     .w-flex.justify-between.align-center.gap1
       .w-flex.align-center
-        w-badge.mr3(overlap bottom bg-color="" xs :badge-class="`market-status-indicator market-${currentStatus.status}`")
+        w-badge.mr3(
+          overlap
+          bottom
+          bg-color=""
+          :badge-class="`market-status-indicator market-${currentStatus.status}`"
+          xs)
           template(#badge)
             span.pa1(:title="currentStatus.message")
           ticker-logo(:symbol="stock.symbol")
         .w-flex.align-center.gap2
           .title2.text-bold {{ stock.symbol }}
-      .text-bold.mla.bd1.bdrsr.px2.py1.size--xs(:class="stock.lastSide === 'buy' ? 'success--bg' : 'error--bg'")
+      w-button.text-bold.mla.bd1.bdrsr.px2.py1.size--xs(
+        @click.stop
+        :route="`/trading/${stock.symbol}#buy`"
+        :class="stock.lastSide === 'buy' ? 'success--bg' : 'error--bg'")
         | {{ stock.lastSide.toUpperCase() }}
 
     p.text-bold.mt2

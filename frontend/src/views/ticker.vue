@@ -96,6 +96,7 @@
       //- Trading Form
       .glass-box.pa6
         .title2.mb4.w-flex.gap2
+          a#buy
           | Place
           w-select.no-grow(
             v-model="orderForm.type"
@@ -1353,12 +1354,10 @@ function changePeriod(period) {
     zoomDebounceTimer = null
   }
 
-  console.log(`📊 Period changed to ${period} with timeframe ${selectedTimeframe.value}`)
+  console.log(`📊 Period changed to ${period} with timeframe ${selectedTimeframe.value} - data will be fetched by watcher`)
 }
 
-function changeTimeframe(timeframe) {
-  console.log(`📊 Changing timeframe to ${timeframe}`)
-
+async function changeTimeframe(timeframe) {
   selectedTimeframe.value = timeframe
 
   // Clear cache and reset states to prevent data corruption.
@@ -1376,8 +1375,6 @@ function changeTimeframe(timeframe) {
     clearTimeout(zoomDebounceTimer)
     zoomDebounceTimer = null
   }
-
-  console.log(`📊 Timeframe changed to ${timeframe}`)
 }
 
 async function refreshPrice() {
