@@ -12,6 +12,9 @@ let reconnectAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 5
 const RECONNECT_DELAY = 30000
 
+// Price tracking for stale detection.
+const priceHistory = new Map() // symbol -> { recentTrades: [], lastQuoteTime: timestamp }
+
 // Market Status Tracking
 // --------------------------------------------------------
 let currentMarketStatus = null
@@ -22,6 +25,64 @@ export function broadcast(data) {
   for (const client of state.wsClients) {
     if (client.readyState === 1) client.send(message)
   }
+}
+
+// Smart price update logic to detect and prevent stale prices.
+function shouldUpdatePrice(symbol, newPrice, currentPrice, messageType) {
+  const now = Date.now()
+
+  // Initialize price history for symbol if needed.
+  if (!priceHistory.has(symbol)) {
+    priceHistory.set(symbol, { recentTrades: [], lastQuoteTime: 0, lastTradeTime: 0 })
+  }
+
+  const history = priceHistory.get(symbol)
+
+  // Handle trade messages (always trusted).
+  if (messageType === 'trade') {
+    // Add to recent trades (keep last 10 trades).
+    history.recentTrades.push({ price: newPrice, timestamp: now })
+    if (history.recentTrades.length > 10) {
+      history.recentTrades.shift()
+    }
+    history.lastTradeTime = now
+    return true // Always update for trades.
+  }
+
+  // Handle quote messages (need validation).
+  if (messageType === 'quote') {
+    history.lastQuoteTime = now
+
+    // If no current price, accept the quote.
+    if (!currentPrice) return true
+
+    // If we have recent trades, validate quote against them.
+    if (history.recentTrades.length) {
+      const recentTrades = history.recentTrades.filter(t => now - t.timestamp < 30000) // Last 30 seconds
+
+      if (recentTrades.length) {
+        const avgRecentTradePrice = recentTrades.reduce((sum, t) => sum + t.price, 0) / recentTrades.length
+        const priceDeviation = Math.abs(newPrice - avgRecentTradePrice) / avgRecentTradePrice
+
+        // If quote deviates more than 0.5% from recent trades, it's likely stale.
+        if (priceDeviation > 0.005) {
+          console.warn(`🚫 Rejecting stale quote for ${symbol}: $${newPrice} (recent trades avg: $${avgRecentTradePrice.toFixed(2)}, deviation: ${(priceDeviation * 100).toFixed(2)}%)`)
+          return false
+        }
+      }
+    }
+
+    // Check for significant price changes (basic validation).
+    const priceChange = Math.abs(newPrice - currentPrice) / currentPrice
+    if (priceChange > 0.02) { // More than 2% change.
+      console.warn(`⚠️ Large price change for ${symbol}: $${currentPrice} → $${newPrice} (${(priceChange * 100).toFixed(2)}%)`)
+    }
+
+    // Only update if price actually changed meaningfully.
+    return Math.abs(newPrice - currentPrice) > 0.001
+  }
+
+  return false
 }
 
 function cleanupAlpacaConnection() {
@@ -113,6 +174,12 @@ export function unsubscribeFromStock(symbol) {
   if (subscribedStocks.has(symbol)) {
     subscribedStocks.delete(symbol)
     console.log(`📡 Removing subscription for ${symbol} (${subscribedStocks.size} remaining)`)
+
+    // Clean up price history for unsubscribed stock
+    if (priceHistory.has(symbol)) {
+      priceHistory.delete(symbol)
+      console.log(`🧹 Cleaned up price history for ${symbol}`)
+    }
 
     if (subscribedStocks.size === 0) {
       console.log('🛑 No more subscriptions, stopping price polling')
@@ -302,9 +369,14 @@ function handleAlpacaMessage(message) {
     const price = message.p
     console.log(`💰 Trade received: ${symbol} @ $${price}`)
 
-    // Always update and broadcast trade prices as they represent actual transactions
-    state.stockPrices[symbol] = price
-    broadcastPriceUpdate(symbol, price)
+    // Always update and broadcast trade prices as they represent actual transactions.
+    const currentPrice = state.stockPrices[symbol]
+    const shouldUpdate = shouldUpdatePrice(symbol, price, currentPrice, 'trade')
+
+    if (shouldUpdate) {
+      state.stockPrices[symbol] = price
+      broadcastPriceUpdate(symbol, price)
+    }
   }
 
   if (message.T === 'q') {
@@ -316,9 +388,11 @@ function handleAlpacaMessage(message) {
     if (price > 0) {
       console.log(`📈 Quote received: ${symbol} @ $${price}`)
 
-      // Only update and broadcast if price actually changed to avoid spam
+      // Advanced stale price detection.
       const currentPrice = state.stockPrices[symbol]
-      if (!currentPrice || Math.abs(currentPrice - price) > 0.001) {
+      const shouldUpdate = shouldUpdatePrice(symbol, price, currentPrice, 'quote')
+
+      if (shouldUpdate) {
         state.stockPrices[symbol] = price
         broadcastPriceUpdate(symbol, price)
       }
