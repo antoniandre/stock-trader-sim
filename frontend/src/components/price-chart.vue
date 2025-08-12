@@ -232,15 +232,90 @@ const syncZoom = (sourceChart, zoomState) => {
   isInternalZoom.value = true
   zoomRange.value = { min: zoomState.min, max: zoomState.max }
 
+  // Auto-rescale Y-axis when zooming to show optimal price range.
+  const visibleData = getVisibleDataInRange(zoomState.min, zoomState.max)
+  const { yMin, yMax } = calculateOptimalYRange(visibleData)
+
   getAllChartInstances().forEach(chart => {
     if (chart && chart !== sourceChart && chart.scales && chart.scales.x && chart.scales.x.options) {
       chart.scales.x.options.min = zoomState.min
       chart.scales.x.options.max = zoomState.max
+
+      // Auto-rescale Y-axis for price charts (not indicators).
+      if (chart.scales.y && !chart.canvas.parentElement.classList.contains('rsi-pane') &&
+          !chart.canvas.parentElement.classList.contains('macd-pane')) {
+        if (yMin !== null && yMax !== null) {
+          chart.scales.y.options.min = yMin
+          chart.scales.y.options.max = yMax
+        }
+      }
+
       chart.update('none')
     }
   })
 
   isInternalZoom.value = false
+}
+
+// Helper function to get visible data in a time range.
+const getVisibleDataInRange = (startTime, endTime) => {
+  const data = props.chartType === 'line' ? props.lineChartData : props.candlestickChartData
+  const chartData = data?.datasets?.[0]?.data || []
+
+  return chartData.filter(point => {
+    const pointTime = point.x
+    return pointTime >= startTime && pointTime <= endTime
+  })
+}
+
+// Helper function to calculate optimal Y-axis range for visible data
+const calculateOptimalYRange = (visibleData) => {
+  if (!visibleData || visibleData.length === 0) {
+    return { yMin: null, yMax: null }
+  }
+
+  let minPrice = Infinity
+  let maxPrice = -Infinity
+
+  visibleData.forEach(point => {
+    if (props.chartType === 'line') {
+      const price = point.y
+      if (price < minPrice) minPrice = price
+      if (price > maxPrice) maxPrice = price
+    }
+    else {
+      // Candlestick data.
+      const high = point.h || point.high
+      const low = point.l || point.low
+      if (low < minPrice) minPrice = low
+      if (high > maxPrice) maxPrice = high
+    }
+  })
+
+  if (minPrice === Infinity || maxPrice === -Infinity) {
+    return { yMin: null, yMax: null }
+  }
+
+  // Add smart padding based on price volatility.
+  const priceRange = maxPrice - minPrice
+  const volatilityRatio = priceRange / ((minPrice + maxPrice) / 2)
+
+  let pricePaddingRatio
+  if (volatilityRatio < 0.02) {
+    pricePaddingRatio = 0.05 // Low volatility: more padding.
+  }
+  else if (volatilityRatio < 0.1) {
+    pricePaddingRatio = 0.03 // Medium volatility: standard padding.
+  }
+  else {
+    pricePaddingRatio = 0.02 // High volatility: less padding.
+  }
+
+  const pricePadding = priceRange * pricePaddingRatio
+  const yMin = minPrice - pricePadding
+  const yMax = maxPrice + pricePadding
+
+  return { yMin, yMax }
 }
 
 // Reset zoom on all charts.
@@ -283,31 +358,64 @@ const focusOnRecentData = () => {
     return
   }
 
-  // Ensure we have a reasonable amount of data before focusing (reduced threshold)
-  if (chartData.length < 5) {
+  // Ensure we have a reasonable amount of data before focusing.
+  if (chartData.length < 10) {
     console.log(`📊 Auto-focus skipped: insufficient data (${chartData.length} points)`)
     return
   }
 
-  console.log(`📊 Starting auto-focus with ${chartData.length} data points`)
+  console.log(`📊 Starting intelligent auto-focus with ${chartData.length} data points`)
 
-  // Focus on the most recent portion of data (last 15% or minimum 100 points, max 300 points)
+  // Enhanced focus logic for large datasets.
   const totalPoints = chartData.length
-  const focusPoints = Math.min(300, Math.max(100, Math.floor(totalPoints * 0.15)))
-  const startIndex = Math.max(0, totalPoints - focusPoints)
 
+  // Calculate intelligent focus range based on dataset size and timeframe.
+  let focusPoints
+  if (totalPoints <= 100) {
+    // Small dataset: show most of it
+    focusPoints = Math.max(20, Math.floor(totalPoints * 0.8))
+  }
+  else if (totalPoints <= 500) {
+    // Medium dataset: show recent 30-50%.
+    focusPoints = Math.max(50, Math.floor(totalPoints * 0.4))
+  }
+  else if (totalPoints <= 2000) {
+    // Large dataset: show recent 15-25%.
+    focusPoints = Math.max(100, Math.floor(totalPoints * 0.2))
+  }
+  else {
+    // Very large dataset: show recent 10-15% but cap for performance.
+    focusPoints = Math.min(400, Math.max(200, Math.floor(totalPoints * 0.12)))
+  }
+
+  // Ensure we're focusing on the most recent data.
+  const startIndex = Math.max(0, totalPoints - focusPoints)
   const recentData = chartData.slice(startIndex)
+
   if (recentData.length === 0) return
 
   const startTime = recentData[0].x
   const endTime = recentData[recentData.length - 1].x
 
-  // Add some padding (10% on each side for time)
+  // Smart padding calculation based on data density and timeframe
   const timeRange = endTime - startTime
-  let timePadding = timeRange * 0.10
+  let timePadding
 
-  // Ensure minimum time range for readability (at least 30 minutes for intraday data)
-  const minimumTimeRange = 30 * 60 * 1000 // 30 minutes in milliseconds
+  // Determine timeframe from data density.
+  const avgTimeBetweenPoints = timeRange / recentData.length
+  const isIntraday = avgTimeBetweenPoints < 24 * 60 * 60 * 1000 // Less than 1 day between points.
+
+  if (isIntraday) {
+    // For intraday data: 5-10% padding with minimum of 30 minutes.
+    timePadding = Math.max(30 * 60 * 1000, timeRange * 0.08)
+  }
+  else {
+    // For daily data: 3-5% padding with minimum of 1 day
+    timePadding = Math.max(24 * 60 * 60 * 1000, timeRange * 0.05)
+  }
+
+  // Ensure minimum readable time range
+  const minimumTimeRange = isIntraday ? 30 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000 // 30 min or 1 week.
   if (timeRange < minimumTimeRange) {
     const additionalPadding = (minimumTimeRange - timeRange) / 2
     timePadding = Math.max(timePadding, additionalPadding)
@@ -316,7 +424,7 @@ const focusOnRecentData = () => {
   const focusMin = new Date(startTime - timePadding)
   const focusMax = new Date(endTime + timePadding)
 
-  // Calculate Y-axis range for recent data
+  // Enhanced Y-axis range calculation
   let minPrice = Infinity
   let maxPrice = -Infinity
 
@@ -335,17 +443,39 @@ const focusOnRecentData = () => {
     }
   })
 
-  // Add Y-axis padding (3% on each side)
+  // Smart Y-axis padding based on price volatility
   const priceRange = maxPrice - minPrice
-  const pricePadding = priceRange * 0.03
+  const volatilityRatio = priceRange / ((minPrice + maxPrice) / 2) // Relative volatility.
+
+  // Adjust padding based on volatility.
+  let pricePaddingRatio
+  if (volatilityRatio < 0.02) {
+    // Low volatility: more padding for better visibility.
+    pricePaddingRatio = 0.05
+  }
+  else if (volatilityRatio < 0.1) {
+    // Medium volatility: standard padding.
+    pricePaddingRatio = 0.03
+  }
+  else {
+    // High volatility: less padding to show full range.
+    pricePaddingRatio = 0.02
+  }
+
+  const pricePadding = priceRange * pricePaddingRatio
   const yMin = minPrice - pricePadding
   const yMax = maxPrice + pricePadding
 
-  console.log(`📊 Auto-focusing on recent data:`)
-  console.log(`   - Total points: ${totalPoints}, Focus points: ${focusPoints}`)
+  // Enhanced logging with more context.
+  const datasetAge = totalPoints > 0 ? new Date() - new Date(chartData[0].x) : 0
+  const datasetAgeDays = Math.floor(datasetAge / (24 * 60 * 60 * 1000))
+
+  console.log(`📊 Intelligent auto-focus applied:`)
+  console.log(`   - Dataset: ${totalPoints} total points spanning ${datasetAgeDays} days`)
+  console.log(`   - Focus: ${focusPoints} recent points (${((focusPoints/totalPoints)*100).toFixed(1)}% of dataset)`)
   console.log(`   - Time range: ${focusMin.toLocaleString()} to ${focusMax.toLocaleString()}`)
-  console.log(`   - Time span: ${((focusMax - focusMin) / (60 * 1000)).toFixed(1)} minutes`)
-  console.log(`   - Price range: $${yMin.toFixed(2)} - $${yMax.toFixed(2)}`)
+  console.log(`   - Duration: ${isIntraday ? ((focusMax - focusMin) / (60 * 1000)).toFixed(0) + ' minutes' : ((focusMax - focusMin) / (24 * 60 * 60 * 1000)).toFixed(1) + ' days'}`)
+  console.log(`   - Price range: $${yMin.toFixed(2)} - $${yMax.toFixed(2)} (volatility: ${(volatilityRatio*100).toFixed(2)}%)`)
 
   zoomRange.value = { min: focusMin, max: focusMax }
   hasInitialized.value = true
@@ -948,6 +1078,19 @@ const baseSynchronizedOptions = computed(() => ({
           const chart = context.chart
           if (chart && chart.scales && chart.scales.x) {
             const { min, max } = chart.scales.x
+
+            // Auto-rescale Y-axis when zooming.
+            const visibleData = getVisibleDataInRange(min, max)
+            const { yMin, yMax } = calculateOptimalYRange(visibleData)
+
+            if (yMin !== null && yMax !== null && chart.scales.y &&
+                !chart.canvas.parentElement.classList.contains('rsi-pane') &&
+                !chart.canvas.parentElement.classList.contains('macd-pane')) {
+              chart.scales.y.options.min = yMin
+              chart.scales.y.options.max = yMax
+              chart.update('none')
+            }
+
             syncZoom(chart, { min, max })
           }
         }
@@ -959,6 +1102,19 @@ const baseSynchronizedOptions = computed(() => ({
           const chart = context.chart
           if (chart && chart.scales && chart.scales.x) {
             const { min, max } = chart.scales.x
+
+            // Auto-rescale Y-axis when panning.
+            const visibleData = getVisibleDataInRange(min, max)
+            const { yMin, yMax } = calculateOptimalYRange(visibleData)
+
+            if (yMin !== null && yMax !== null && chart.scales.y &&
+                !chart.canvas.parentElement.classList.contains('rsi-pane') &&
+                !chart.canvas.parentElement.classList.contains('macd-pane')) {
+              chart.scales.y.options.min = yMin
+              chart.scales.y.options.max = yMax
+              chart.update('none')
+            }
+
             syncZoom(chart, { min, max })
           }
         }
@@ -1080,30 +1236,66 @@ watch(
     const data = props.chartType === 'line' ? lineData : candleData
     const chartData = data?.datasets?.[0]?.data
 
-    if (!chartData || chartData.length < 5) {  // Reduced from 10 to 5
+    if (!chartData || chartData.length < 10) {
       console.log('📊 Data watcher: insufficient data for auto-focus')
       return
     }
 
-    console.log(`📊 Data watcher triggered: ${chartData.length} points available, hasInitialized: ${hasInitialized.value}`)
+    // Enhanced logging for large datasets.
+    const datasetSize = chartData.length
+    const isLargeDataset = datasetSize > 1000
 
-    // Wait for next tick to ensure charts are rendered
+    console.log(`📊 Data watcher triggered: ${datasetSize} points available${isLargeDataset ? ' (large dataset)' : ''}, hasInitialized: ${hasInitialized.value}`)
+
+    // For smooth transitions, only reset initialization if we have significantly different data
+    // This prevents unnecessary re-focusing when just changing timeframes.
+    const currentDataRange = chartData.length > 0 ? {
+      start: chartData[0].x,
+      end: chartData[chartData.length - 1].x,
+      size: chartData.length
+    } : null
+
+    // Check if this is a smooth transition (similar time range, just different granularity).
+    const shouldResetInitialization = !hasInitialized.value ||
+      !currentDataRange ||
+      Math.abs(currentDataRange.size - (lastDataRange?.size || 0)) > currentDataRange.size * 0.3 // More than 30% size difference.
+
+    if (shouldResetInitialization) {
+      console.log('📊 Resetting chart initialization for new data')
+      hasInitialized.value = false
+    }
+    else {
+      console.log('📊 Smooth data transition - keeping current view')
+    }
+
+    // Store current data range for next comparison.
+    lastDataRange = currentDataRange
+
+    // Wait for next tick to ensure charts are rendered.
     await nextTick()
 
-    // Small delay to ensure chart instances are fully ready
-    setTimeout(() => {
-      focusOnRecentData()
-    }, 100) // Reduced delay back to 100ms
+    // For large datasets, use a slightly longer delay to ensure proper rendering.
+    const delay = isLargeDataset ? 200 : 100
+
+    // Only auto-focus if we reset initialization
+    if (!hasInitialized.value) {
+      setTimeout(() => {
+        focusOnRecentData()
+      }, delay)
+    }
   },
-  { deep: true, immediate: true } // Changed to immediate: true to trigger on mount
+  { deep: true, immediate: true }
 )
 
-// Watch for symbol changes to reset initialization
+// Track last data range for smooth transitions.
+let lastDataRange = null
+
+// Watch for symbol changes to reset initialization.
 watch(() => props.symbol, () => {
   hasInitialized.value = false
 })
 
-// Watch for period/timeframe changes to reset initialization
+// Watch for period/timeframe changes to reset initialization.
 watch(() => [props.selectedPeriod, props.selectedTimeframe], () => {
   console.log('📊 Period/timeframe changed - resetting initialization')
   hasInitialized.value = false

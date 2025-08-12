@@ -1,7 +1,7 @@
 import express from 'express'
 import { state } from './config.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
-import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus } from './market-data.js'
+import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, placeOrder } from './alpaca-account.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse } from './utils.js'
@@ -68,7 +68,7 @@ export function createRestApiRoutes() {
 
   app.get('/api/account/portfolio/history', async (req, res) => {
     try {
-      const { period = '1D', timeframe = '1Min' } = req.query
+      const { period = '1D', timeframe } = req.query
       const history = await getAlpacaPortfolioHistory(period, timeframe)
       res.json(history)
     }
@@ -316,17 +316,38 @@ export function createRestApiRoutes() {
     }
   })
 
-  // Stock historical data endpoint.
+  // Stock historical data endpoint with enhanced data fetching.
   app.get('/api/stocks/:symbol/history', async (req, res) => {
     try {
       const { symbol } = req.params
-      const { period = '1D', timeframe } = req.query
-      const historicalData = await getStockHistoricalData(symbol, period, timeframe)
-      res.json(historicalData)
+      const { period = '1D', timeframe, progressive = 'false' } = req.query
+
+      // Use progressive loading if requested for better UX.
+      if (progressive === 'true') {
+        const historicalData = await getStockHistoricalDataProgressive(symbol, period, timeframe)
+        res.json(historicalData)
+      } else {
+        const historicalData = await getStockHistoricalData(symbol, period, timeframe)
+        res.json(historicalData)
+      }
     }
     catch (error) {
       console.error(`Error fetching historical data for ${req.params.symbol}:`, error)
       res.status(500).json({ error: `Failed to fetch historical data for ${req.params.symbol}` })
+    }
+  })
+
+  // Endpoint for progressive data loading.
+  app.get('/api/stocks/:symbol/history/progressive', async (req, res) => {
+    try {
+      const { symbol } = req.params
+      const { period = '1D', timeframe } = req.query
+      const historicalData = await getStockHistoricalDataProgressive(symbol, period, timeframe)
+      res.json(historicalData)
+    }
+    catch (error) {
+      console.error(`Error fetching progressive historical data for ${req.params.symbol}:`, error)
+      res.status(500).json({ error: `Failed to fetch progressive historical data for ${req.params.symbol}` })
     }
   })
 

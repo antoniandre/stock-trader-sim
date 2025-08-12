@@ -69,6 +69,10 @@
                   :tooltip-props="{ sm: true }"
                   round)
                   icon(icon="mdi:fullscreen")
+              //- Smooth transition indicator
+              .w-flex.align-center.gap1.ml2(v-if="isTransitioningTimeframe")
+                w-spinner(size="12" color="primary")
+                span.size--xs.op7 Updating...
 
           //- Price Chart Component
           PriceChart(
@@ -78,7 +82,7 @@
             :selected-timeframe="selectedTimeframe"
             :chart-periods="chartPeriods"
             :available-timeframes="availableTimeframes"
-            :is-loading-historical-data="isLoadingHistoricalData"
+            :is-loading-historical-data="isLoadingData"
             :is-loading-additional-data="isLoadingAdditionalData"
             :line-chart-data="lineChartData"
             :line-chart-options="lineChartOptions"
@@ -262,7 +266,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { fetchStock, fetchStockPrice, fetchStockHistory } from '@/api'
+import { fetchStock, fetchStockPrice, fetchStockHistory, fetchStockHistoryProgressive } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from '@/components/ticker-logo.vue'
@@ -316,6 +320,15 @@ const dataCache = ref(new Map())
 const activeRequests = ref(new Set()) // Track active requests to prevent duplicates.
 let panDebounceTimer = null
 let zoomDebounceTimer = null // Add zoom debouncing.
+
+// Enhanced data management for smooth transitions.
+const isTransitioningTimeframe = ref(false)
+const timeframeDataCache = ref(new Map()) // Cache data for different timeframes.
+
+// Loading state management.
+const isLoadingData = computed(() => {
+  return isLoadingHistoricalData.value || isTransitioningTimeframe.value
+})
 
 // Price Update Throttling
 // --------------------------------------------------------
@@ -867,48 +880,117 @@ async function performDataCheck(chart, action) {
   const dataStart = Math.min(...historicalData.value.map(d => d.timestamp))
   const dataEnd = Math.max(...historicalData.value.map(d => d.timestamp))
 
-  // Different strategies for zoom vs pan.
+  // Enhanced strategy for both zoom and pan.
   let loadStart, loadEnd
+  let shouldLoad = false
 
   if (action === 'zoom') {
-    // For zoom: load data for the ENTIRE visible range plus reasonable buffer.
-    const zoomBuffer = getZoomBufferTime(selectedPeriod.value, currentRange)
-    loadStart = viewMin - zoomBuffer
-    loadEnd = viewMax + zoomBuffer
+    // For zoom: Check if user is viewing areas outside our data range.
+    const bufferTime = currentRange * 0.1 // 10% buffer.
 
-    console.log('📊 Zoom operation - loading full visible range:', {
-      dataStart: new Date(dataStart).toISOString(),
-      dataEnd: new Date(dataEnd).toISOString(),
-      loadStart: new Date(loadStart).toISOString(),
-      loadEnd: new Date(loadEnd).toISOString(),
-      needsEarlierData: loadStart < dataStart,
-      needsLaterData: loadEnd > dataEnd,
-      zoomBuffer: Math.round(zoomBuffer / 60000) + 'm'
-    })
-  }
-  else {
-    // For pan: use smaller buffer approach.
-    const bufferTime = getBufferTime(selectedPeriod.value)
-    loadStart = viewMin - bufferTime
-    loadEnd = viewMax + bufferTime
+    if (viewMin < dataStart + bufferTime) {
+      // User is viewing time before our data starts - load earlier data.
+      loadEnd = dataStart
+      loadStart = new Date(Math.max(
+        viewMin - currentRange, // Go back by current view range.
+        dataStart - currentRange * 3 // Or 3x current range, whichever is more recent.
+      ))
+      shouldLoad = true
+      console.log('📊 Zoom detected need for earlier data')
+    }
 
-    console.log('📊 Pan operation - loading buffer range:', {
-      dataStart: new Date(dataStart).toISOString(),
-      dataEnd: new Date(dataEnd).toISOString(),
-      loadStart: new Date(loadStart).toISOString(),
-      loadEnd: new Date(loadEnd).toISOString(),
-      needsEarlierData: loadStart < dataStart,
-      needsLaterData: loadEnd > dataEnd,
-      panBuffer: Math.round(bufferTime / 60000) + 'm'
-    })
+    if (viewMax > dataEnd - bufferTime) {
+      // User is viewing time after our data ends - load more recent data.
+      loadStart = dataEnd
+      loadEnd = new Date(Math.min(
+        viewMax + currentRange, // Go forward by current view range.
+        dataEnd + currentRange * 2 // Or 2x current range, whichever is sooner.
+      ))
+      shouldLoad = true
+      console.log('📊 Zoom detected need for more recent data')
+    }
+  } else if (action === 'pan') {
+    // For pan: More aggressive loading when user is exploring
+    const bufferTime = currentRange * 0.2 // 20% buffer for pan
+
+    if (viewMin < dataStart + bufferTime) {
+      // Load earlier data
+      loadEnd = dataStart
+      loadStart = new Date(dataStart - currentRange * 2)
+      shouldLoad = true
+      console.log('📊 Pan detected need for earlier data')
+    } else if (viewMax > dataEnd - bufferTime) {
+      // Load more recent data
+      loadStart = dataEnd
+      loadEnd = new Date(dataEnd + currentRange * 2)
+      shouldLoad = true
+      console.log('📊 Pan detected need for more recent data')
+    }
   }
 
-  // Load earlier data if needed.
-  if (loadStart < dataStart) {
-    console.log(`📊 Loading additional data: ${new Date(loadStart).toISOString()} to ${new Date(dataStart).toISOString()}`)
-    await loadAdditionalData(loadStart, dataStart)
+  if (!shouldLoad) {
+    console.log('📊 No additional data needed - sufficient coverage')
+    return
   }
-  else console.log('📊 No additional data needed')
+
+  console.log(`📊 Loading additional data: ${loadStart.toISOString()} to ${loadEnd.toISOString()}`)
+
+  try {
+    isLoadingAdditionalData.value = true
+
+    // Determine appropriate timeframe based on current view
+    const viewRangeHours = currentRange / (60 * 60 * 1000)
+    let timeframe = selectedTimeframe.value
+
+    // Auto-select timeframe based on zoom level for better performance
+    if (viewRangeHours < 4) timeframe = '1Min'
+    else if (viewRangeHours < 24) timeframe = '5Min'
+    else if (viewRangeHours < 168) timeframe = '15Min'
+    else if (viewRangeHours < 720) timeframe = '1Hour'
+    else timeframe = '1Day'
+
+    console.log(`📊 Using timeframe: ${timeframe} for ${viewRangeHours.toFixed(1)}h view range`)
+
+    const cacheKey = `${props.symbol}-${timeframe}-${loadStart.toISOString()}-${loadEnd.toISOString()}`
+
+    if (dataCache.value.has(cacheKey)) {
+      console.log('📊 Using cached additional data')
+      const cachedData = dataCache.value.get(cacheKey)
+      mergeHistoricalData(cachedData)
+      return
+    }
+
+    if (activeRequests.value.has(cacheKey)) {
+      console.log('📊 Request already in progress')
+      return
+    }
+
+    activeRequests.value.add(cacheKey)
+
+    // Use the range endpoint for precise data fetching
+    const response = await fetch(`/api/stocks/${props.symbol}/history/range?timeframe=${timeframe}&start=${loadStart.toISOString()}&end=${loadEnd.toISOString()}`)
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+
+    const result = await response.json()
+
+    if (result?.data && result.data.length > 0) {
+      console.log(`📊 Loaded ${result.data.length} additional data points`)
+      dataCache.value.set(cacheKey, result.data)
+      mergeHistoricalData(result.data)
+    } else {
+      console.log('📊 No additional data available for requested range')
+    }
+
+  } catch (error) {
+    console.error('📊 Error loading additional data:', error)
+  } finally {
+    isLoadingAdditionalData.value = false
+    const cacheKey = `${props.symbol}-${selectedTimeframe.value}-${loadStart.toISOString()}-${loadEnd.toISOString()}`
+    activeRequests.value.delete(cacheKey)
+  }
 }
 
 async function loadAdditionalData(startTime, endTime) {
@@ -1273,7 +1355,8 @@ async function fetchHistoricalData() {
     dataCache.value.clear()
 
     console.log(`📊 Fetching historical data for ${props.symbol}, period: ${selectedPeriod.value}, timeframe: ${selectedTimeframe.value}`)
-    const response = await fetchStockHistory(props.symbol, selectedPeriod.value, selectedTimeframe.value)
+    // Use progressive loading for faster initial display and maximum data retrieval
+    const response = await fetchStockHistoryProgressive(props.symbol, selectedPeriod.value, selectedTimeframe.value)
     if (response?.data) {
       historicalData.value = response.data.sort((a, b) => a.timestamp - b.timestamp)
 
@@ -1291,7 +1374,9 @@ async function fetchHistoricalData() {
           timeRange: `${new Date(firstPoint.timestamp).toLocaleString()} to ${new Date(lastPoint.timestamp).toLocaleString()}`,
           priceRange: `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`,
           latestPrice: `$${(lastPoint.close || lastPoint.price || 0).toFixed(2)}`,
-          samplePoint: firstPoint
+          samplePoint: firstPoint,
+          isProgressive: response.isProgressive || false,
+          loadingMore: response.loadingMore || false
         })
       }
       else console.log(`✅ Loaded ${historicalData.value.length} historical data points (empty)`)
@@ -1314,7 +1399,9 @@ async function fetchStatsHistoricalData() {
   if (!props.symbol) return
 
   try {
-    const response = await fetchStockHistory(props.symbol, '12M', '1Day')
+    // Use progressive loading for better performance
+    console.log(`📊 Fetching stats historical data for ${props.symbol} (12M/1Day)`)
+    const response = await fetchStockHistoryProgressive(props.symbol, '12M', '1Day')
     if (response?.data) {
       statsHistoricalData.value = response.data.sort((a, b) => a.timestamp - b.timestamp)
       console.log(`✅ Loaded ${statsHistoricalData.value.length} stats historical data points`)
@@ -1332,19 +1419,34 @@ function changeChartType(type) {
   chartType.value = type
 }
 
+// Enhanced period change with smooth transitions
 function changePeriod(period) {
-  console.log(`📊 Changing period to ${period}`)
+  console.log(`📊 Changing period to ${period} (smooth transition)`)
+
+  const previousPeriod = selectedPeriod.value
+  const previousTimeframe = selectedTimeframe.value
 
   selectedPeriod.value = period
   selectedTimeframe.value = defaultTimeframes[period] || '5Min'
 
-  // Clear cache and reset states to prevent data corruption.
-  dataCache.value.clear()
-  activeRequests.value.clear()
+  // Only clear cache for the old period/timeframe combination
+  const oldCacheKey = `${props.symbol}-${previousPeriod}-${previousTimeframe}`
+  if (timeframeDataCache.value.has(oldCacheKey)) {
+    // Keep recent cache but clear old one to save memory
+    const cacheKeys = Array.from(timeframeDataCache.value.keys())
+    if (cacheKeys.length > 5) {
+      // Only keep the 5 most recent cache entries
+      cacheKeys.slice(0, -5).forEach(key => {
+        timeframeDataCache.value.delete(key)
+      })
+    }
+  }
+
+  // Reset dynamic loading states
   userHasPanned.value = false
   isPanning.value = false
 
-  // Clear any pending timers.
+  // Clear any pending timers
   if (panDebounceTimer) {
     clearTimeout(panDebounceTimer)
     panDebounceTimer = null
@@ -1354,26 +1456,78 @@ function changePeriod(period) {
     zoomDebounceTimer = null
   }
 
-  console.log(`📊 Period changed to ${period} with timeframe ${selectedTimeframe.value} - data will be fetched by watcher`)
+  console.log(`📊 Period changed to ${period} with timeframe ${selectedTimeframe.value}`)
+
+  // Trigger smooth data fetch
+  changeTimeframe(selectedTimeframe.value)
 }
 
+// Enhanced timeframe change with smooth transitions
 async function changeTimeframe(timeframe) {
+  console.log(`📊 Changing timeframe to ${timeframe} (smooth transition)`)
+
+  isTransitioningTimeframe.value = true
+  const previousTimeframe = selectedTimeframe.value
   selectedTimeframe.value = timeframe
 
-  // Clear cache and reset states to prevent data corruption.
-  dataCache.value.clear()
-  activeRequests.value.clear()
-  userHasPanned.value = false
-  isPanning.value = false
+  try {
+    // Check if we have cached data for this timeframe
+    const cacheKey = `${props.symbol}-${selectedPeriod.value}-${timeframe}`
 
-  // Clear any pending timers.
-  if (panDebounceTimer) {
-    clearTimeout(panDebounceTimer)
-    panDebounceTimer = null
+    if (timeframeDataCache.value.has(cacheKey)) {
+      console.log(`📊 Using cached data for ${timeframe}`)
+      const cachedData = timeframeDataCache.value.get(cacheKey)
+
+      // Smoothly transition the data instead of replacing it
+      await transitionChartData(cachedData)
+    } else {
+      console.log(`📊 Fetching new data for ${timeframe}`)
+
+      // Fetch new data but don't clear existing data until we have the new data
+      const response = await fetchStockHistoryProgressive(props.symbol, selectedPeriod.value, timeframe)
+
+      if (response?.data) {
+        const newData = response.data.sort((a, b) => a.timestamp - b.timestamp)
+
+        // Cache the new data
+        timeframeDataCache.value.set(cacheKey, newData)
+
+        // Smoothly transition to new data
+        await transitionChartData(newData)
+
+        console.log(`✅ Smooth transition to ${timeframe} complete with ${newData.length} data points`)
+      }
+    }
+  } catch (error) {
+    console.error(`❌ Error during timeframe transition:`, error)
+    // Revert timeframe on error
+    selectedTimeframe.value = previousTimeframe
+  } finally {
+    isTransitioningTimeframe.value = false
   }
-  if (zoomDebounceTimer) {
-    clearTimeout(zoomDebounceTimer)
-    zoomDebounceTimer = null
+}
+
+// Smooth data transition function
+async function transitionChartData(newData) {
+  // Instead of replacing all data at once, we'll update it smoothly
+  // This keeps the chart instances alive and just updates their data
+
+  console.log(`📊 Transitioning chart data (${newData.length} points)`)
+
+  // Set loading state during transition
+  isLoadingHistoricalData.value = true
+
+  try {
+    // Update historical data with smooth transition
+    historicalData.value = newData
+
+    // Small delay to ensure smooth rendering
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    console.log(`✅ Chart data transition complete`)
+  } finally {
+    // Always clear loading state
+    isLoadingHistoricalData.value = false
   }
 }
 
@@ -1501,18 +1655,27 @@ onUnmounted(() => {
 watch(() => props.symbol, async (newSymbol, oldSymbol) => {
   if (newSymbol === oldSymbol) return
 
+  console.log(`📊 Symbol changed from ${oldSymbol} to ${newSymbol}`)
+
+  // Clear all data for symbol change
   priceHistory.value = []
   historicalData.value = []
   statsHistoricalData.value = []
   realtimeOHLC.value = []
   recentTrades.value = []
 
+  // Clear timeframe cache for new symbol
+  timeframeDataCache.value.clear()
+  dataCache.value.clear()
+  activeRequests.value.clear()
+
   await Promise.all([fetchStockData(), fetchHistoricalData(), fetchStatsHistoricalData()])
 }, { immediate: false })
 
-watch([selectedPeriod, selectedTimeframe], async () => {
-  await fetchHistoricalData()
-})
+// Remove the problematic watcher that causes full reloads
+// watch([selectedPeriod, selectedTimeframe], async () => {
+//   await fetchHistoricalData()
+// })
 
 watch(() => historicalData.value.length, (newLength, oldLength) => {
   if (newLength > oldLength) console.log(`📊 Added ${newLength - oldLength} historical data points`)

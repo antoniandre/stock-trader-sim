@@ -342,7 +342,7 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
   }
 
   try {
-    const { alpacaTimeframe, limit } = getPeriodParameters(period, timeframe)
+    const { alpacaTimeframe, limit, maxHistoricalDays } = getPeriodParameters(period, timeframe)
     let endDate = getEasternTime()
 
     // For intraday data, adjust end time to respect free tier 15-minute delay
@@ -351,29 +351,22 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
       endDate = fifteenMinutesAgo
     }
 
-    // FIXED: For primary data request, get recent data first, then extend backwards if needed
-    // Start from a reasonable recent point to ensure we get current data, not old data due to limits
-    const recentStartDate = getRecentStartDate(period, endDate)
+    // Calculate optimal start date to maximize historical data while staying within limits.
+    const startDate = calculateOptimalStartDate(period, endDate, maxHistoricalDays)
 
-    const params = new URLSearchParams({
-      timeframe: alpacaTimeframe,
-      limit: limit.toString(),
-      start: recentStartDate.toISOString(),
-      end: endDate.toISOString()
-    })
-
-    const url = `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars?${params}`
     console.log(`📊 Fetching ${symbol} data: ${period}/${alpacaTimeframe}`)
-    console.log(`📅 Date range: ${recentStartDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]} (today: ${new Date().toISOString().split('T')[0]})`)
+    console.log(`📅 Date range: ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]} (${Math.ceil((endDate - startDate) / (24 * 60 * 60 * 1000))} days)`)
+    console.log(`📈 Expected data points: ~${limit} (limit: ${limit})`)
 
-    const { data } = await axios.get(url, { headers: HEADERS })
+    // Fetch data with pagination support for maximum historical coverage.
+    const allBars = await fetchHistoricalDataWithPagination(symbol, alpacaTimeframe, startDate, endDate, limit)
 
-    if (!data.bars || data.bars.length === 0) {
+    if (!allBars || allBars.length === 0) {
       console.warn(`⚠️ No data for ${symbol}, using mock`)
       return generateMockHistoricalData(symbol, period, timeframe)
     }
 
-    const historicalData = data.bars.map(bar => ({
+    const historicalData = allBars.map(bar => ({
       timestamp: new Date(bar.t).getTime(),
       open: bar.o,
       high: bar.h,
@@ -383,10 +376,13 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
       price: bar.c
     }))
 
+    // Sort by timestamp to ensure proper order.
+    historicalData.sort((a, b) => a.timestamp - b.timestamp)
+
     console.log(`✅ Fetched ${historicalData.length} data points for ${symbol}`)
     console.log(`📊 Data range: ${new Date(historicalData[0]?.timestamp).toLocaleString()} to ${new Date(historicalData[historicalData.length - 1]?.timestamp).toLocaleString()}`)
 
-    // Check if the data ends more than 2 days ago (indicating stale data)
+    // Check if the data ends more than 2 days ago (indicating stale data).
     const lastDataTime = historicalData[historicalData.length - 1]?.timestamp
     const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000)
     if (lastDataTime < twoDaysAgo) {
@@ -397,11 +393,11 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
     return { symbol, period, timeframe: alpacaTimeframe, data: historicalData }
   }
   catch (error) {
-    // Handle free tier limitations gracefully
+    // Handle free tier limitations gracefully.
     if (error.response?.status === 403 && error.response?.data?.message?.includes('subscription does not permit')) {
       console.log(`🔒 Free tier limitation for ${symbol} - trying with daily data instead`)
 
-      // Retry with daily timeframe for free tier compatibility
+      // Retry with daily timeframe for free tier compatibility.
       if (timeframe !== '1Day') {
         return getStockHistoricalData(symbol, period, '1Day')
       }
@@ -410,6 +406,182 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
     console.error(`❌ Error fetching data for ${symbol}:`, error.response?.data?.message || error.message)
     return generateMockHistoricalData(symbol, period, timeframe)
   }
+}
+
+// Enhanced function with progressive loading strategy.
+export async function getStockHistoricalDataProgressive(symbol, period = '1D', timeframe = null) {
+  if (IS_SIMULATION) {
+    console.log(`🧪 [SIM] Generating mock data for ${symbol} (${period}, ${timeframe || 'auto'})`)
+    return generateMockHistoricalData(symbol, period, timeframe)
+  }
+
+  try {
+    const { alpacaTimeframe, limit, maxHistoricalDays } = getPeriodParameters(period, timeframe)
+    let endDate = getEasternTime()
+
+    // For intraday data, adjust end time to respect free tier 15-minute delay.
+    if (['1Min', '5Min', '10Min', '15Min', '30Min', '1Hour'].includes(alpacaTimeframe)) {
+      const fifteenMinutesAgo = new Date(endDate.getTime() - 15 * 60 * 60 * 1000)
+      endDate = fifteenMinutesAgo
+    }
+
+    // Progressive loading: Start with recent data for immediate display.
+    const recentStartDate = getRecentStartDate(period, endDate)
+    const fullStartDate = calculateOptimalStartDate(period, endDate, maxHistoricalDays)
+
+    console.log(`📊 Progressive loading for ${symbol}: ${period}/${alpacaTimeframe}`)
+    console.log(`📅 Phase 1 - Recent data: ${recentStartDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`)
+    console.log(`📅 Phase 2 - Full range: ${fullStartDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`)
+
+    // Phase 1: Fetch recent data first (larger initial request for better UX).
+    const recentLimit = Math.min(2000, Math.floor(limit * 0.6)) // 60% of total limit for recent data.
+    console.log(`📊 Fetching recent data (${recentLimit} points max)...`)
+
+    const recentBars = await fetchHistoricalDataWithPagination(
+      symbol,
+      alpacaTimeframe,
+      recentStartDate,
+      endDate,
+      recentLimit
+    )
+
+    if (!recentBars || recentBars.length === 0) {
+      console.warn(`⚠️ No recent data for ${symbol}, trying full range`)
+      // Fallback to original method
+      return getStockHistoricalData(symbol, period, timeframe)
+    }
+
+    // Convert recent data
+    const recentHistoricalData = recentBars.map(bar => ({
+      timestamp: new Date(bar.t).getTime(),
+      open: bar.o,
+      high: bar.h,
+      low: bar.l,
+      close: bar.c,
+      volume: bar.v,
+      price: bar.c
+    })).sort((a, b) => a.timestamp - b.timestamp)
+
+    console.log(`✅ Phase 1 complete: ${recentHistoricalData.length} recent data points`)
+
+    // Return recent data immediately for fast initial display.
+    const recentResult = {
+      symbol,
+      period,
+      timeframe: alpacaTimeframe,
+      data: recentHistoricalData,
+      isProgressive: true,
+      loadingMore: true
+    }
+
+    // Phase 2: Load full historical data in background if needed.
+    if (fullStartDate < recentStartDate) {
+      console.log(`📊 Starting background load of historical data...`)
+
+      // Don't await this - let it load in background.
+      fetchHistoricalDataWithPagination(
+        symbol,
+        alpacaTimeframe,
+        fullStartDate,
+        recentStartDate, // End where recent data began.
+        limit - recentLimit // Remaining limit.
+      ).then(historicalBars => {
+        if (historicalBars && historicalBars.length > 0) {
+          const historicalData = historicalBars.map(bar => ({
+            timestamp: new Date(bar.t).getTime(),
+            open: bar.o,
+            high: bar.h,
+            low: bar.l,
+            close: bar.c,
+            volume: bar.v,
+            price: bar.c
+          }))
+
+          console.log(`✅ Phase 2 complete: ${historicalData.length} additional historical points`)
+
+          // Broadcast the additional data to any listeners.
+          if (typeof global !== 'undefined' && global.broadcastHistoricalDataUpdate) {
+            global.broadcastHistoricalDataUpdate({
+              symbol,
+              period,
+              timeframe: alpacaTimeframe,
+              additionalData: historicalData,
+              isComplete: true
+            })
+          }
+        }
+      }).catch(error => {
+        console.warn(`⚠️ Background historical data load failed for ${symbol}:`, error.message)
+      })
+    }
+
+    return recentResult
+
+  } catch (error) {
+    console.error(`❌ Progressive loading failed for ${symbol}:`, error.message)
+    // Fallback to original method.
+    return getStockHistoricalData(symbol, period, timeframe)
+  }
+}
+
+// New function to fetch data with pagination support.
+async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, endDate, maxLimit = 10000) {
+  const allBars = []
+  let pageToken = null
+  let requestCount = 0
+  const maxRequests = 10 // Prevent infinite loops.
+
+  do {
+    try {
+      const params = new URLSearchParams({
+        timeframe: timeframe,
+        limit: Math.min(10000, maxLimit).toString(), // Use Alpaca's maximum limit of 10,000.
+        start: startDate.toISOString(),
+        end: endDate.toISOString()
+      })
+
+      if (pageToken) {
+        params.append('page_token', pageToken)
+      }
+
+      const url = `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars?${params}`
+      console.log(`📊 Fetching page ${requestCount + 1} for ${symbol}${pageToken ? ' (paginated)' : ''}`)
+
+      const { data } = await axios.get(url, { headers: HEADERS })
+
+      if (data.bars && data.bars.length > 0) {
+        allBars.push(...data.bars)
+        console.log(`📊 Fetched ${data.bars.length} bars (total: ${allBars.length})`)
+      }
+
+      // Check for next page.
+      pageToken = data.next_page_token
+      requestCount++
+
+      // Safety check to prevent too many requests.
+      if (requestCount >= maxRequests) {
+        console.warn(`⚠️ Reached maximum pagination requests (${maxRequests}) for ${symbol}`)
+        break
+      }
+
+      // Stop if we have enough data or no more pages.
+      if (!pageToken || allBars.length >= maxLimit) {
+        break
+      }
+
+      // Small delay between requests to be respectful to API.
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+    }
+    catch (error) {
+      console.error(`❌ Error fetching paginated data for ${symbol}:`, error.message)
+      break
+    }
+  }
+  while (pageToken && requestCount < maxRequests)
+
+  console.log(`✅ Pagination complete for ${symbol}: ${allBars.length} total bars from ${requestCount} requests`)
+  return allBars
 }
 
 export async function getStockHistoricalDataByRange(symbol, timeframe, startDate, endDate) {
@@ -485,47 +657,123 @@ function getPeriodParameters(period, timeframe = null) {
   const timeframeMap = { '1D': timeframe || '5Min', '1W': timeframe || '1Hour', '1M': timeframe || '1Day', '3M': timeframe || '1Day' }
   const selectedTimeframe = timeframe || timeframeMap[period]
   const limit = calculateDataLimit(period, selectedTimeframe)
+  const maxHistoricalDays = calculateMaxHistoricalDays(period)
 
-  return { alpacaTimeframe: selectedTimeframe, limit }
+  return { alpacaTimeframe: selectedTimeframe, limit, maxHistoricalDays }
 }
 
 function calculateDataLimit(period, timeframe) {
+  // Use Alpaca's maximum limit of 10,000 for optimal data retrieval
+  // Adjust based on period and timeframe to balance historical coverage with performance
+
   if (timeframe === '1Day') {
-    const periodLimits = { '1D': 30, '1W': 50, '1M': 100, '3M': 200, '12M': 300 }
-    return periodLimits[period] || 100
+    // For daily data, we can fetch several years of data efficiently.
+    const periodLimits = {
+      '1D': 100,    // ~3 months of daily data
+      '1W': 500,    // ~2 years of daily data
+      '1M': 2000,   // ~5 years of daily data
+      '3M': 5000,   // ~13 years of daily data
+      '12M': 10000  // Maximum available daily data
+    }
+    return periodLimits[period] || 2000
   }
 
-  const tradingMinutesPerDay = 390
-  const timeframeMinutes = { '1Min': 1, '5Min': 5, '10Min': 10, '15Min': 15, '30Min': 30, '1Hour': 60, '4Hour': 240, '1Day': 1440 }
-  const minutes = timeframeMinutes[timeframe] || 5
-  const periodDays = { '1D': 1, '1W': 5, '1M': 22, '3M': 66, '12M': 252 }
-  const days = periodDays[period] || 1
-  const dataPoints = Math.ceil((days * tradingMinutesPerDay) / minutes)
-  const minPoints = Math.max(200, dataPoints)
+  // For intraday data, calculate based on trading minutes and desired coverage
+  const tradingMinutesPerDay = 390 // 6.5 hours * 60 minutes
+  const timeframeMinutes = {
+    '1Min': 1,
+    '5Min': 5,
+    '10Min': 10,
+    '15Min': 15,
+    '30Min': 30,
+    '1Hour': 60,
+    '4Hour': 240
+  }
 
-  return Math.min(minPoints, 1000)
+  const minutes = timeframeMinutes[timeframe] || 5
+
+  // Calculate optimal coverage days based on period.
+  const optimalCoverageDays = {
+    '1D': 15,   // 3 weeks for intraday (more context).
+    '1W': 30,   // 1 month for intraday
+    '1M': 90,   // 3 months for intraday
+    '3M': 180,  // 6 months for intraday
+    '12M': 365  // 1 year for intraday (maximum useful coverage).
+  }
+
+  const days = optimalCoverageDays[period] || 30
+  const estimatedDataPoints = Math.ceil((days * tradingMinutesPerDay) / minutes)
+
+  // Ensure we don't exceed Alpaca's 10,000 limit but aim high for maximum coverage
+  const targetLimit = Math.min(estimatedDataPoints * 1.2, 10000) // 20% buffer
+
+  // Set higher minimums to ensure we get meaningful data.
+  const minimumPoints = {
+    '1D': 1000,  // At least 1000 points for 1D period (more data for better analysis)
+    '1W': 2000,  // At least 2000 points for 1W period
+    '1M': 3000,  // At least 3000 points for 1M period
+    '3M': 5000,  // At least 5000 points for 3M period
+    '12M': 8000  // At least 8000 points for 12M period
+  }
+
+  const minPoints = minimumPoints[period] || 1000
+
+  return Math.max(minPoints, Math.min(targetLimit, 10000))
 }
 
 function calculateStartDate(period, easternTime) {
-  // Start date should be far back to allow for chart panning/scrolling
-  // For 1D period, go back 7 days so users can pan back in the chart to see historical context
-  const periodDays = { '1D': 7, '1W': 14, '1M': 45, '3M': 120, '12M': 400 }
-  const days = periodDays[period] || 30
+  // Calculate start dates to maximize historical coverage while being practical
+  // These are generous ranges that will be constrained by the API limits above
+  const periodDays = {
+    '1D': 30,    // 1 month back for 1D period
+    '1W': 90,    // 3 months back for 1W period
+    '1M': 365,   // 1 year back for 1M period
+    '3M': 1095,  // 3 years back for 3M period
+    '12M': 1825  // 5 years back for 12M period
+  }
+  const days = periodDays[period] || 90
   return new Date(easternTime.getTime() - days * 24 * 60 * 60 * 1000)
 }
 
 function getRecentStartDate(period, endDate) {
-  // For the primary data request, start from a recent point to ensure we get current data
-  // This prevents hitting limits with old data when we actually want recent data
+  // This function is now used as a fallback for when we need recent data focus
+  // Kept for backward compatibility but optimized for better coverage
   const recentDays = {
-    '1D': 3,    // For intraday, go back 3 days to ensure we get the most recent trading day
-    '1W': 10,   // For weekly, go back 10 days
-    '1M': 35,   // For monthly, go back 35 days
-    '3M': 100,  // For 3M, go back 100 days
-    '12M': 380  // For yearly, go back 380 days
+    '1D': 7,     // 1 week for recent focus
+    '1W': 21,    // 3 weeks for recent focus
+    '1M': 60,    // 2 months for recent focus
+    '3M': 120,   // 4 months for recent focus
+    '12M': 365   // 1 year for recent focus
   }
-  const days = recentDays[period] || 7
+  const days = recentDays[period] || 14
   return new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000)
+}
+
+function calculateOptimalStartDate(period, endDate, maxHistoricalDays) {
+  // Start with our ideal start date for maximum coverage
+  const idealStartDate = calculateStartDate(period, endDate)
+  const daysSinceIdealStart = Math.ceil((endDate - idealStartDate) / (24 * 60 * 60 * 1000))
+
+  // If our ideal range fits within limits, use it
+  if (daysSinceIdealStart <= maxHistoricalDays) {
+    return idealStartDate
+  }
+
+  // Otherwise, go back as far as we're allowed
+  return new Date(endDate.getTime() - maxHistoricalDays * 24 * 60 * 60 * 1000)
+}
+
+function calculateMaxHistoricalDays(period) {
+  // Maximum days we'll go back based on period and practical limits
+  // These align with our data limit calculations above
+  const maxDays = {
+    '1D': 90,    // 3 months max for 1D
+    '1W': 180,   // 6 months max for 1W
+    '1M': 730,   // 2 years max for 1M
+    '3M': 1095,  // 3 years max for 3M
+    '12M': 1825  // 5 years max for 12M
+  }
+  return maxDays[period] || 365
 }
 
 export async function initializeMarketData() {

@@ -155,12 +155,29 @@ export async function fetchStockHistory(symbol, period = '1D', timeframe = null)
     if (timeframe) params.append('timeframe', timeframe)
 
     const response = await fetch(`${API_BASE}/stocks/${symbol}/history?${params}`)
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
 
     return await response.json()
   }
   catch (error) {
-    console.error('API Error:', error)
+    console.error('Error fetching stock history:', error)
     throw error
+  }
+}
+
+export async function fetchStockHistoryProgressive(symbol, period = '1D', timeframe = null) {
+  try {
+    const params = new URLSearchParams({ period })
+    if (timeframe) params.append('timeframe', timeframe)
+
+    const response = await fetch(`${API_BASE}/stocks/${symbol}/history/progressive?${params}`)
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('Error fetching progressive stock history:', error)
+    // Fallback to regular history if progressive fails
+    return fetchStockHistory(symbol, period, timeframe)
   }
 }
