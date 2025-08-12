@@ -325,28 +325,28 @@ let zoomDebounceTimer = null // Add zoom debouncing.
 const isTransitioningTimeframe = ref(false)
 const timeframeDataCache = ref(new Map()) // Cache data for different timeframes.
 
-// Smooth data transition function
+// Smooth data transition function.
 async function transitionChartData(newData) {
-  // Instead of replacing all data at once, we'll update it smoothly
-  // This keeps the chart instances alive and just updates their data
+  // Instead of replacing all data at once, we'll update it smoothly.
+  // This keeps the chart instances alive and just updates their data.
 
   console.log(`📊 Transitioning chart data (${newData.length} points)`)
 
-  // Don't show loading spinner - keep chart visible during transition
+  // Don't show loading spinner - keep chart visible during transition.
   // isLoadingHistoricalData.value = true  // REMOVED: This caused the spinner
 
   try {
-    // Update historical data with smooth transition
+    // Update historical data with smooth transition.
     historicalData.value = newData
 
-    // Minimal delay for smooth rendering - almost instantaneous
+    // Minimal delay for smooth rendering - almost instantaneous.
     await new Promise(resolve => setTimeout(resolve, 25))
 
     console.log(`✅ Chart data transition complete`)
   } catch (error) {
     console.error('❌ Error during data transition:', error)
   }
-  // No finally block needed since we're not setting loading state
+  // No finally block needed since we're not setting loading state.
 }
 
 // Price Update Throttling
@@ -856,7 +856,7 @@ async function checkAndLoadAdditionalData(chart, action = 'pan') {
     return
   }
 
-  // Use debouncing for both pan and zoom to prevent rapid-fire requests
+  // Use debouncing for both pan and zoom to prevent rapid-fire requests.
   if (action === 'zoom') {
     clearTimeout(zoomDebounceTimer)
     zoomDebounceTimer = setTimeout(() => {
@@ -964,22 +964,22 @@ async function performDataCheck(chart, action) {
 
 async function loadAdditionalData(startTime, endTime) {
   if (isLoadingAdditionalData.value) {
-    console.log('📊 Already loading additional data, skipping request')
+    console.log('📊 Already loading additional data, skipping')
     return
   }
 
   try {
     isLoadingAdditionalData.value = true
 
-    // Create a more granular cache key that prevents overlapping requests
-    const startKey = Math.floor(startTime / (60 * 1000)) // Round to minutes
+    // Create a more granular cache key that prevents overlapping requests.
+    const startKey = Math.floor(startTime / (60 * 1000)) // Round to minutes.
     const endKey = Math.floor(endTime / (60 * 1000))
     const rangeMinutes = endKey - startKey
     const cacheKey = `${props.symbol}-${selectedTimeframe.value}-${startKey}-${endKey}-${rangeMinutes}m`
 
-    // Create a broader request key to prevent overlapping requests
-    // Use larger buckets to catch overlapping ranges better
-    const requestStartBucket = Math.floor(startTime / (15 * 60 * 1000)) // 15-minute buckets
+    // Create a broader request key to prevent overlapping requests.
+    // Use larger buckets to catch overlapping ranges better.
+    const requestStartBucket = Math.floor(startTime / (15 * 60 * 1000)) // 15-minute buckets.
     const requestEndBucket = Math.floor(endTime / (15 * 60 * 1000))
     const requestKey = `${props.symbol}-${selectedTimeframe.value}-${requestStartBucket}-${requestEndBucket}`
 
@@ -994,11 +994,11 @@ async function loadAdditionalData(startTime, endTime) {
       activeRequests: Array.from(activeRequests.value)
     })
 
-    // Check if we're already loading this range or an overlapping range
+    // Check if we're already loading this range or an overlapping range.
     const overlappingRequest = Array.from(activeRequests.value).find(key => {
       if (key.startsWith(`${props.symbol}-${selectedTimeframe.value}-`)) {
         const [, , , startBucket, endBucket] = key.split('-').map(Number)
-        // Check for overlap
+        // Check for overlap.
         return (requestStartBucket <= endBucket && requestEndBucket >= startBucket)
       }
       return false
@@ -1009,10 +1009,10 @@ async function loadAdditionalData(startTime, endTime) {
       return
     }
 
-    // Mark this request as active
+    // Mark this request as active.
     activeRequests.value.add(requestKey)
 
-    // Check cache first
+    // Check cache first.
     if (dataCache.value.has(cacheKey)) {
       console.log('💾 Using cached data for range:', {
         cacheKey,
@@ -1047,7 +1047,7 @@ async function loadAdditionalData(startTime, endTime) {
 
     console.log(`📊 API returned ${additionalData.length} data points for range`)
 
-    // Cache the result with size limits
+    // Cache the result with size limits.
     if (dataCache.value.size > 20) {
       const firstKey = dataCache.value.keys().next().value
       dataCache.value.delete(firstKey)
@@ -1067,159 +1067,132 @@ async function loadAdditionalData(startTime, endTime) {
   finally {
     isLoadingAdditionalData.value = false
 
-    // Remove this request from active requests
+    // Remove this request from active requests.
     const requestStartBucket = Math.floor(startTime / (15 * 60 * 1000))
     const requestEndBucket = Math.floor(endTime / (15 * 60 * 1000))
     const requestKey = `${props.symbol}-${selectedTimeframe.value}-${requestStartBucket}-${requestEndBucket}`
     activeRequests.value.delete(requestKey)
-
-    console.log('📊 Request completed, removed from active:', requestKey)
   }
 }
 
-async function mergeAdditionalData(newData, expectedStartTime = null, expectedEndTime = null) {
-  if (!Array.isArray(newData) || newData.length === 0) {
-    console.log('📊 No new data to merge')
+async function mergeAdditionalData(newData, startTime, endTime) {
+  if (!newData || newData.length === 0) return
+
+  // Validate that new data is within expected time range.
+  const validData = newData.filter(item => {
+    const timestamp = item.timestamp
+    return timestamp >= startTime - 60000 && timestamp <= endTime + 60000 // 1-minute tolerance
+  })
+
+  if (!validData.length) {
+    console.log('📊 No valid additional data within expected time range')
     return
   }
 
-  if (!Array.isArray(historicalData.value)) {
-    console.log('📊 Initializing historical data with new data')
-    historicalData.value = [...newData]
-    return
-  }
-
-  console.log(`📊 Merging ${newData.length} new data points with ${historicalData.value.length} existing`)
-
-  // Validate that new data is within expected time range
-  if (expectedStartTime && expectedEndTime) {
-    const filteredNewData = newData.filter(item => {
-      return item.timestamp >= expectedStartTime && item.timestamp <= expectedEndTime
-    })
-
-    if (filteredNewData.length !== newData.length) {
-      console.log(`📊 Filtered new data from ${newData.length} to ${filteredNewData.length} points (time range validation)`)
-      newData = filteredNewData
-    }
-  }
-
-  // Use nextTick to ensure we're not in the middle of a reactive update
+  // Use nextTick to ensure we're not in the middle of a reactive update.
   await nextTick()
 
-  // Create a comprehensive data map using timestamps as keys
+  // Create a comprehensive data map using timestamps as keys.
   const dataMap = new Map()
 
-  // Track existing data range for validation
-  const existingTimestamps = historicalData.value.map(item => item.timestamp).sort((a, b) => a - b)
-  const existingStart = existingTimestamps[0]
-  const existingEnd = existingTimestamps[existingTimestamps.length - 1]
+  // Track existing data range for validation.
+  let existingStart = Infinity
+  let existingEnd = -Infinity
 
-  console.log(`📊 Existing data range: ${new Date(existingStart).toISOString()} to ${new Date(existingEnd).toISOString()}`)
-
-  // First, add all existing data to the map
+  // First, add all existing data to the map.
   historicalData.value.forEach(item => {
-    if (item && item.timestamp) {
-      dataMap.set(item.timestamp, item)
-    }
+    const timestamp = item.timestamp
+    dataMap.set(timestamp, item)
+    if (timestamp < existingStart) existingStart = timestamp
+    if (timestamp > existingEnd) existingEnd = timestamp
   })
 
-  // Then add/update with new data (new data takes precedence for same timestamps)
-  let addedCount = 0
+  // Then add/update with new data (new data takes precedence for same timestamps).
+  let newDataCount = 0
   let updatedCount = 0
-  let skippedCount = 0
 
-  newData.forEach(item => {
-    if (item &&
-        item.timestamp &&
-        typeof item.timestamp === 'number' &&
-        typeof item.price === 'number' &&
-        item.price > 0 &&
-        typeof item.open === 'number' &&
-        typeof item.high === 'number' &&
-        typeof item.low === 'number' &&
-        typeof item.close === 'number') {
+  validData.forEach(item => {
+    const timestamp = item.timestamp
 
-      // Check if this timestamp already exists
-      const existing = dataMap.has(item.timestamp)
-
-      // Additional validation: check if data makes sense
-      const isValidPrice = item.price > 0 && item.open > 0 && item.high > 0 && item.low > 0 && item.close > 0
-      const isValidOHLC = item.high >= Math.max(item.open, item.close) &&
-                         item.low <= Math.min(item.open, item.close)
-
-      if (!isValidPrice || !isValidOHLC) {
-        console.warn('📊 Skipping invalid OHLC data:', item)
-        skippedCount++
-        return
-      }
-
-      dataMap.set(item.timestamp, item)
-
-      if (existing) updatedCount++
-      else addedCount++
+    // Validate individual data points.
+    if (!timestamp || timestamp <= 0) {
+      console.warn('📊 Skipping invalid timestamp:', item)
+      return
     }
-    else {
-      console.warn('📊 Skipping invalid data item:', item)
-      skippedCount++
+
+    if (!item.close && !item.price) {
+      console.warn('📊 Skipping item without price data:', item)
+      return
     }
+
+    // Check if this timestamp already exists.
+    const exists = dataMap.has(timestamp)
+
+    // Additional validation: check if data makes sense.
+    const price = item.close || item.price
+    if (price <= 0 || price > 100000) {
+      console.warn('📊 Skipping item with unrealistic price:', price, item)
+      return
+    }
+
+    // Ensure required fields are present.
+    const processedItem = {
+      timestamp,
+      open: item.open || price,
+      high: item.high || price,
+      low: item.low || price,
+      close: item.close || price,
+      volume: item.volume || 0,
+      price: price
+    }
+
+    dataMap.set(timestamp, processedItem)
+
+    if (exists) updatedCount++
+    else newDataCount++
   })
 
-  // Convert map back to sorted array
-  const newHistoricalData = Array.from(dataMap.values()).sort((a, b) => a.timestamp - b.timestamp)
+  // Convert map back to sorted array.
+  const mergedData = Array.from(dataMap.values()).sort((a, b) => a.timestamp - b.timestamp)
 
-  // Validate the merged data for consistency
-  const finalTimestamps = newHistoricalData.map(item => item.timestamp)
-  const duplicateTimestamps = finalTimestamps.filter((timestamp, index) =>
-    finalTimestamps.indexOf(timestamp) !== index
-  )
-
-  if (duplicateTimestamps.length > 0) {
-    console.error('📊 Found duplicate timestamps after merge:', duplicateTimestamps)
-    // Remove duplicates by keeping the last occurrence
-    const deduplicatedMap = new Map()
-    newHistoricalData.forEach(item => {
-      deduplicatedMap.set(item.timestamp, item)
+  // Validate the merged data for consistency.
+  if (mergedData.length < historicalData.value.length) {
+    console.warn('📊 Warning: merged data has fewer points than original', {
+      original: historicalData.value.length,
+      merged: mergedData.length,
+      newAdded: newDataCount
     })
-    const deduplicatedData = Array.from(deduplicatedMap.values()).sort((a, b) => a.timestamp - b.timestamp)
-    console.log(`📊 Removed ${newHistoricalData.length - deduplicatedData.length} duplicate entries`)
-    historicalData.value = deduplicatedData
   }
-  else historicalData.value = newHistoricalData
 
-  console.log(`📊 Merge complete: ${addedCount} new points added, ${updatedCount} points updated, ${skippedCount} skipped, total: ${historicalData.value.length}`)
+  // Remove duplicates by keeping the last occurrence.
+  const deduplicatedData = []
+  const seenTimestamps = new Set()
 
-  // Log data range for debugging
-  if (historicalData.value.length > 0) {
-    const firstPoint = historicalData.value[0]
-    const lastPoint = historicalData.value[historicalData.value.length - 1]
-    const priceValues = historicalData.value.map(d => d.price)
-    const timestamps = historicalData.value.map(d => d.timestamp)
-
-    // Check for any timestamp gaps that might indicate data issues.
-    const timeGaps = []
-    for (let i = 1; i < timestamps.length; i++) {
-      const gap = timestamps[i] - timestamps[i - 1]
-      const expectedGap = getTimeframeMs(selectedTimeframe.value)
-      if (gap > expectedGap * 2) { // Allow for some flexibility.
-        timeGaps.push({
-          index: i,
-          gap: Math.round(gap / 60000), // Convert to minutes.
-          expected: Math.round(expectedGap / 60000)
-        })
-      }
+  for (let i = mergedData.length - 1; i >= 0; i--) {
+    const item = mergedData[i]
+    if (!seenTimestamps.has(item.timestamp)) {
+      seenTimestamps.add(item.timestamp)
+      deduplicatedData.unshift(item)
     }
+  }
 
-    if (timeGaps.length > 0) {
-      console.warn('📊 Found significant time gaps in data:', timeGaps.slice(0, 5)) // Show first 5 gaps.
-    }
+  // Update historical data.
+  historicalData.value = deduplicatedData
 
-    console.log('📊 Final data range after merge:', {
-      first: new Date(firstPoint.timestamp).toISOString(),
-      last: new Date(lastPoint.timestamp).toISOString(),
-      totalPoints: historicalData.value.length,
-      priceRange: `$${Math.min(...priceValues).toFixed(2)} - $${Math.max(...priceValues).toFixed(2)}`,
-      timeSpan: Math.round((lastPoint.timestamp - firstPoint.timestamp) / (1000 * 60 * 60)) + 'h',
-      significantGaps: timeGaps.length
+  // Log data range for debugging.
+  if (deduplicatedData.length > 0) {
+    const newStart = deduplicatedData[0].timestamp
+    const newEnd = deduplicatedData[deduplicatedData.length - 1].timestamp
+
+    console.log(`📊 Merged additional data:`, {
+      newDataPoints: newDataCount,
+      updatedPoints: updatedCount,
+      totalPoints: deduplicatedData.length,
+      timeRange: {
+        start: new Date(newStart).toLocaleString(),
+        end: new Date(newEnd).toLocaleString()
+      },
+      coverage: Math.round((newEnd - newStart) / (60 * 60 * 1000)) + ' hours'
     })
   }
 }
@@ -1386,7 +1359,7 @@ function changeChartType(type) {
   chartType.value = type
 }
 
-// Enhanced period change with smooth transitions
+// Enhanced period change with smooth transitions.
 function changePeriod(period) {
   console.log(`📊 Changing period to ${period} (smooth transition)`)
 
@@ -1396,24 +1369,24 @@ function changePeriod(period) {
   selectedPeriod.value = period
   selectedTimeframe.value = defaultTimeframes[period] || '5Min'
 
-  // Only clear cache for the old period/timeframe combination.
+  // Only clear cache for the old period/timeframe combination
   const oldCacheKey = `${props.symbol}-${previousPeriod}-${previousTimeframe}`
   if (timeframeDataCache.value.has(oldCacheKey)) {
-    // Keep recent cache but clear old one to save memory.
+    // Keep recent cache but clear old one to save memory
     const cacheKeys = Array.from(timeframeDataCache.value.keys())
     if (cacheKeys.length > 5) {
-      // Only keep the 5 most recent cache entries.
+      // Only keep the 5 most recent cache entries
       cacheKeys.slice(0, -5).forEach(key => {
         timeframeDataCache.value.delete(key)
       })
     }
   }
 
-  // Reset dynamic loading states
+  // Reset dynamic loading states.
   userHasPanned.value = false
   isPanning.value = false
 
-  // Clear any pending timers
+  // Clear any pending timers.
   if (panDebounceTimer) {
     clearTimeout(panDebounceTimer)
     panDebounceTimer = null
@@ -1425,11 +1398,11 @@ function changePeriod(period) {
 
   console.log(`📊 Period changed to ${period} with timeframe ${selectedTimeframe.value}`)
 
-  // Fetch data with new period/timeframe combination
+  // Fetch data with new period/timeframe combination.
   fetchHistoricalData()
 }
 
-// Enhanced timeframe change with smooth transitions
+// Enhanced timeframe change with smooth transitions.
 async function changeTimeframe(timeframe) {
   console.log(`📊 Changing timeframe to ${timeframe} (smooth transition)`)
 
@@ -1438,7 +1411,7 @@ async function changeTimeframe(timeframe) {
   selectedTimeframe.value = timeframe
 
   try {
-    // Check if we have cached data for this timeframe
+    // Check if we have cached data for this timeframe.
     const cacheKey = `${props.symbol}-${selectedPeriod.value}-${timeframe}`
 
     if (timeframeDataCache.value.has(cacheKey)) {
@@ -1470,7 +1443,7 @@ async function changeTimeframe(timeframe) {
     // Revert timeframe on error
     selectedTimeframe.value = previousTimeframe
   } finally {
-    // Clear transition state quickly
+    // Clear transition state quickly.
     setTimeout(() => {
       isTransitioningTimeframe.value = false
     }, 100) // Very short delay to show completion

@@ -128,10 +128,10 @@
           w-spinner(size="12" color="primary")
           span.op7 Loading...
 
-  //- Loading state (keep existing)
-  .chart-loading.w-flex.column.align-center.justify-center(v-else)
+  //- Loading state
+  .w-flex.column.align-center.justify-center.py12(v-else)
     w-progress.mb4(circle)
-    span.text-info Loading chart data...
+    .caption Loading chart data...
 </template>
 
 <script setup>
@@ -1208,7 +1208,7 @@ const synchronizedLineChartOptions = computed(() => ({
     ...baseSynchronizedOptions.value.scales,
     x: {
       ...baseSynchronizedOptions.value.scales.x,
-      display: false // Hide x-axis on main chart.
+      display: true // Show x-axis on main chart.
     },
     y: {
       position: 'right',
@@ -1224,7 +1224,7 @@ const synchronizedCandlestickChartOptions = computed(() => ({
     ...baseSynchronizedOptions.value.scales,
     x: {
       ...baseSynchronizedOptions.value.scales.x,
-      display: false // Hide x-axis on main chart.
+      display: true // Show x-axis on main chart.
     },
     y: {
       position: 'right',
