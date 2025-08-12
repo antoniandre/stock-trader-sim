@@ -177,7 +177,7 @@ export async function fetchStockHistoryProgressive(symbol, period = '1D', timefr
   }
   catch (error) {
     console.error('Error fetching progressive stock history:', error)
-    // Fallback to regular history if progressive fails
+    // Fallback to regular history if progressive fails.
     return fetchStockHistory(symbol, period, timeframe)
   }
 }

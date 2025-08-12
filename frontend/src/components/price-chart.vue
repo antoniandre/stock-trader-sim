@@ -352,7 +352,7 @@ const focusOnRecentData = () => {
     return
   }
 
-  // Don't auto-focus if we're still loading data
+  // Don't auto-focus if we're still loading data.
   if (props.isLoadingHistoricalData) {
     console.log('📊 Auto-focus skipped: still loading historical data')
     return
@@ -498,11 +498,13 @@ function calculateSmartFocusPoints(totalPoints) {
       '3M': Math.min(totalPoints, 280)    // ~2 trading months
     },
     '1Day': {
-      '1D': Math.min(totalPoints, 5),     // 5 days
-      '1W': Math.min(totalPoints, 10),    // 2 weeks
-      '1M': Math.min(totalPoints, 30),    // 1 month
-      '3M': Math.min(totalPoints, 90),    // 3 months
-      '12M': Math.min(totalPoints, 365)   // 1 year
+      '1D': Math.min(totalPoints, 5),     // 5 days.
+      '1W': Math.min(totalPoints, 10),    // 2 weeks.
+      '1M': Math.min(totalPoints, 30),    // 1 month.
+      '3M': Math.min(totalPoints, 90),    // 3 months.
+      '1Y': Math.min(totalPoints, 365),   // 1 year (focus on recent year).
+      '5Y': Math.min(totalPoints, 730),   // 2 years (focus on recent 2 years for 5Y period).
+      '12M': Math.min(totalPoints, 365)   // 1 year.
     }
   }
 
@@ -525,12 +527,12 @@ function calculateSmartTimePadding(timeRange) {
 
   // Base padding as percentage of time range.
   const basePaddingRatio = {
-    '1Min': 0.05,   // 5% padding for 1-min (tight focus)
-    '5Min': 0.08,   // 8% padding for 5-min
-    '15Min': 0.10,  // 10% padding for 15-min
-    '30Min': 0.12,  // 12% padding for 30-min
-    '1Hour': 0.15,  // 15% padding for 1-hour
-    '1Day': 0.20    // 20% padding for daily
+    '1Min': 0.05,   // 5% padding for 1-min (tight focus).
+    '5Min': 0.08,   // 8% padding for 5-min.
+    '15Min': 0.10,  // 10% padding for 15-min.
+    '30Min': 0.12,  // 12% padding for 30-min.
+    '1Hour': 0.15,  // 15% padding for 1-hour.
+    '1Day': 0.20    // 20% padding for daily (works for 1Y and 5Y periods).
   }
 
   const paddingRatio = basePaddingRatio[timeframe] || 0.10
@@ -538,12 +540,12 @@ function calculateSmartTimePadding(timeRange) {
 
   // Minimum padding based on timeframe.
   const minimumPadding = {
-    '1Min': 5 * 60 * 1000,      // 5 minutes minimum
-    '5Min': 15 * 60 * 1000,     // 15 minutes minimum
-    '15Min': 30 * 60 * 1000,    // 30 minutes minimum
-    '30Min': 60 * 60 * 1000,    // 1 hour minimum
-    '1Hour': 2 * 60 * 60 * 1000, // 2 hours minimum
-    '1Day': 24 * 60 * 60 * 1000  // 1 day minimum
+    '1Min': 5 * 60 * 1000,      // 5 minutes minimum.
+    '5Min': 15 * 60 * 1000,     // 15 minutes minimum.
+    '15Min': 30 * 60 * 1000,    // 30 minutes minimum.
+    '30Min': 60 * 60 * 1000,    // 1 hour minimum.
+    '1Hour': 2 * 60 * 60 * 1000, // 2 hours minimum.
+    '1Day': 7 * 24 * 60 * 60 * 1000  // 1 week minimum (works for 1Y and 5Y periods).
   }
 
   const minPadding = minimumPadding[timeframe] || 15 * 60 * 1000
@@ -568,7 +570,7 @@ function getTimeframeDisplayInfo(timeframe, timeRange) {
     '15Min': 'Standard intraday',
     '30Min': 'Broad intraday',
     '1Hour': 'Hourly data',
-    '1Day': 'Daily data'
+    '1Day': 'Daily data (optimal for 1Y/5Y periods)'
   }
 
   description = descriptions[timeframe] || 'Unknown timeframe'

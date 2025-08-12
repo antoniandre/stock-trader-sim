@@ -654,7 +654,14 @@ function calculateDataLimitForRange(timeframe, rangeDays) {
 }
 
 function getPeriodParameters(period, timeframe = null) {
-  const timeframeMap = { '1D': timeframe || '5Min', '1W': timeframe || '1Hour', '1M': timeframe || '1Day', '3M': timeframe || '1Day' }
+  const timeframeMap = {
+    '1D': timeframe || '5Min',
+    '1W': timeframe || '1Hour',
+    '1M': timeframe || '1Day',
+    '3M': timeframe || '1Day',
+    '1Y': timeframe || '1Day', // 1 year - daily data optimal.
+    '5Y': timeframe || '1Day' // 5 years - daily data only practical option.
+  }
   const selectedTimeframe = timeframe || timeframeMap[period]
   const limit = calculateDataLimit(period, selectedTimeframe)
   const maxHistoricalDays = calculateMaxHistoricalDays(period)
@@ -669,17 +676,19 @@ function calculateDataLimit(period, timeframe) {
   if (timeframe === '1Day') {
     // For daily data, we can fetch several years of data efficiently.
     const periodLimits = {
-      '1D': 100,    // ~3 months of daily data
-      '1W': 500,    // ~2 years of daily data
-      '1M': 2000,   // ~5 years of daily data
-      '3M': 5000,   // ~13 years of daily data
-      '12M': 10000  // Maximum available daily data
+      '1D': 100,    // ~3 months of daily data.
+      '1W': 500,    // ~2 years of daily data.
+      '1M': 2000,   // ~5 years of daily data.
+      '3M': 5000,   // ~13 years of daily data.
+      '1Y': 8000,   // ~22 years of daily data (1Y period gets more context).
+      '5Y': 10000,  // Maximum 10,000 daily bars (~27 years, will be limited by date range).
+      '12M': 10000  // Maximum available daily data.
     }
     return periodLimits[period] || 2000
   }
 
   // For intraday data, calculate based on trading minutes and desired coverage.
-  const tradingMinutesPerDay = 390 // 6.5 hours * 60 minutes
+  const tradingMinutesPerDay = 390 // 6.5 hours * 60 minutes.
   const timeframeMinutes = {
     '1Min': 1,
     '5Min': 5,
@@ -695,9 +704,11 @@ function calculateDataLimit(period, timeframe) {
   // Calculate optimal coverage days based on period.
   const optimalCoverageDays = {
     '1D': 15,   // 3 weeks for intraday (more context).
-    '1W': 30,   // 1 month for intraday
-    '1M': 90,   // 3 months for intraday
-    '3M': 180,  // 6 months for intraday
+    '1W': 30,   // 1 month for intraday.
+    '1M': 90,   // 3 months for intraday.
+    '3M': 180,  // 6 months for intraday.
+    '1Y': 365,  // 1 year for intraday (maximum useful coverage).
+    '5Y': 730,  // 2 years for intraday (practical limit for intraday data).
     '12M': 365  // 1 year for intraday (maximum useful coverage).
   }
 
@@ -705,15 +716,17 @@ function calculateDataLimit(period, timeframe) {
   const estimatedDataPoints = Math.ceil((days * tradingMinutesPerDay) / minutes)
 
   // Ensure we don't exceed Alpaca's 10,000 limit but aim high for maximum coverage.
-  const targetLimit = Math.min(estimatedDataPoints * 1.2, 10000) // 20% buffer
+  const targetLimit = Math.min(estimatedDataPoints * 1.2, 10000) // 20% buffer.
 
   // Set higher minimums to ensure we get meaningful data.
   const minimumPoints = {
-    '1D': 1000,  // At least 1000 points for 1D period (more data for better analysis)
-    '1W': 2000,  // At least 2000 points for 1W period
-    '1M': 3000,  // At least 3000 points for 1M period
-    '3M': 5000,  // At least 5000 points for 3M period
-    '12M': 8000  // At least 8000 points for 12M period
+    '1D': 1000,  // At least 1000 points for 1D period (more data for better analysis).
+    '1W': 2000,  // At least 2000 points for 1W period.
+    '1M': 3000,  // At least 3000 points for 1M period.
+    '3M': 5000,  // At least 5000 points for 3M period.
+    '1Y': 8000,  // At least 8000 points for 1Y period.
+    '5Y': 10000, // Maximum 10000 points for 5Y period.
+    '12M': 8000  // At least 8000 points for 12M period.
   }
 
   const minPoints = minimumPoints[period] || 1000
@@ -725,11 +738,13 @@ function calculateStartDate(period, easternTime) {
   // Calculate start dates to maximize historical coverage while being practical.
   // These are generous ranges that will be constrained by the API limits above.
   const periodDays = {
-    '1D': 30,    // 1 month back for 1D period
-    '1W': 90,    // 3 months back for 1W period
-    '1M': 365,   // 1 year back for 1M period
-    '3M': 1095,  // 3 years back for 3M period
-    '12M': 1825  // 5 years back for 12M period
+    '1D': 30,    // 1 month back for 1D period.
+    '1W': 90,    // 3 months back for 1W period.
+    '1M': 365,   // 1 year back for 1M period.
+    '3M': 1095,  // 3 years back for 3M period.
+    '1Y': 1825,  // 5 years back for 1Y period (maximum historical context).
+    '5Y': 1825,  // 5 years back for 5Y period (exactly what user requested).
+    '12M': 1825  // 5 years back for 12M period.
   }
   const days = periodDays[period] || 90
   return new Date(easternTime.getTime() - days * 24 * 60 * 60 * 1000)
@@ -739,11 +754,13 @@ function getRecentStartDate(period, endDate) {
   // This function is now used as a fallback for when we need recent data focus.
   // Kept for backward compatibility but optimized for better coverage.
   const recentDays = {
-    '1D': 7,     // 1 week for recent focus
-    '1W': 21,    // 3 weeks for recent focus
-    '1M': 60,    // 2 months for recent focus
-    '3M': 120,   // 4 months for recent focus
-    '12M': 365   // 1 year for recent focus
+    '1D': 7,     // 1 week for recent focus.
+    '1W': 21,    // 3 weeks for recent focus.
+    '1M': 60,    // 2 months for recent focus.
+    '3M': 120,   // 4 months for recent focus.
+    '1Y': 365,   // 1 year for recent focus (full year context).
+    '5Y': 730,   // 2 years for recent focus (recent context for 5Y period).
+    '12M': 365   // 1 year for recent focus.
   }
   const days = recentDays[period] || 14
   return new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000)
@@ -767,11 +784,13 @@ function calculateMaxHistoricalDays(period) {
   // Maximum days we'll go back based on period and practical limits.
   // These align with our data limit calculations above.
   const maxDays = {
-    '1D': 90,    // 3 months max for 1D
-    '1W': 180,   // 6 months max for 1W
-    '1M': 730,   // 2 years max for 1M
-    '3M': 1095,  // 3 years max for 3M
-    '12M': 1825  // 5 years max for 12M
+    '1D': 90,    // 3 months max for 1D.
+    '1W': 180,   // 6 months max for 1W.
+    '1M': 730,   // 2 years max for 1M.
+    '3M': 1095,  // 3 years max for 3M.
+    '1Y': 1825,  // 5 years max for 1Y (full 5 years as requested).
+    '5Y': 1825,  // 5 years max for 5Y (exactly what user wants).
+    '12M': 1825  // 5 years max for 12M.
   }
   return maxDays[period] || 365
 }
