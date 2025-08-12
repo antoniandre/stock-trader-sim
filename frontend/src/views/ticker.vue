@@ -368,7 +368,9 @@ const chartPeriods = [
   { label: '1D', value: '1D' },
   { label: '1W', value: '1W' },
   { label: '1M', value: '1M' },
-  { label: '3M', value: '3M' }
+  { label: '3M', value: '3M' },
+  { label: '1Y', value: '1Y' },
+  { label: '5Y', value: '5Y' }
 ]
 
 const timeframeOptions = {
@@ -395,6 +397,12 @@ const timeframeOptions = {
   '3M': [
     { label: '4h', value: '4Hour' },
     { label: '1d', value: '1Day' }
+  ],
+  '1Y': [
+    { label: '1d', value: '1Day' }
+  ],
+  '5Y': [
+    { label: '1d', value: '1Day' }
   ]
 }
 
@@ -402,7 +410,9 @@ const defaultTimeframes = {
   '1D': '5Min',
   '1W': '15Min',
   '1M': '1Hour',
-  '3M': '1Day'
+  '3M': '1Day',
+  '1Y': '1Day',
+  '5Y': '1Day'
 }
 
 // Trading Form
@@ -612,9 +622,7 @@ const candlestickChartData = computed(() => {
           l: item.low || 0,
           c: item.close || 0,
           volume: item.volume || 0
-        })),
-        borderColor: '#10B981',
-        backgroundColor: '#10B981'
+        }))
       }]
     }
   }
