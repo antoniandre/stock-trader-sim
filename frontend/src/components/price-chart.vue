@@ -31,9 +31,9 @@
         w-button.pa0(
           width="26"
           height="26"
-          @click="resetToOptimalView"
+          @click="resetView"
           tooltip="Reset Zoom"
-          :tooltip-props="{ sm: true }"
+          :tooltip-props="{ xs: true }"
           round)
           icon.size--lg(icon="material-symbols-light:fit-screen-outline")
 
@@ -109,28 +109,9 @@
           :data="indicators.macdChartData.value"
           :options="synchronizedMacdChartOptions")
 
-    //- Chart Controls
-    .chart-controls-bottom.w-flex.align-center.justify-space-between.pa2
-      .w-flex.align-center.gap2.size--xs.ml8
-        w-button.pa0.op8(
-          width="18"
-          height="18"
-          @click="resetAllCharts"
-          tooltip="Reset Zoom"
-          :tooltip-props="{ sm: true }"
-          round)
-          icon.size--xs(icon="mdi:refresh")
-        w-button.pa0.op8(
-          width="18"
-          height="18"
-          @click="() => { hasInitialized = false; focusOnRecentData() }"
-          tooltip="Focus on Latest Data"
-          :tooltip-props="{ sm: true }"
-          round)
-          icon.size--xs(icon="mdi:skip-forward")
-        .loading-indicator.w-flex.align-center.gap1(v-if="isLoadingAdditionalData")
-          w-spinner(size="12" color="primary")
-          span.op7 Loading...
+    .loading-indicator.w-flex.align-center.gap1(v-if="isLoadingAdditionalData")
+      w-spinner(size="12" color="primary")
+      span.op7 Loading...
 
   //- Loading state
   .w-flex.column.align-center.justify-center.py12(v-else)
@@ -334,25 +315,6 @@ const calculateOptimalYRange = (visibleData) => {
   const yMax = maxPrice + pricePadding
 
   return { yMin, yMax }
-}
-
-// Reset zoom on all charts.
-const resetAllCharts = () => {
-  zoomRange.value = { min: null, max: null }
-  hasInitialized.value = false
-  getAllChartInstances().forEach(chart => {
-    if (chart && chart.resetZoom) {
-      chart.resetZoom()
-
-      // Also reset Y-axis constraints for price charts
-      if (chart.scales.y && !chart.canvas.parentElement.classList.contains('rsi-pane') &&
-          !chart.canvas.parentElement.classList.contains('macd-pane')) {
-        delete chart.scales.y.options.min
-        delete chart.scales.y.options.max
-      }
-    }
-  })
-  emit('reset-zoom-complete')
 }
 
 // Auto-focus on recent data when chart loads
@@ -851,11 +813,10 @@ const enhancedLineChartData = computed(() => {
       datasets.push({
         label: 'EMA 20',
         data: ema20Data,
-        borderColor: '#00ff88',
-        backgroundColor: 'transparent',
+        borderColor: '#10B981', // Green
+        backgroundColor: '#10B981',
         borderWidth: 0.5,
-        pointRadius: 0,
-        fill: false
+        pointRadius: 0
       })
     }
 
@@ -870,11 +831,10 @@ const enhancedLineChartData = computed(() => {
       datasets.push({
         label: 'EMA 50',
         data: ema50Data,
-        borderColor: '#0088ff',
-        backgroundColor: 'transparent',
+        borderColor: '#3B82F6', // Blue
+        backgroundColor: '#3B82F6',
         borderWidth: 0.5,
-        pointRadius: 0,
-        fill: false
+        pointRadius: 0
       })
     }
 
@@ -889,11 +849,10 @@ const enhancedLineChartData = computed(() => {
       datasets.push({
         label: 'EMA 200',
         data: ema200Data,
-        borderColor: '#ff8800',
-        backgroundColor: 'transparent',
+        borderColor: '#8B5CF6', // Purple
+        backgroundColor: '#8B5CF6',
         borderWidth: 0.5,
-        pointRadius: 0,
-        fill: false
+        pointRadius: 0
       })
     }
   }
@@ -903,11 +862,12 @@ const enhancedLineChartData = computed(() => {
     datasets.push({
       label: 'VWAP',
       data: vwapData.value,
-      borderColor: '#ff00ff',
-      backgroundColor: 'transparent',
-      borderWidth: 0.5,
-      pointRadius: 0,
-      fill: false
+      borderColor: '#F59E0B', // Orange color
+      backgroundColor: '#F59E0B',
+      // borderWidth: 0.5,
+      // pointRadius: 0,
+      // tension: 0.1,
+      // fill: false
     })
   }
 
@@ -959,11 +919,10 @@ const enhancedCandlestickChartData = computed(() => {
         type: 'line',
         label: 'EMA 20',
         data: ema20Data,
-        borderColor: '#00ff88',
-        backgroundColor: 'transparent',
+        borderColor: '#10B981',
+        backgroundColor: '#10B981',
         borderWidth: 0.5,
-        pointRadius: 0,
-        fill: false
+        pointRadius: 0
       })
     }
 
@@ -978,11 +937,10 @@ const enhancedCandlestickChartData = computed(() => {
         type: 'line',
         label: 'EMA 50',
         data: ema50Data,
-        borderColor: '#0088ff',
-        backgroundColor: 'transparent',
+        borderColor: '#3B82F6',
+        backgroundColor: '#3B82F6',
         borderWidth: 0.5,
-        pointRadius: 0,
-        fill: false
+        pointRadius: 0
       })
     }
 
@@ -997,11 +955,10 @@ const enhancedCandlestickChartData = computed(() => {
         type: 'line',
         label: 'EMA 200',
         data: ema200Data,
-        borderColor: '#ff8800',
-        backgroundColor: 'transparent',
+        borderColor: '#8B5CF6',
+        backgroundColor: '#8B5CF6',
         borderWidth: 0.5,
-        pointRadius: 0,
-        fill: false
+        pointRadius: 0
       })
     }
   }
@@ -1012,11 +969,12 @@ const enhancedCandlestickChartData = computed(() => {
       type: 'line',
       label: 'VWAP',
       data: vwapData.value,
-      borderColor: '#ff00ff',
-      backgroundColor: 'transparent',
+      borderColor: $waveui.colors.warning,
+      backgroundColor: $waveui.colors.warning,
       borderWidth: 0.5,
       pointRadius: 0,
-      fill: false
+      tension: 0.1,
+      borderDash: [5, 3]
     })
   }
 
@@ -1348,14 +1306,18 @@ function validateZoomRange(min, max) {
   return { min, max }
 }
 
-function resetToOptimalView() {
+// Replace multiple reset functions with a single resetView.
+function resetView() {
+  // Clear zoom state and re-focus smartly on recent data.
+  zoomRange.value = { min: null, max: null }
   hasInitialized.value = false
-
-  // Clear any cached zoom limits to force recalculation.
   zoomLimits.value = { minZoom: null, maxZoom: null }
-
-  // Wait a tick then trigger auto-focus.
   nextTick(focusOnRecentData)
+}
+
+// Legacy function for compatibility - delegates to resetView.
+function resetZoom() {
+  resetView()
 }
 
 // Enhanced zoom/pan handlers with intelligent boundaries.
@@ -1447,9 +1409,6 @@ const baseSynchronizedOptions = computed(() => ({
   interaction: {
     intersect: false,
     mode: 'index'
-  },
-  onDoubleClick: () => {
-    resetToOptimalView()
   },
   scales: {
     x: {
@@ -1582,11 +1541,6 @@ const synchronizedMacdChartOptions = computed(() => ({
 const changeChartType = (type) => emit('change-chart-type', type)
 const changePeriod = (period) => emit('change-period', period)
 const changeTimeframe = (timeframe) => emit('change-timeframe', timeframe)
-
-// Legacy function for compatibility - delegates to resetAllCharts.
-function resetZoom() {
-  resetAllCharts()
-}
 
 // Watchers for auto-focusing on data changes
 // --------------------------------------------------------

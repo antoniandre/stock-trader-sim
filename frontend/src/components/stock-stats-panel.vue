@@ -1,8 +1,6 @@
 <template lang="pug">
 .stats-panel.pt4.pa6
-  .w-flex.justify-space-between.align-center.mb4
-    .title2 Stats
-    .see-all-btn See all
+  .title2.mb4 Stats
 
   .stats-content.w-flex.gap4
     //- 1 Day Range Card
@@ -334,15 +332,6 @@ const financialMetrics = computed(() => [
 .stats-panel {
   overflow: hidden;
 
-  .see-all-btn {
-    color: #6366F1;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-
-    &:hover {text-decoration: underline;}
-  }
-
   .stats-content {
     .range-card .gradient-card__wrap {
       border-radius: 12px;
@@ -362,7 +351,7 @@ const financialMetrics = computed(() => [
           position: relative;
           width: 6px;
           height: 100%;
-          background: rgba(255, 255, 255, 0.1);
+          background: color-mix(in srgb, var(--w-contrast-bg-color) 12%, transparent);
           border-radius: 3px;
           left: 2px;
         }
