@@ -1,7 +1,7 @@
 <template lang="pug">
 .drawing-tools-container
   //- Toolbar positioned absolutely.
-  .drawing-toolbar.absolute.left-2.top-2(style="z-index: 1001;")
+  .drawing-toolbar.absolute
     .toolbar-section
       .section-title.op5.text-upper Cursor
       .tool-group.w-flex.column.gap1

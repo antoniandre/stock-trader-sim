@@ -228,40 +228,38 @@
           :price-history="priceHistory")
 
   //- Fullscreen Chart Dialog
-  w-dialog(
+  w-dialog.fullscreen-chart-overlay(
     v-model="showDialog"
-    :fullscreen="true"
-    dialog-class="ma8"
-    content-class="pa0")
-    .tradingview-chart.chart-fullscreen
-      w-button.pa0.ml2(
-        absolute
-        right
-        top
-        width="24"
-        height="24"
-        @click="showDialog = false"
-        tooltip="Close"
-        icon="wi-cross"
-        bg-color="error"
-        round)
-      PriceChart(
-        :symbol="props.symbol"
-        :chart-type="chartType"
-        :selected-period="selectedPeriod"
-        :selected-timeframe="selectedTimeframe"
-        :chart-periods="chartPeriods"
-        :available-timeframes="availableTimeframes"
-        :is-loading-historical-data="isLoadingHistoricalData"
-        :is-loading-additional-data="isLoadingAdditionalData"
-        :line-chart-data="lineChartData"
-        :line-chart-options="lineChartOptions"
-        :candlestick-chart-data="candlestickChartData"
-        :candlestick-chart-options="candlestickChartOptions"
-        @change-chart-type="changeChartType"
-        @change-period="changePeriod"
-        @change-timeframe="changeTimeframe"
-        @reset-zoom-complete="handleResetZoomComplete")
+    dialog-class="fullscreen-chart"
+    content-class="pa12")
+    w-button.pa0.ml2(
+      absolute
+      right
+      top
+      width="24"
+      height="24"
+      @click="showDialog = false"
+      tooltip="Close"
+      icon="wi-cross"
+      bg-color="error"
+      round)
+    PriceChart(
+      :symbol="props.symbol"
+      :chart-type="chartType"
+      :selected-period="selectedPeriod"
+      :selected-timeframe="selectedTimeframe"
+      :chart-periods="chartPeriods"
+      :available-timeframes="availableTimeframes"
+      :is-loading-historical-data="isLoadingHistoricalData"
+      :is-loading-additional-data="isLoadingAdditionalData"
+      :line-chart-data="lineChartData"
+      :line-chart-options="lineChartOptions"
+      :candlestick-chart-data="candlestickChartData"
+      :candlestick-chart-options="candlestickChartOptions"
+      @change-chart-type="changeChartType"
+      @change-period="changePeriod"
+      @change-timeframe="changeTimeframe"
+      @reset-zoom-complete="handleResetZoomComplete")
 </template>
 
 <script setup>
@@ -1662,6 +1660,12 @@ watch(() => historicalData.value.length, (newLength, oldLength) => {
     width: 25%;
     min-width: 320px;
   }
+}
+
+.fullscreen-chart-overlay {backdrop-filter: blur(10px);}
+
+.fullscreen-chart {
+  height: 98vh;
 }
 </style>
 
