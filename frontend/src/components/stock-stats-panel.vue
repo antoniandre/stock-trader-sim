@@ -1,45 +1,49 @@
 <template lang="pug">
-.stats-panel
-  .panel-header
+.stats-panel.pt4.pa6
+  .w-flex.justify-space-between.align-center.mb4
     .title2 Stats
     .see-all-btn See all
 
-  .stats-content
+  .stats-content.w-flex.gap4
     //- 1 Day Range Card
-    .range-card
-      .period-label 1 DAY
-      .range-visualization
-        .range-track
-          .range-bar(:style="{ width: dayBarWidth + '%', backgroundColor: '#22C55E' }")
-          .current-position(:style="{ left: dayPosition + '%' }")
-      .range-values
-        .range-high
-          .label High
-          .value {{ formatPrice(dayHigh) }}
-        .range-low
-          .label Low
-          .value {{ formatPrice(dayLow) }}
+    .range-card.gradient-card.gradient-card--tall.grow
+      .gradient-card__wrap
+        .period-label.mb3 1 DAY
+        .w-flex
+          .range-visualization
+            .range-track
+              .range-bar(:style="{ height: dayBarWidth + '%', backgroundColor: '#22C55E' }")
+              .current-position(:style="{ top: dayPosition + '%' }")
+          .range-values
+            .range-high
+              .label High
+              .value {{ formatPrice(dayHigh) }}
+            .range-low
+              .label Low
+              .value {{ formatPrice(dayLow) }}
 
     //- 52 Week Range Card
-    .range-card
-      .period-label 52 WEEKS
-      .range-visualization
-        .range-track
-          .range-bar(:style="{ width: weekBarWidth + '%', backgroundColor: '#EF4444' }")
-          .current-position(:style="{ left: weekPosition + '%' }")
-      .range-values
-        .range-high
-          .label High
-          .value {{ formatPrice(weekHigh) }}
-        .range-low
-          .label Low
-          .value {{ formatPrice(weekLow) }}
+    .range-card.gradient-card.gradient-card--tall.grow
+      .gradient-card__wrap
+        .period-label.mb3 52 WEEKS
+        .w-flex
+          .range-visualization
+            .range-track
+              .range-bar(:style="{ height: weekBarWidth + '%', backgroundColor: '#EF4444' }")
+              .current-position(:style="{ top: weekPosition + '%' }")
+          .range-values
+            .range-high
+              .label High
+              .value {{ formatPrice(weekHigh) }}
+            .range-low
+              .label Low
+              .value {{ formatPrice(weekLow) }}
 
-    //- Financial Metrics
-    .metrics-list
-      .metric-row(v-for="metric in financialMetrics" :key="metric.label")
-        .metric-label.op5 {{ metric.label }}
-        .metric-value(:class="metric.colorClass") {{ metric.value }}
+  //- Financial Metrics
+  .metrics-list.mt4
+    .metric-row(v-for="metric in financialMetrics" :key="metric.label")
+      .metric-label.op5 {{ metric.label }}
+      .metric-value(:class="metric.colorClass") {{ metric.value }}
 </template>
 
 <script setup>
@@ -211,14 +215,14 @@ const weekBarWidth = computed(() => {
 })
 
 const formatPrice = (price) => {
-  if (price === 0) return '$0.0000'
-  return '$' + price.toFixed(4)
+  if (price === 0) return '$0.00'
+  return '$' + price.toFixed(2)
 }
 
 // Calculate actual volume from historical data.
 const calculateVolume = () => {
   if (!props.historicalData || props.historicalData.length === 0) {
-    // Use symbol hash for consistent fallback volume estimate
+    // Use symbol hash for consistent fallback volume estimate.
     const symbol = props.stock.symbol || 'UNKNOWN'
     let hash = 0
     for (let i = 0; i < symbol.length; i++) {
@@ -227,7 +231,7 @@ const calculateVolume = () => {
     }
 
     const hashMod = Math.abs(hash) % 50
-    const fallbackVolume = (hashMod * 100000) + 1000000 // 1M-6M consistent fallback
+    const fallbackVolume = (hashMod * 100000) + 1000000 // 1M-6M consistent fallback.
 
     if (fallbackVolume > 1000000) return (fallbackVolume / 1000000).toFixed(1) + 'M'
     return Math.round(fallbackVolume).toLocaleString()
@@ -239,7 +243,7 @@ const calculateVolume = () => {
     .map(item => item.volume)
 
   if (volumes.length === 0) {
-    // Same consistent fallback as above
+    // Same consistent fallback as above.
     const symbol = props.stock.symbol || 'UNKNOWN'
     let hash = 0
     for (let i = 0; i < symbol.length; i++) {
@@ -272,25 +276,21 @@ const calculateMarketCap = () => {
   let hash = 0
   for (let i = 0; i < symbol.length; i++) {
     hash = ((hash << 5) - hash) + symbol.charCodeAt(i)
-    hash = hash & hash // Convert to 32-bit integer
+    hash = hash & hash // Convert to 32-bit integer.
   }
 
-  // Generate consistent estimated shares based on symbol hash
+  // Generate consistent estimated shares based on symbol hash.
   let estimatedShares
   const hashMod = Math.abs(hash) % 100
 
-  if (price > 100) {
-    // High-price stocks typically have fewer shares.
-    estimatedShares = (hashMod * 1000000) + 10000000  // 10M-110M
-  }
-  else if (price > 10) {
-    // Mid-price stocks.
-    estimatedShares = (hashMod * 5000000) + 50000000  // 50M-550M
-  }
-  else {
-    // Low-price stocks often have many shares.
-    estimatedShares = (hashMod * 10000000) + 100000000  // 100M-1.1B
-  }
+  // High-price stocks typically have fewer shares.
+  if (price > 100) estimatedShares = (hashMod * 1000000) + 10000000  // 10M-110M.
+
+  // Mid-price stocks.
+  else if (price > 10) estimatedShares = (hashMod * 5000000) + 50000000  // 50M-550M.
+
+  // Low-price stocks often have many shares.
+  else estimatedShares = (hashMod * 10000000) + 100000000  // 100M-1.1B.
 
   const marketCap = price * estimatedShares
 
@@ -334,88 +334,61 @@ const financialMetrics = computed(() => [
 .stats-panel {
   overflow: hidden;
 
-  .panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 20px 24px 16px 24px;
+  .see-all-btn {
+    color: #6366F1;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
 
-    .see-all-btn {
-      color: #6366F1;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-
-      &:hover {text-decoration: underline;}
-    }
+    &:hover {text-decoration: underline;}
   }
 
   .stats-content {
-    padding: 0 24px 24px 24px;
-
-    .range-card {
-      background: var(--w-base-bg-color);
+    .range-card .gradient-card__wrap {
       border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 16px;
-
-      &:last-of-type {margin-bottom: 24px;}
+      padding: 20px 24px 24px;
 
       .period-label {
         font-size: 14px;
         font-weight: 700;
-        margin-bottom: 16px;
         letter-spacing: 0.5px;
       }
 
       .range-visualization {
         position: relative;
-        margin-bottom: 16px;
-        height: 24px;
+        width: 24px;
 
         .range-track {
           position: relative;
-          width: 100%;
-          height: 6px;
+          width: 6px;
+          height: 100%;
           background: rgba(255, 255, 255, 0.1);
           border-radius: 3px;
-          top: 9px;
+          left: 2px;
         }
 
         .range-bar {
-          height: 6px;
+          width: 6px;
           border-radius: 3px;
           transition: all 0.3s ease;
         }
 
         .current-position {
+          content: '';
           position: absolute;
-          top: -4px;
-          width: 12px;
-          height: 14px;
-          background: var(--w-contrast-bg-color);
+          top: 0;
+          right: 100%;
+          transform: translateY(-50%);
+          width: 0;
+          height: 0;
+          border-top: 5px solid transparent;
+          border-bottom: 5px solid transparent;
+          border-left: 7px solid var(--w-contrast-bg-color);
           border-radius: 2px;
-          transform: translateX(-50%);
-
-          &::after {
-            content: '';
-            position: absolute;
-            bottom: -6px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 0;
-            height: 0;
-            border-left: 5px solid transparent;
-            border-right: 5px solid transparent;
-            border-top: 6px solid var(--w-contrast-bg-color);
-          }
         }
       }
 
       .range-values {
-        display: flex;
-        justify-content: space-between;
-
         .range-high,
         .range-low {
           .label {
@@ -431,28 +404,28 @@ const financialMetrics = computed(() => [
         }
       }
     }
+  }
 
-    .metrics-list {
-      .metric-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  .metrics-list {
+    .metric-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 
-        &:last-child {border-bottom: none;}
+      &:last-child {border-bottom: none;}
 
-        .metric-label {
-          font-size: 12px;
-          font-weight: 500;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
+      .metric-label {
+        font-size: 12px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
 
-        .metric-value {
-          font-size: 14px;
-          font-weight: 600;
-        }
+      .metric-value {
+        font-size: 14px;
+        font-weight: 600;
       }
     }
   }

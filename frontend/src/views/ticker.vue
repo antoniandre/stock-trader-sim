@@ -31,72 +31,72 @@
   //- Stock Details & Trading
   .w-flex.mt4.mdd-column
     //- Left Column: Stock Details & Chart
-    .mdd12.lg7.grow
-      //- Price Chart
-      .glass-box.pa6
-        .chart-wrap
-          .chart-info.w-flex.align-center.gap2
-            .price-display
-              .title2.text-bold(v-if="stock.price")
-                span.op6.mr2 {{ stock.currencySymbol }}
-                span {{ stock.price.toFixed(2) }}
-              .title3(v-else)
-                w-icon.mr2.op4(size="1.4rem") wi-info-circle
-                span.op6 Price Unavailable
-              .caption.mt1.op7.absolute Last updated: {{ lastUpdate }}
 
-            .price-change.text-center.lh0(
-              v-if="priceChange && stock.price"
-              :class="priceChange >= 0 ? 'currency-positive' : 'currency-negative'")
-              .text-bold
-                span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
-              .size--xs ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
-            .w-flex.align-center.gap2.mla.no-grow
-              w-button.pa0(
+    //- Price Chart
+    .glass-box.pa6.grow
+      .chart-wrap
+        .chart-info.w-flex.align-center.gap2
+          .price-display
+            .title2.text-bold(v-if="stock.price")
+              span.op6.mr2 {{ stock.currencySymbol }}
+              span {{ stock.price.toFixed(2) }}
+            .title3(v-else)
+              w-icon.mr2.op4(size="1.4rem") wi-info-circle
+              span.op6 Price Unavailable
+            .caption.mt1.op7.absolute Last updated: {{ lastUpdate }}
+
+          .price-change.text-center.lh0(
+            v-if="priceChange && stock.price"
+            :class="priceChange >= 0 ? 'currency-positive' : 'currency-negative'")
+            .text-bold
+              span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
+            .size--xs ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
+          .w-flex.align-center.gap2.mla.no-grow
+            w-button.pa0(
+              width="24"
+              height="24"
+              @click="refreshPrice"
+              :loading="isRefreshing"
+              tooltip="Refresh Price"
+              :tooltip-props="{ sm: true }"
+              round)
+              icon(icon="mdi:refresh")
+            w-button.pa0(
                 width="24"
                 height="24"
-                @click="refreshPrice"
-                :loading="isRefreshing"
-                tooltip="Refresh Price"
+                @click="showDialog = true"
+                tooltip="Fullscreen Chart"
                 :tooltip-props="{ sm: true }"
                 round)
-                icon(icon="mdi:refresh")
-              w-button.pa0(
-                  width="24"
-                  height="24"
-                  @click="showDialog = true"
-                  tooltip="Fullscreen Chart"
-                  :tooltip-props="{ sm: true }"
-                  round)
-                  icon(icon="mdi:fullscreen")
-              //- Smooth transition indicator
-              .w-flex.align-center.gap1.ml2(v-if="isTransitioningTimeframe")
-                w-spinner(size="10" color="primary")
-                span.size--xs.op5 Updating...
+                icon(icon="mdi:fullscreen")
+            //- Smooth transition indicator
+            .w-flex.align-center.gap1.ml2(v-if="isTransitioningTimeframe")
+              w-spinner(size="10" color="primary")
+              span.size--xs.op5 Updating...
 
-          //- Price Chart Component
-          PriceChart(
-            :symbol="props.symbol"
-            :chart-type="chartType"
-            :selected-period="selectedPeriod"
-            :selected-timeframe="selectedTimeframe"
-            :chart-periods="chartPeriods"
-            :available-timeframes="availableTimeframes"
-            :is-loading-historical-data="isLoadingHistoricalData"
-            :is-loading-additional-data="isLoadingAdditionalData"
-            :line-chart-data="lineChartData"
-            :line-chart-options="lineChartOptions"
-            :candlestick-chart-data="candlestickChartData"
-            :candlestick-chart-options="candlestickChartOptions"
-            @change-chart-type="changeChartType"
-            @change-period="changePeriod"
-            @change-timeframe="changeTimeframe"
-            @reset-zoom-complete="handleResetZoomComplete"
-            ref="priceChartRef")
+        //- Price Chart Component
+        PriceChart(
+          :symbol="props.symbol"
+          :chart-type="chartType"
+          :selected-period="selectedPeriod"
+          :selected-timeframe="selectedTimeframe"
+          :chart-periods="chartPeriods"
+          :available-timeframes="availableTimeframes"
+          :is-loading-historical-data="isLoadingHistoricalData"
+          :is-loading-additional-data="isLoadingAdditionalData"
+          :line-chart-data="lineChartData"
+          :line-chart-options="lineChartOptions"
+          :candlestick-chart-data="candlestickChartData"
+          :candlestick-chart-options="candlestickChartOptions"
+          @change-chart-type="changeChartType"
+          @change-period="changePeriod"
+          @change-timeframe="changeTimeframe"
+          @reset-zoom-complete="handleResetZoomComplete"
+          ref="priceChartRef")
 
     //- Right Column: Trading Interface & Stats
-    .spacer.ma3
-    .mdd12.lg5.pl8.grow
+    .spacer.ma3.no-grow
+    aside.side-panel
       //- Trading Form
       .glass-box.pa6
         .title2.mb4.w-flex.gap2
@@ -343,7 +343,8 @@ async function transitionChartData(newData) {
     await new Promise(resolve => setTimeout(resolve, 25))
 
     console.log(`✅ Chart data transition complete`)
-  } catch (error) {
+  }
+  catch (error) {
     console.error('❌ Error during data transition:', error)
   }
   // No finally block needed since we're not setting loading state.
@@ -1457,7 +1458,8 @@ async function changeTimeframe(timeframe) {
 
       // Smoothly transition the data instead of replacing it
       await transitionChartData(cachedData)
-    } else {
+    }
+    else {
       console.log(`📊 Fetching new data for ${timeframe}`)
 
       // Fetch new data but don't clear existing data until we have the new data
@@ -1475,11 +1477,13 @@ async function changeTimeframe(timeframe) {
         console.log(`✅ Smooth transition to ${timeframe} complete with ${newData.length} data points`)
       }
     }
-  } catch (error) {
+  }
+  catch (error) {
     console.error(`❌ Error during timeframe transition:`, error)
     // Revert timeframe on error
     selectedTimeframe.value = previousTimeframe
-  } finally {
+  }
+  finally {
     // Clear transition state quickly.
     setTimeout(() => {
       isTransitioningTimeframe.value = false
@@ -1641,7 +1645,6 @@ watch(() => historicalData.value.length, (newLength, oldLength) => {
 <style lang="scss">
 .ticker-view {
   padding: 2rem;
-  max-width: 1400px;
   margin: 0 auto;
 
   .trade-item {
@@ -1653,6 +1656,11 @@ watch(() => historicalData.value.length, (newLength, oldLength) => {
   .price-display .title2 {
     font-size: 2.2rem;
     line-height: 1;
+  }
+
+  .side-panel {
+    width: 25%;
+    min-width: 320px;
   }
 }
 </style>
