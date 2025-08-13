@@ -1,7 +1,7 @@
 import express from 'express'
 import { state } from './config.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
-import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive } from './market-data.js'
+import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive, getTopMovers } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, placeOrder } from './alpaca-account.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse } from './utils.js'
@@ -16,6 +16,19 @@ export function createRestApiRoutes() {
     res.header('Access-Control-Allow-Origin', '*')
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept')
     next()
+  })
+
+  // Top movers endpoint (gainers/losers).
+  app.get('/api/movers', async (req, res) => {
+    try {
+      const { market = 'stocks', direction = 'both', top = '10' } = req.query
+      const data = await getTopMovers(market, direction, parseInt(top))
+      res.json(createStandardResponse(data))
+    }
+    catch (error) {
+      console.error('Error fetching top movers:', error)
+      res.status(500).json({ error: 'Failed to fetch top movers.' })
+    }
   })
 
   // Portfolio endpoints.

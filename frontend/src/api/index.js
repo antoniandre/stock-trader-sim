@@ -181,3 +181,11 @@ export async function fetchStockHistoryProgressive(symbol, period = '1D', timefr
     return fetchStockHistory(symbol, period, timeframe)
   }
 }
+
+export async function fetchTopMovers(top = 10, market = 'stocks') {
+  const params = new URLSearchParams({ direction: 'both', top: String(top), market })
+  const res = await fetch(`http://localhost:3000/api/movers?${params.toString()}`)
+  if (!res.ok) throw new Error(`Failed to fetch movers: ${res.status}`)
+  const payload = await res.json()
+  return payload
+}

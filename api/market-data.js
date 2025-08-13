@@ -1139,3 +1139,22 @@ export function stopPricePolling() {
   }
 }
 
+export async function getTopMovers(market = 'stocks', direction = 'both', top = 10) {
+  try {
+    const base = `${ALPACA_API_BASE_URL}/v1beta1/screener/${market}/movers`
+    const params = new URLSearchParams()
+    if (direction && direction !== 'both') params.append('direction', direction)
+    if (top) params.append('top', String(top))
+
+    const url = params.toString() ? `${base}?${params.toString()}` : base
+    const { data } = await axios.get(url, { headers: HEADERS })
+    return data
+  }
+  catch (error) {
+    const status = error.response?.status
+    const message = error.response?.data || error.message
+    console.error(`❌ Failed to fetch top movers (${direction}):`, status, message)
+    return { error: true, status, message }
+  }
+}
+

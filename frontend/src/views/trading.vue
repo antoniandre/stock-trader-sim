@@ -10,6 +10,42 @@ w-grid.gap-xl
         .w-icon.size--xs.yellow--bg(v-else)
         span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
           | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
+
+    //- Top Movers Strip.
+    .glass-box.pa3.mb3
+      .w-flex.align-center.justify-end
+        w-select(
+          :items="moverSizes"
+          :model-value="moversCount"
+          @input="n => { moversCount = n; loadMovers() }"
+          xs
+          outline)
+      .w-flex.gap4.mt3.wrap
+        //- Gainers
+        .w-flex.column.gap1
+          .title3.op7 Top Gainers
+          .w-flex.gap1.wrap
+            w-tag.clickable.px2.py1(
+              v-for="s in movers.gainers"
+              :key="s.symbol"
+              @click="$router.push(`/trading/${s.symbol}`)"
+              round
+              xs)
+              span.text-bold {{ s.symbol }}
+              span.op6.ml2 {{ (s.pct * 100).toFixed(2) }}%
+        //- Losers
+        .w-flex.column.gap1
+          .title3.op7 Top Losers
+          .w-flex.gap1.wrap
+            w-tag.clickable.px2.py1(
+              v-for="s in movers.losers"
+              :key="s.symbol"
+              @click="$router.push(`/trading/${s.symbol}`)"
+              round
+              xs)
+              span.text-bold {{ s.symbol }}
+              span.op6.ml2 {{ (s.pct * 100).toFixed(2) }}%
+
     w-input.w-input.light.my4.h-auto(
       v-model="searchQuery"
       @input="handleSearchChange"
@@ -87,20 +123,20 @@ w-grid.gap-xl
                     :disabled="stock.price === 0")
                     strong.size--xs SELL
 
-        //- Pagination
-        .w-flex.align-center.justify-between.mt4(v-if="totalPages > 1")
-          .w-flex.align-center.gap2
-            w-button(:disabled="currentPage === 1" @click="prevPage") Previous
-            span Page {{ currentPage }} of {{ totalPages }}
-            w-button(:disabled="currentPage === totalPages" @click="nextPage") Next
-          .w-flex.align-center.gap2
-            span.op5.size--sm Showing {{ stocks.length }} of {{ totalStocks }} stocks
-            span.op5.size--sm(v-if="searchQuery") • Filtered by "{{ searchQuery }}"
+      //- Pagination
+      .w-flex.align-center.justify-between.mt4(v-if="totalPages > 1")
+        .w-flex.align-center.gap2
+          w-button(:disabled="currentPage === 1" @click="prevPage") Previous
+          span Page {{ currentPage }} of {{ totalPages }}
+          w-button(:disabled="currentPage === totalPages" @click="nextPage") Next
+        .w-flex.align-center.gap2
+          span.op5.size--sm Showing {{ stocks.length }} of {{ totalStocks }} stocks
+          span.op5.size--sm(v-if="searchQuery") • Filtered by "{{ searchQuery }}"
 </template>
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
-import { fetchAllStocks } from '@/api'
+import { fetchAllStocks, fetchTopMovers } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
@@ -115,6 +151,15 @@ const totalStocks = ref(0)
 const totalPages = ref(1)
 const fetchingPrices = ref(false)
 let searchTimeout = null
+
+// Movers state.
+const movers = ref({ gainers: [], losers: [] })
+const moversCount = ref(10)
+const moverSizes = [
+  { label: 'Top 5', value: 5 },
+  { label: 'Top 10', value: 10 },
+  { label: 'Top 20', value: 20 }
+]
 
 // Use composables for WebSocket and market status.
 const { wsConnected, lastUpdate, connect, addMessageHandler } = useWebSocket()
@@ -133,6 +178,52 @@ const tableHeaders = [
   { key: 'price', label: 'Price', align: 'right' },
   { key: 'actions', label: 'Actions', align: 'center' }
 ]
+
+function extractPercent(rec) {
+  let p = rec.change_percent ?? rec.changePercent ?? rec.percent_change ?? rec.changePct
+  if (p === undefined || p === null) {
+    const ch = rec.change ?? rec.change_value ?? rec.delta
+    const prev = rec.previous_close ?? rec.prev_close ?? rec.prevClose
+    const last = rec.latest_close ?? rec.close ?? rec.price
+    if (typeof ch === 'number' && typeof prev === 'number' && prev !== 0) p = (ch / prev) * 100
+    else if (typeof ch === 'number' && typeof last === 'number' && last - ch !== 0) p = (ch / (last - ch)) * 100
+  }
+  const n = Number(p)
+  if (!Number.isFinite(n)) return null
+  if (Math.abs(n) <= 1) return n * 100
+  return n
+}
+
+async function loadMovers() {
+  try {
+    const top = moversCount.value
+    const payload = await fetchTopMovers(top, 'stocks')
+    const data = payload?.data || payload
+
+    // Normalize into gainers/losers arrays.
+    let gainers = Array.isArray(data?.gainers) ? data.gainers : []
+    let losers = Array.isArray(data?.losers) ? data.losers : []
+
+    if (!gainers.length && !losers.length) {
+      const list = Array.isArray(data?.movers) ? data.movers : (Array.isArray(data) ? data : [])
+      if (list.length) {
+        gainers = list.filter(r => (r.change ?? r.change_value ?? 0) > 0)
+        losers = list.filter(r => (r.change ?? r.change_value ?? 0) < 0)
+      }
+    }
+
+    const normalize = arr => (arr || []).slice(0, top).map(r => ({
+      ...r,
+      pct: extractPercent(r)
+    }))
+
+    movers.value = { gainers: normalize(gainers), losers: normalize(losers) }
+  }
+  catch (e) {
+    console.error('❌ Failed to load movers:', e)
+    movers.value = { gainers: [], losers: [] }
+  }
+}
 
 // Market status is now handled by the composable.
 
@@ -164,13 +255,10 @@ async function fetchStocks(resetPage = false) {
   }
 }
 
-// Debounced search function
+// Debounced search function.
 function onSearchInput() {
   if (searchTimeout) clearTimeout(searchTimeout)
-
-  searchTimeout = setTimeout(() => {
-    fetchStocks(true) // Reset to page 1 when searching
-  }, 500) // 500ms delay
+  searchTimeout = setTimeout(() => { fetchStocks(true) }, 500)
 }
 
 // Watch for search changes
@@ -208,7 +296,7 @@ async function placeOrder(symbol, qty, side) {
   }
 }
 
-// WebSocket message handlers.
+// WebSocket handlers.
 function handleMarketUpdate(data) {
   console.log('📊 Market update received:', data.data.length, 'stocks')
 
@@ -223,8 +311,6 @@ function handleMarketUpdate(data) {
     }
   })
 }
-
-
 
 function handlePriceUpdate(data) {
   const existingStock = stocks.value.find(s => s.symbol === data.symbol)
@@ -270,7 +356,7 @@ onMounted(async () => {
   loading.value = true
 
   try {
-    await fetchStocks()
+    await Promise.all([fetchStocks(), loadMovers()])
     setupWebSocket()
     connect()
   }
