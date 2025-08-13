@@ -32,7 +32,7 @@
           width="26"
           height="26"
           @click="resetToOptimalView"
-          tooltip="Reset Zoom (Double-click chart)"
+          tooltip="Reset Zoom"
           :tooltip-props="{ sm: true }"
           round)
           icon.size--lg(icon="material-symbols-light:fit-screen-outline")
@@ -112,7 +112,6 @@
     //- Chart Controls
     .chart-controls-bottom.w-flex.align-center.justify-space-between.pa2
       .w-flex.align-center.gap2.size--xs.ml8
-        span.op6 Mouse wheel to zoom • Click &amp; drag to pan
         w-button.pa0.op8(
           width="18"
           height="18"
@@ -1349,18 +1348,14 @@ function validateZoomRange(min, max) {
   return { min, max }
 }
 
-// Double-click to reset to optimal view (TradingView behavior).
 function resetToOptimalView() {
-  console.log('📊 Resetting to optimal view...')
   hasInitialized.value = false
 
   // Clear any cached zoom limits to force recalculation.
   zoomLimits.value = { minZoom: null, maxZoom: null }
 
   // Wait a tick then trigger auto-focus.
-  nextTick(() => {
-    focusOnRecentData()
-  })
+  nextTick(focusOnRecentData)
 }
 
 // Enhanced zoom/pan handlers with intelligent boundaries.
@@ -1398,9 +1393,7 @@ function handleZoomComplete(context) {
   }
 
   // Only force update if we made corrections, otherwise let Chart.js handle it naturally.
-  if (rangeWasModified) {
-    chart.update('none')
-  }
+  if (rangeWasModified) chart.update('none')
 
   syncZoom(chart, { min, max })
 }
@@ -1479,11 +1472,9 @@ const baseSynchronizedOptions = computed(() => ({
       zoom: {
         wheel: {
           enabled: true,
-          speed: 0.1 // Faster, more responsive zoom speed (was 0.05).
+          speed: 0.08
         },
-        pinch: {
-          enabled: true
-        },
+        pinch: { enabled: true },
         mode: 'x',
         onZoomComplete: handleZoomComplete
       },
