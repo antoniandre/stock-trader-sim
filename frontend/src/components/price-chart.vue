@@ -76,21 +76,15 @@
         ref="candleChartRef"
         :data="enhancedCandlestickChartData"
         :options="synchronizedCandlestickChartOptions")
-      .chart.chart--volume.mb2
-        Line(
-          v-show="showVolume"
-          ref="volumeChartRef"
-          :data="indicators.volumeChartData.value"
-          :options="synchronizedVolumeChartOptions")
 
     //- Drawing Tools Overlay
     DrawingTools(:chart-container="chartContainer")
 
     //- RSI Pane (if enabled)
-    .chart-pane.bd1.bdrs2.ovh.mt2.rsi-pane(v-show="showRSI")
-      .pane-header.w-flex.align-center.justify-space-between.pa1.contrast-o05--bg
-        .pane-title.size--sm.text-bold.ml8 RSI (14)
-        .pane-values.size--xs.op4
+    .chart.chart--rsi.mt2(v-show="showRSI")
+      .w-flex.align-center.justify-space-between.pa1.contrast-o05--bg
+        .size--sm.text-bold.op7.ml8 RSI (14)
+        .pane-values.size--xs.op3
           span.mr2 {{ currentRSI }}
           span Overbought: 70 • Oversold: 30
 
@@ -101,10 +95,10 @@
           :options="synchronizedRsiChartOptions")
 
     //- MACD Pane (if enabled)
-    .chart-pane.bd1.bdrs2.ovh.mt2.macd-pane(v-show="showMACD")
-      .pane-header.w-flex.align-center.justify-space-between.pa1.contrast-o05--bg
-        .pane-title.size--sm.text-bold.ml8 MACD (12,26,9)
-        .pane-values.size--xs.op4
+    .chart.chart--macd.mt2(v-show="showMACD")
+      .w-flex.align-center.justify-space-between.pa1.contrast-o05--bg
+        .size--sm.text-bold.op7.ml8 MACD (12,26,9)
+        .pane-values.size--xs.op3
           span.mr2 MACD: {{ currentMACD }}
           span.mr2 Signal: {{ currentSignal }}
           span Histogram: {{ currentHistogram }}
@@ -163,7 +157,23 @@ import { useTechnicalIndicators } from '@/composables/use-technical-indicators'
 const $waveui = inject('$waveui')
 
 // Register Chart.js plugins and components.
-Chart.register(zoomPlugin, BarController, BarElement)
+// Plugin to reserve a fixed-height band at the bottom for the volume scale, sharing the same X scale.
+const VOLUME_BAND_HEIGHT = 115 // Pixels.
+const volumeBandPlugin = {
+  id: 'volumeBand',
+  afterLayout(chart, args, opts) {
+    if (!opts || !opts.height) return
+    const volScale = chart.scales && chart.scales.yVolume
+    if (!volScale) return
+    const area = chart.chartArea
+    const band = Math.min(opts.height, area.bottom - area.top)
+    volScale.top = area.bottom - band
+    volScale.bottom = area.bottom
+    volScale.height = band
+  }
+}
+
+Chart.register(zoomPlugin, BarController, BarElement, volumeBandPlugin)
 
 // Props & Emits
 // --------------------------------------------------------
@@ -194,7 +204,6 @@ const emit = defineEmits([
 const chartContainer = ref(null)
 const lineChartRef = ref(null)
 const candleChartRef = ref(null)
-const volumeChartRef = ref(null)
 const rsiChartRef = ref(null)
 const macdChartRef = ref(null)
 
@@ -226,7 +235,6 @@ const getAllChartInstances = () => {
   if (candleChartRef.value?.chart) charts.push(candleChartRef.value.chart)
 
   // Indicator charts.
-  if (showVolume.value && volumeChartRef.value?.chart) charts.push(volumeChartRef.value.chart)
   if (showRSI.value && rsiChartRef.value?.chart) charts.push(rsiChartRef.value.chart)
   if (showMACD.value && macdChartRef.value?.chart) charts.push(macdChartRef.value.chart)
 
@@ -912,6 +920,31 @@ const enhancedCandlestickChartData = computed(() => {
 
   const datasets = [...props.candlestickChartData.datasets]
 
+  // Append volume bars aligned 1:1 on a secondary y-axis band.
+  if (showVolume.value && props.candlestickChartData.datasets[0].data?.length) {
+    const candles = props.candlestickChartData.datasets[0].data
+    const volData = candles.map(c => ({ x: (c.x ?? c.t ?? c.timestamp), y: c.volume || c.v || 0 }))
+    datasets.unshift({
+      type: 'bar',
+      label: 'Volume',
+      yAxisID: 'yVolume',
+      data: volData,
+      parsing: false,
+      order: -1,
+      backgroundColor: ctx => {
+        const i = ctx.dataIndex
+        const candle = candles[i]
+        if (!candle) return 'rgba(34,197,94,0.5)'
+        const up = ((candle.c ?? candle.close) >= (candle.o ?? candle.open))
+        return up ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)'
+      },
+      borderWidth: 0,
+      barPercentage: 0.8,
+      categoryPercentage: 1,
+      grouped: false
+    })
+  }
+
   // Add EMA lines if enabled (same logic as line chart)
   if (showEMA.value && ohlcData.value.length > 0) {
     const closePrices = ohlcData.value.map(d => d.close || d.price || 0)
@@ -1040,28 +1073,7 @@ function calculateSimpleRSI(prices, period = 14) {
   return rsi
 }
 
-// Chart options for indicator panels.
-const volumeChartOptions = computed(() => ({
-  responsive: true,
-  maintainAspectRatio: false,
-  animation: false,
-  plugins: {
-    legend: { display: false },
-    tooltip: { enabled: false }
-  },
-  scales: {
-    x: {
-      type: 'time',
-      display: false
-    },
-    y: {
-      position: 'right',
-      beginAtZero: true,
-      grid: { color: $waveui.colors.light2 },
-      ticks: { color: $waveui.colors.light1, maxTicksLimit: 4 }
-    }
-  }
-}))
+
 
 const rsiChartOptions = computed(() => ({
   responsive: true,
@@ -1452,8 +1464,11 @@ const baseSynchronizedOptions = computed(() => ({
       time: {
         displayFormats: { minute: 'HH:mm', hour: 'MMM dd HH:mm' }
       },
+      adapters: { date: { zone: Intl.DateTimeFormat().resolvedOptions().timeZone } },
+      distribution: 'series', // Position points according to their actual timestamps.
       grid: { color: $waveui.colors.light2 },
-      ticks: { color: $waveui.colors.light1 },
+      ticks: { color: $waveui.colors.light1, source: 'data' },
+      offset: false, // Prevent category offset so bars align exactly at timestamps.
       min: zoomRange.value.min,
       max: zoomRange.value.max
     }
@@ -1505,6 +1520,10 @@ const synchronizedLineChartOptions = computed(() => ({
 
 const synchronizedCandlestickChartOptions = computed(() => ({
   ...baseSynchronizedOptions.value,
+  plugins: {
+    ...baseSynchronizedOptions.value.plugins,
+    volumeBand: { height: VOLUME_BAND_HEIGHT } // Reserve space for volume band.
+  },
   scales: {
     ...baseSynchronizedOptions.value.scales,
     x: {
@@ -1515,23 +1534,12 @@ const synchronizedCandlestickChartOptions = computed(() => ({
       position: 'right',
       grid: { color: $waveui.colors.light2 },
       ticks: { color: $waveui.colors.light1 }
-    }
-  }
-}))
-
-const synchronizedVolumeChartOptions = computed(() => ({
-  ...baseSynchronizedOptions.value,
-  scales: {
-    ...baseSynchronizedOptions.value.scales,
-    x: {
-      ...baseSynchronizedOptions.value.scales.x,
-      display: false // Hide x-axis on volume chart.
     },
-    y: {
-      display: false,
+    yVolume: {
       position: 'right',
-      grid: { display: false },
-      ticks: { color: $waveui.colors.light1 }
+      display: false,
+      beginAtZero: true,
+      grid: { display: false }
     }
   }
 }))
@@ -1721,13 +1729,6 @@ defineExpose({
       &.chart--price {height: 400px;}
       &.chart--rsi {height: 110px;}
       &.chart--macd {height: 110px;}
-    }
-    .chart--volume {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      height: 115px;
     }
   }
 
