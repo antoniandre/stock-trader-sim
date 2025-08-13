@@ -26,6 +26,17 @@
           round)
           icon.size--xl(icon="material-symbols-light:candlestick-chart-outline-rounded")
 
+      //- Reset Zoom Button (TradingView-style)
+      .reset-zoom.w-flex.gap1.no-grow
+        w-button.pa0(
+          width="26"
+          height="26"
+          @click="resetToOptimalView"
+          tooltip="Reset Zoom (Double-click chart)"
+          :tooltip-props="{ sm: true }"
+          round)
+          icon.size--lg(icon="material-symbols-light:fit-screen-outline")
+
       //- Period Selector
       .period-selector.w-flex.gap1.no-grow.mla
         w-button.period-btn(
@@ -65,7 +76,7 @@
         ref="candleChartRef"
         :data="enhancedCandlestickChartData"
         :options="synchronizedCandlestickChartOptions")
-      .chart.chart--volume
+      .chart.chart--volume.mb2
         Line(
           v-show="showVolume"
           ref="volumeChartRef"
@@ -366,36 +377,106 @@ const focusOnRecentData = () => {
 
   console.log(`📊 Starting intelligent auto-focus with ${chartData.length} data points`)
 
+  // CRITICAL: Calculate zoom limits first.
+  calculateZoomLimits()
+
   const totalPoints = chartData.length
 
-  // ENHANCED: For 1D period, focus specifically on today's trading session
+  // ENHANCED: For 1D period, focus specifically on today's trading session.
   let focusData, focusDescription
 
   if (props.selectedPeriod === '1D') {
     // Find today's data specifically for 1D period
-    const today = new Date()
-    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 30) // 9:30 AM
-    const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 16, 0)   // 4:00 PM
+    const now = new Date()
 
-    // Filter data to today's trading session
-    const todaysData = chartData.filter(point => {
-      const pointTime = new Date(point.x)
-      return pointTime >= todayStart && pointTime <= todayEnd
+    // Get current Eastern Time
+    const easternTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }))
+
+    // Create today's trading session boundaries in Eastern Time
+    const todayYear = easternTime.getFullYear()
+    const todayMonth = easternTime.getMonth()
+    const todayDate = easternTime.getDate()
+
+    // 9:30 AM ET and 4:00 PM ET in local Eastern time
+    const sessionStartET = new Date(todayYear, todayMonth, todayDate, 9, 30, 0, 0)
+    const sessionEndET = new Date(todayYear, todayMonth, todayDate, 16, 0, 0, 0)
+
+    // Convert to UTC timestamps for comparison with chart data
+    const sessionStartUTC = sessionStartET.getTime()
+    const sessionEndUTC = sessionEndET.getTime()
+
+    console.log(`📊 1D Period: Looking for today's trading session`)
+    console.log(`📊   ET times: ${sessionStartET.toLocaleString()} to ${sessionEndET.toLocaleString()}`)
+    console.log(`📊   UTC times: ${new Date(sessionStartUTC).toLocaleString()} to ${new Date(sessionEndUTC).toLocaleString()}`)
+
+    // Filter data to today's trading session specifically
+    const todaysTradingData = chartData.filter(point => {
+      return point.x >= sessionStartUTC && point.x <= sessionEndUTC
     })
 
-    if (todaysData.length > 0) {
-      focusData = todaysData
-      focusDescription = `today's trading session (${todaysData.length} points)`
-      console.log(`📊 1D Period: Focusing on today's trading session with ${todaysData.length} data points`)
-    } else {
-      // Fallback to most recent trading day if today has no data
-      const recentData = chartData.slice(-Math.min(totalPoints, 100)) // Last 100 points as fallback
-      focusData = recentData
-      focusDescription = `most recent trading session (${recentData.length} points)`
-      console.log(`📊 1D Period: No today's data found, focusing on most recent ${recentData.length} points`)
+    console.log(`📊 1D Period: Found ${todaysTradingData.length} data points in today's trading session`)
+
+    if (todaysTradingData.length > 5) {
+      // We have good data from today's trading session.
+      focusData = todaysTradingData
+      focusDescription = `today's trading session (${todaysTradingData.length} points)`
+      console.log(`📊 1D Period: Focusing on today's trading session with ${todaysTradingData.length} data points`)
     }
-  } else {
-    // For other periods, use smart focus calculation based on timeframe and period
+    else {
+      // Fallback 1: Try to find the most recent trading day's session.
+      console.log(`📊 1D Period: No data for today's session, looking for most recent trading day`)
+
+      // Look at the most recent 20% of all data points.
+      const recentPointsCount = Math.max(100, Math.floor(totalPoints * 0.2)) // At least 100 points, or 20% of data.
+      const mostRecentData = chartData.slice(-recentPointsCount)
+
+      if (mostRecentData.length > 0) {
+        // Find the most recent trading day and get its trading session data.
+        const lastDataTime = new Date(mostRecentData[mostRecentData.length - 1].x)
+
+        // Convert to Eastern Time to get the correct date.
+        const lastDataET = new Date(lastDataTime.toLocaleString("en-US", { timeZone: "America/New_York" }))
+        const lastYear = lastDataET.getFullYear()
+        const lastMonth = lastDataET.getMonth()
+        const lastDate = lastDataET.getDate()
+
+        // Define trading session for that day (9:30 AM - 4:00 PM ET).
+        const lastSessionStartET = new Date(lastYear, lastMonth, lastDate, 9, 30, 0, 0)
+        const lastSessionEndET = new Date(lastYear, lastMonth, lastDate, 16, 0, 0, 0)
+
+        // Convert to UTC.
+        const lastSessionStartUTC = lastSessionStartET.getTime()
+        const lastSessionEndUTC = lastSessionEndET.getTime()
+
+        // Get all data from that trading session.
+        const sessionData = chartData.filter(point => {
+          return point.x >= lastSessionStartUTC && point.x <= lastSessionEndUTC
+        })
+
+        console.log(`📊 1D Period: Found ${sessionData.length} data points from most recent trading session (${lastDataET.toDateString()})`)
+
+        if (sessionData.length > 5) {
+          focusData = sessionData
+          focusDescription = `most recent trading session - ${lastDataET.toDateString()} (${sessionData.length} points)`
+          console.log(`📊 1D Period: Focusing on most recent trading session ${lastDataET.toDateString()} with ${sessionData.length} data points`)
+        }
+        else {
+          // Fallback 2: Use most recent data points.
+          focusData = mostRecentData
+          focusDescription = `most recent data (${mostRecentData.length} points)`
+          console.log(`📊 1D Period: Focusing on most recent ${mostRecentData.length} data points`)
+        }
+      }
+      else {
+        // Final fallback: Use last 100 points.
+        focusData = chartData.slice(-100)
+        focusDescription = `latest available data (${focusData.length} points)`
+        console.log(`📊 1D Period: Fallback - focusing on latest ${focusData.length} points`)
+      }
+    }
+  }
+  else {
+    // For other periods, use smart focus calculation based on timeframe and period.
     const focusPoints = calculateSmartFocusPoints(totalPoints)
     const startIndex = Math.max(0, totalPoints - focusPoints)
     focusData = chartData.slice(startIndex)
@@ -411,21 +492,27 @@ const focusOnRecentData = () => {
   const timeRange = endTime - startTime
   const timePadding = calculateSmartTimePadding(timeRange)
 
-  const focusMin = new Date(startTime - timePadding)
-  const focusMax = new Date(endTime + timePadding)
+  let focusMin = new Date(startTime - timePadding)
+  let focusMax = new Date(endTime + timePadding)
 
-  // Enhanced Y-axis range calculation
+  // Apply zoom limits validation to initial focus.
+  const validatedRange = validateZoomRange(focusMin.getTime(), focusMax.getTime())
+  focusMin = new Date(validatedRange.min)
+  focusMax = new Date(validatedRange.max)
+
+  // Enhanced Y-axis range calculation.
   let minPrice = Infinity
   let maxPrice = -Infinity
 
   focusData.forEach(point => {
     if (point.y !== undefined) {
-      // Line chart data
+      // Line chart data.
       const price = point.y
       if (price < minPrice) minPrice = price
       if (price > maxPrice) maxPrice = price
-    } else {
-      // Candlestick data
+    }
+    else {
+      // Candlestick data.
       const high = point.h || point.high
       const low = point.l || point.low
       if (low < minPrice) minPrice = low
@@ -465,17 +552,18 @@ const focusOnRecentData = () => {
   console.log(`   - Focus coverage: ${timeframeInfo.coverage}`)
   console.log(`   - Time range: ${focusMin.toLocaleString()} to ${focusMax.toLocaleString()}`)
   console.log(`   - Price range: $${yMin.toFixed(2)} - $${yMax.toFixed(2)} (volatility: ${(volatilityRatio*100).toFixed(2)}%)`)
+  console.log(`   - Zoom limits: ${(zoomLimits.value.minZoom / (1000 * 60)).toFixed(1)}min to ${(zoomLimits.value.maxZoom / (1000 * 60 * 60)).toFixed(1)}h`)
 
   zoomRange.value = { min: focusMin, max: focusMax }
   hasInitialized.value = true
 
-  // Apply the zoom to all charts
+  // Apply the zoom to all charts.
   getAllChartInstances().forEach(chart => {
     if (chart && chart.scales && chart.scales.x && chart.scales.x.options) {
       chart.scales.x.options.min = focusMin
       chart.scales.x.options.max = focusMax
 
-      // Set Y-axis range for price charts (not indicators)
+      // Set Y-axis range for price charts (not indicators).
       if (chart.scales.y && !chart.canvas.parentElement.classList.contains('rsi-pane') &&
           !chart.canvas.parentElement.classList.contains('macd-pane')) {
         chart.scales.y.options.min = yMin
@@ -660,7 +748,7 @@ const volumeData = computed(() => {
 // Technical indicators from composable.
 const indicators = useTechnicalIndicators(ohlcData, volumeData)
 
-// VWAP calculation
+// VWAP calculation.
 const vwapData = computed(() => {
   if (ohlcData.value.length === 0) return []
 
@@ -1151,8 +1239,201 @@ const currentHistogram = computed(() => {
   return lastHistogram ? lastHistogram.toFixed(4) : '--'
 })
 
-// Chart Options
+// Smart Zoom Management (TradingView-style)
 // --------------------------------------------------------
+const dataRange = ref({ min: null, max: null })
+const originalDataRange = ref({ min: null, max: null })
+const zoomLimits = ref({ minZoom: null, maxZoom: null })
+
+// Calculate intelligent zoom boundaries based on data
+function calculateZoomLimits() {
+  const data = props.chartType === 'line' ? props.lineChartData : props.candlestickChartData
+  const chartData = data?.datasets?.[0]?.data
+
+  if (!chartData || chartData.length === 0) return
+
+  const timestamps = chartData.map(point => point.x)
+  const minTime = Math.min(...timestamps)
+  const maxTime = Math.max(...timestamps)
+  const totalTimeRange = maxTime - minTime
+
+  // Store original data range for reference
+  originalDataRange.value = { min: minTime, max: maxTime }
+  dataRange.value = { min: minTime, max: maxTime }
+
+  // Calculate intelligent zoom limits
+  const minDataPoints = Math.max(5, Math.min(50, chartData.length * 0.02)) // Show at least 5 points, max 50, or 2% of data
+  const maxDataPoints = chartData.length
+
+  // Time per data point (average)
+  const avgTimePerPoint = totalTimeRange / chartData.length
+
+  zoomLimits.value = {
+    // Maximum zoom in: show minimum data points
+    minZoom: avgTimePerPoint * minDataPoints,
+    // Maximum zoom out: show all data plus 10% padding on each side
+    maxZoom: totalTimeRange * 1.2,
+    // Data boundaries (with padding)
+    dataMin: minTime - (totalTimeRange * 0.1),
+    dataMax: maxTime + (totalTimeRange * 0.1)
+  }
+
+  console.log(`📊 Zoom limits calculated:`, {
+    totalPoints: chartData.length,
+    minDataPoints,
+    timeRange: `${new Date(minTime).toLocaleString()} to ${new Date(maxTime).toLocaleString()}`,
+    zoomRange: `${(zoomLimits.value.minZoom / (1000 * 60)).toFixed(1)}min to ${(zoomLimits.value.maxZoom / (1000 * 60 * 60)).toFixed(1)}h`
+  })
+}
+
+// Smart zoom validation - prevent over-zooming or losing data
+function validateZoomRange(min, max) {
+  if (!zoomLimits.value.minZoom) return { min, max }
+
+  const requestedRange = max - min
+  const limits = zoomLimits.value
+
+  // MUCH MORE PERMISSIVE: Only prevent extreme cases
+  // Allow users to zoom in very close (down to 2 data points) and zoom out very far
+  const veryMinZoom = limits.minZoom * 0.1 // Allow 10x closer than calculated minimum
+  const veryMaxZoom = limits.maxZoom * 3   // Allow 3x further than calculated maximum
+
+  // Only prevent extreme zoom-in (less than 2 data points visible).
+  if (requestedRange < veryMinZoom) {
+    const center = (min + max) / 2
+    const halfMinRange = veryMinZoom / 2
+    min = center - halfMinRange
+    max = center + halfMinRange
+    console.log(`📊 Extreme zoom-in prevented (showing minimum ${(veryMinZoom / (1000 * 60)).toFixed(1)} minutes)`)
+  }
+
+  // Only prevent extreme zoom-out (way beyond all data).
+  if (requestedRange > veryMaxZoom) {
+    const center = (min + max) / 2
+    const halfMaxRange = veryMaxZoom / 2
+    min = center - halfMaxRange
+    max = center + halfMaxRange
+    console.log(`📊 Extreme zoom-out prevented`)
+  }
+
+  // MUCH MORE PERMISSIVE BOUNDARIES: Allow panning well beyond data.
+  const generousPadding = (limits.dataMax - limits.dataMin) * 2 // 200% padding on each side.
+  const veryGenerousMin = limits.dataMin - generousPadding
+  const veryGenerousMax = limits.dataMax + generousPadding
+
+  // Only prevent panning extremely far beyond data (way off the chart).
+  if (max < veryGenerousMin) {
+    const shift = veryGenerousMin - max
+    max = veryGenerousMin
+    min = min + shift
+  }
+
+  if (min > veryGenerousMax) {
+    const shift = min - veryGenerousMax
+    min = veryGenerousMax
+    max = max - shift
+  }
+
+  return { min, max }
+}
+
+// Double-click to reset to optimal view (TradingView behavior).
+function resetToOptimalView() {
+  console.log('📊 Resetting to optimal view...')
+  hasInitialized.value = false
+
+  // Clear any cached zoom limits to force recalculation.
+  zoomLimits.value = { minZoom: null, maxZoom: null }
+
+  // Wait a tick then trigger auto-focus.
+  nextTick(() => {
+    focusOnRecentData()
+  })
+}
+
+// Enhanced zoom/pan handlers with intelligent boundaries.
+function handleZoomComplete(context) {
+  const chart = context.chart
+  if (!chart || !chart.scales || !chart.scales.x) return
+
+  let { min, max } = chart.scales.x
+  const originalMin = min
+  const originalMax = max
+
+  // Apply intelligent zoom validation (very permissive).
+  const validatedRange = validateZoomRange(min, max)
+  min = validatedRange.min
+  max = validatedRange.max
+
+  // Only update chart if range was actually modified (avoid unnecessary updates).
+  const rangeWasModified = (min !== originalMin || max !== originalMax)
+
+  if (rangeWasModified) {
+    chart.scales.x.options.min = min
+    chart.scales.x.options.max = max
+    console.log('📊 Zoom range corrected due to extreme values')
+  }
+
+  // Auto-rescale Y-axis when zooming (but don't force update if range wasn't modified).
+  const visibleData = getVisibleDataInRange(min, max)
+  const { yMin, yMax } = calculateOptimalYRange(visibleData)
+
+  if (yMin !== null && yMax !== null && chart.scales.y &&
+      !chart.canvas.parentElement.classList.contains('rsi-pane') &&
+      !chart.canvas.parentElement.classList.contains('macd-pane')) {
+    chart.scales.y.options.min = yMin
+    chart.scales.y.options.max = yMax
+  }
+
+  // Only force update if we made corrections, otherwise let Chart.js handle it naturally.
+  if (rangeWasModified) {
+    chart.update('none')
+  }
+
+  syncZoom(chart, { min, max })
+}
+
+function handlePanComplete(context) {
+  const chart = context.chart
+  if (!chart || !chart.scales || !chart.scales.x) return
+
+  let { min, max } = chart.scales.x
+  const originalMin = min
+  const originalMax = max
+
+  // Apply intelligent pan validation (very permissive).
+  const validatedRange = validateZoomRange(min, max)
+  min = validatedRange.min
+  max = validatedRange.max
+
+  // Only update chart if range was actually modified (avoid unnecessary updates).
+  const rangeWasModified = (min !== originalMin || max !== originalMax)
+
+  if (rangeWasModified) {
+    chart.scales.x.options.min = min
+    chart.scales.x.options.max = max
+    console.log('📊 Pan range corrected due to extreme values')
+  }
+
+  // Auto-rescale Y-axis when panning (but don't force update if range wasn't modified).
+  const visibleData = getVisibleDataInRange(min, max)
+  const { yMin, yMax } = calculateOptimalYRange(visibleData)
+
+  if (yMin !== null && yMax !== null && chart.scales.y &&
+      !chart.canvas.parentElement.classList.contains('rsi-pane') &&
+      !chart.canvas.parentElement.classList.contains('macd-pane')) {
+    chart.scales.y.options.min = yMin
+    chart.scales.y.options.max = yMax
+  }
+
+  // Only force update if we made corrections, otherwise let Chart.js handle it naturally.
+  if (rangeWasModified) {
+    chart.update('none')
+  }
+
+  syncZoom(chart, { min, max })
+}
+
 // Base chart options for synchronization.
 const baseSynchronizedOptions = computed(() => ({
   responsive: true,
@@ -1161,6 +1442,9 @@ const baseSynchronizedOptions = computed(() => ({
   interaction: {
     intersect: false,
     mode: 'index'
+  },
+  onDoubleClick: () => {
+    resetToOptimalView()
   },
   scales: {
     x: {
@@ -1178,53 +1462,25 @@ const baseSynchronizedOptions = computed(() => ({
     legend: { display: false },
     zoom: {
       zoom: {
-        wheel: { enabled: true },
-        pinch: { enabled: true },
+        wheel: {
+          enabled: true,
+          speed: 0.1 // Faster, more responsive zoom speed (was 0.05).
+        },
+        pinch: {
+          enabled: true
+        },
         mode: 'x',
-        onZoomComplete: (context) => {
-          const chart = context.chart
-          if (chart && chart.scales && chart.scales.x) {
-            const { min, max } = chart.scales.x
-
-            // Auto-rescale Y-axis when zooming.
-            const visibleData = getVisibleDataInRange(min, max)
-            const { yMin, yMax } = calculateOptimalYRange(visibleData)
-
-            if (yMin !== null && yMax !== null && chart.scales.y &&
-                !chart.canvas.parentElement.classList.contains('rsi-pane') &&
-                !chart.canvas.parentElement.classList.contains('macd-pane')) {
-              chart.scales.y.options.min = yMin
-              chart.scales.y.options.max = yMax
-              chart.update('none')
-            }
-
-            syncZoom(chart, { min, max })
-          }
-        }
+        onZoomComplete: handleZoomComplete
       },
       pan: {
         enabled: true,
         mode: 'x',
-        onPanComplete: (context) => {
-          const chart = context.chart
-          if (chart && chart.scales && chart.scales.x) {
-            const { min, max } = chart.scales.x
-
-            // Auto-rescale Y-axis when panning.
-            const visibleData = getVisibleDataInRange(min, max)
-            const { yMin, yMax } = calculateOptimalYRange(visibleData)
-
-            if (yMin !== null && yMax !== null && chart.scales.y &&
-                !chart.canvas.parentElement.classList.contains('rsi-pane') &&
-                !chart.canvas.parentElement.classList.contains('macd-pane')) {
-              chart.scales.y.options.min = yMin
-              chart.scales.y.options.max = yMax
-              chart.update('none')
-            }
-
-            syncZoom(chart, { min, max })
-          }
-        }
+        threshold: 5, // Lower threshold for more responsive panning (was 10).
+        onPanComplete: handlePanComplete
+      },
+      limits: {
+        // Remove restrictive limits - let users zoom and pan freely.
+        // Only extreme cases will be caught by our validation functions.
       }
     }
   }
@@ -1272,6 +1528,7 @@ const synchronizedVolumeChartOptions = computed(() => ({
       display: false // Hide x-axis on volume chart.
     },
     y: {
+      display: false,
       position: 'right',
       grid: { display: false },
       ticks: { color: $waveui.colors.light1 }
@@ -1337,22 +1594,21 @@ function resetZoom() {
 watch(
   () => [props.lineChartData, props.candlestickChartData, props.isLoadingHistoricalData],
   async ([lineData, candleData, isLoading]) => {
-    if (isLoading) return
+    if (isLoading) {
+      return
+    }
 
-    // Only auto-focus if we have meaningful data
+    // Only auto-focus if we have meaningful data.
     const data = props.chartType === 'line' ? lineData : candleData
     const chartData = data?.datasets?.[0]?.data
 
     if (!chartData || chartData.length < 10) {
-      console.log('📊 Data watcher: insufficient data for auto-focus')
       return
     }
 
     // Enhanced logging for large datasets.
     const datasetSize = chartData.length
     const isLargeDataset = datasetSize > 1000
-
-    console.log(`📊 Data watcher triggered: ${datasetSize} points available${isLargeDataset ? ' (large dataset)' : ''}, hasInitialized: ${hasInitialized.value}`)
 
     // For smooth transitions, only reset initialization if we have significantly different data
     // This prevents unnecessary re-focusing when just changing timeframes.
@@ -1368,12 +1624,13 @@ watch(
       Math.abs(currentDataRange.size - (lastDataRange?.size || 0)) > currentDataRange.size * 0.3 // More than 30% size difference.
 
     if (shouldResetInitialization) {
-      console.log('📊 Resetting chart initialization for new data')
       hasInitialized.value = false
+
+      // Recalculate zoom limits for new data
+      calculateZoomLimits()
     }
-    else {
-      console.log('📊 Smooth data transition - keeping current view')
-    }
+    // Even for smooth transitions, update zoom limits to reflect new data range
+    else calculateZoomLimits()
 
     // Store current data range for next comparison.
     lastDataRange = currentDataRange
@@ -1381,14 +1638,11 @@ watch(
     // Wait for next tick to ensure charts are rendered.
     await nextTick()
 
-    // For large datasets, use a slightly longer delay to ensure proper rendering.
-    const delay = isLargeDataset ? 200 : 100
-
     // Only auto-focus if we reset initialization
     if (!hasInitialized.value) {
       setTimeout(() => {
         focusOnRecentData()
-      }, delay)
+      }, 100) // Slightly longer delay for smooth transitions
     }
   },
   { deep: true, immediate: true }
@@ -1404,7 +1658,6 @@ watch(() => props.symbol, () => {
 
 // Watch for period/timeframe changes to reset initialization.
 watch(() => [props.selectedPeriod, props.selectedTimeframe], () => {
-  console.log('📊 Period/timeframe changed - resetting initialization')
   hasInitialized.value = false
 })
 

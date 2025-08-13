@@ -322,8 +322,14 @@ export function createRestApiRoutes() {
       const { symbol } = req.params
       const { period = '1D', timeframe, progressive = 'true' } = req.query
 
-      // Use progressive loading by default for better UX, allow override.
-      if (progressive === 'true') {
+      // For 1D period, use regular loading to get complete continuous data like TradingView.
+      // Progressive loading can cause gaps in intraday data.
+      if (period === '1D') {
+        const historicalData = await getStockHistoricalData(symbol, period, timeframe)
+        res.json(historicalData)
+      }
+      // Use progressive loading for longer periods where it's beneficial.
+      else if (progressive === 'true') {
         const historicalData = await getStockHistoricalDataProgressive(symbol, period, timeframe)
         res.json(historicalData)
       }

@@ -211,19 +211,19 @@ export async function getPrice(symbol) {
   const endpoints = [
     // Real-time quote (best for active trading hours).
     {
-      url: `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/quotes/latest`,
+      url: `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/quotes/latest?feed=iex`,
       type: 'quote',
       priority: 1
     },
     // Latest trade (good for extended hours).
     {
-      url: `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/trades/latest`,
+      url: `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/trades/latest?feed=iex`,
       type: 'trade',
       priority: 2
     },
     // Daily bar (fallback when markets are closed).
     {
-      url: `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars/latest?timeframe=1Day`,
+      url: `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars/latest?timeframe=1Day&feed=iex`,
       type: 'bar',
       priority: 3
     }
@@ -347,7 +347,33 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
 
   try {
     const { alpacaTimeframe, limit, maxHistoricalDays } = getPeriodParameters(period, timeframe)
-    const endDate = getEasternTime()
+    let endDate = getEasternTime()
+
+    // WORKAROUND: For 1D period, IEX historical data might be delayed
+    // Try different end dates to find the most recent available data
+    if (period === '1D') {
+      console.log(`📊 1D Period: Attempting to find most recent available data for ${symbol}`)
+
+      // Try current time first, then go back day by day if no data
+      for (let daysBack = 0; daysBack <= 7; daysBack++) {
+        const testEndDate = new Date(getEasternTime().getTime() - (daysBack * 24 * 60 * 60 * 1000))
+        const testStartDate = new Date(testEndDate.getTime() - (2 * 24 * 60 * 60 * 1000)) // 2 days range
+
+        console.log(`📅 Trying data range: ${testStartDate.toISOString().split('T')[0]} to ${testEndDate.toISOString().split('T')[0]} (${daysBack} days back)`)
+
+        try {
+          const testBars = await fetchHistoricalDataWithPagination(symbol, alpacaTimeframe, testStartDate, testEndDate, 500)
+
+          if (testBars && testBars.length > 10) {
+            console.log(`✅ Found ${testBars.length} data points ${daysBack} days back - using this range`)
+            endDate = testEndDate
+            break
+          }
+        } catch (error) {
+          console.log(`⚠️ No data found ${daysBack} days back, trying further back...`)
+        }
+      }
+    }
 
     // Calculate optimal start date to maximize historical data while staying within limits.
     // This gives users plenty of data to pan back through without hitting API limits.
@@ -362,8 +388,18 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
     const allBars = await fetchHistoricalDataWithPagination(symbol, alpacaTimeframe, startDate, endDate, limit)
 
     if (!allBars || allBars.length === 0) {
-      console.warn(`⚠️ No data for ${symbol}, using mock`)
-      return generateMockHistoricalData(symbol, period, timeframe)
+      console.error(`❌ ALPACA DATA ISSUE: No historical data returned for ${symbol}`)
+      console.error(`❌ Period: ${period}, Timeframe: ${alpacaTimeframe}`)
+      console.error(`❌ Date range: ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`)
+
+      return {
+        symbol,
+        period,
+        timeframe: alpacaTimeframe,
+        data: [],
+        error: `No historical data available from Alpaca for ${symbol}`,
+        warning: 'Alpaca API returned no data for the requested period and timeframe.'
+      }
     }
 
     const historicalData = allBars.map(bar => ({
@@ -378,6 +414,65 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
 
     // Sort by timestamp to ensure proper order.
     historicalData.sort((a, b) => a.timestamp - b.timestamp)
+
+    // For 1D period, filter to get continuous trading session data (remove gaps)
+    if (period === '1D') {
+      const filteredData = filterToContinuousTrading(historicalData, symbol)
+      if (filteredData.length > 0) {
+        console.log(`📊 Filtered to continuous trading data: ${historicalData.length} → ${filteredData.length} points`)
+
+        // FIRST: Check if the historical data is from a different trading day
+        // This must happen BEFORE bridging to avoid masking the real issue
+        const lastHistoricalTime = filteredData[filteredData.length - 1]?.timestamp
+        const now = Date.now()
+
+        // Convert both timestamps to Eastern Time dates for proper comparison
+        // Alpaca operates in Eastern Time, so we need to compare trading days in ET
+        const lastDataDateET = new Date(lastHistoricalTime).toLocaleDateString('en-US', {
+          timeZone: 'America/New_York'
+        })
+
+        const currentDateET = new Date(now).toLocaleDateString('en-US', {
+          timeZone: 'America/New_York'
+        })
+
+        const isFromDifferentTradingDay = lastDataDateET !== currentDateET
+        const timeDifference = now - lastHistoricalTime
+        const hoursOld = Math.floor(timeDifference / (60 * 60 * 1000))
+
+        console.log(`📊 Data age check for ${symbol}:`, {
+          lastHistoricalTime: new Date(lastHistoricalTime).toISOString(),
+          lastDataDateET: lastDataDateET,
+          currentDateET: currentDateET,
+          isFromDifferentTradingDay: isFromDifferentTradingDay,
+          hoursOld: hoursOld
+        })
+
+        // If data is from a different trading day, return warning immediately (don't bridge with current price).
+        if (isFromDifferentTradingDay) {
+          console.error(`❌ ALPACA DATA ISSUE: Historical data for ${symbol} is from ${lastDataDateET}, current ET trading day is ${currentDateET}`)
+          console.error(`❌ Last data: ${new Date(lastHistoricalTime).toLocaleString('en-US', { timeZone: 'America/New_York' })}`)
+          console.error(`❌ Current ET time: ${new Date(now).toLocaleString('en-US', { timeZone: 'America/New_York' })}`)
+          console.error(`❌ Age: ${hoursOld} hours old`)
+
+          // Return the old data with a clear warning - DO NOT bridge with current price.
+          return {
+            symbol,
+            period,
+            timeframe: alpacaTimeframe,
+            data: filteredData,
+            dataAge: hoursOld,
+            lastDataDate: lastDataDateET,
+            currentDate: currentDateET,
+            warning: `Historical data is from ${lastDataDateET} (${hoursOld} hours old). Current ET trading day is ${currentDateET}. Chart shows old trading session data.`
+          }
+        }
+
+        // If data is from today, proceed with normal bridging for intraday gaps
+        const bridgedData = await bridgeHistoricalWithCurrent(filteredData, symbol)
+        return { symbol, period, timeframe: alpacaTimeframe, data: bridgedData }
+      }
+    }
 
     console.log(`✅ Fetched ${historicalData.length} data points for ${symbol}`)
     console.log(`📊 Data range: ${new Date(historicalData[0]?.timestamp).toLocaleString()} to ${new Date(historicalData[historicalData.length - 1]?.timestamp).toLocaleString()}`)
@@ -404,7 +499,15 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
     }
 
     console.error(`❌ Error fetching data for ${symbol}:`, error.response?.data?.message || error.message)
-    return generateMockHistoricalData(symbol, period, timeframe)
+
+    return {
+      symbol,
+      period,
+      timeframe: timeframe || 'auto',
+      data: [],
+      error: error.response?.data?.message || error.message,
+      warning: 'Failed to fetch historical data from Alpaca API.'
+    }
   }
 }
 
@@ -544,7 +647,8 @@ async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, e
         timeframe: timeframe,
         limit: Math.min(10000, maxLimit).toString(), // Use Alpaca's maximum limit of 10,000 per request.
         start: startDate.toISOString(),
-        end: endDate.toISOString()
+        end: endDate.toISOString(),
+        feed: 'iex'
       })
 
       if (pageToken) {
@@ -606,7 +710,8 @@ export async function getStockHistoricalDataByRange(symbol, timeframe, startDate
       timeframe: timeframe,
       limit: limit.toString(),
       start: start.toISOString(),
-      end: end.toISOString()
+      end: end.toISOString(),
+      feed: 'iex'
     })
 
     const url = `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars?${params}`
@@ -615,8 +720,8 @@ export async function getStockHistoricalDataByRange(symbol, timeframe, startDate
     const { data } = await axios.get(url, { headers: HEADERS })
 
     if (!data.bars || data.bars.length === 0) {
-      console.warn(`⚠️ No range data for ${symbol}, using mock`)
-      return { symbol, timeframe, data: generateMockHistoricalDataByRange(symbol, timeframe, startDate, endDate) }
+      console.error(`❌ ALPACA DATA ISSUE: No range data for ${symbol}`)
+      return { symbol, timeframe, data: [], error: 'No range data returned by Alpaca.' }
     }
 
     const historicalData = data.bars.map(bar => ({
@@ -634,8 +739,8 @@ export async function getStockHistoricalDataByRange(symbol, timeframe, startDate
     const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000)
 
     if (latestDataTime < twoDaysAgo) {
-      console.warn(`⚠️ Range data outdated for ${symbol}, using mock`)
-      return { symbol, timeframe, data: generateMockHistoricalDataByRange(symbol, timeframe, startDate, endDate) }
+      console.error(`❌ ALPACA DATA ISSUE: Range data outdated for ${symbol}`)
+      return { symbol, timeframe, data: historicalData, warning: 'Range data appears outdated from Alpaca.' }
     }
 
     console.log(`✅ Fetched ${historicalData.length} range data points for ${symbol}`)
@@ -643,12 +748,110 @@ export async function getStockHistoricalDataByRange(symbol, timeframe, startDate
   }
   catch (error) {
     console.error(`❌ Error fetching range data for ${symbol}:`, error.message)
-    return { symbol, timeframe, data: generateMockHistoricalDataByRange(symbol, timeframe, startDate, endDate) }
+    return { symbol, timeframe, data: [], error: error.message }
   }
 }
 
 // Helper Functions
 // --------------------------------------------------------
+// Helper function to filter historical data to continuous trading sessions (removes gaps)
+function filterToContinuousTrading(historicalData, symbol) {
+  if (!historicalData || historicalData.length === 0) return []
+
+  console.log(`📊 Filtering ${historicalData.length} data points for continuous trading session`)
+
+  // Filter data to regular trading hours (9:30 AM - 4:00 PM ET)
+  const tradingHoursData = []
+
+  historicalData.forEach(point => {
+    const pointTime = new Date(point.timestamp)
+
+    // Convert to Eastern Time
+    const etTimeString = pointTime.toLocaleString('en-US', {
+      timeZone: 'America/New_York',
+      hour12: false
+    })
+
+    // Parse the time - format: "M/D/YYYY, HH:MM:SS".
+    const timePart = etTimeString.split(', ')[1] // Get "HH:MM:SS".
+    const [hourStr, minuteStr] = timePart.split(':')
+    const etHour = parseInt(hourStr)
+    const etMinute = parseInt(minuteStr)
+    const timeInMinutes = etHour * 60 + etMinute
+
+    // Trading hours: 9:30 AM (570 min) to 4:00 PM (960 min) ET.
+    const marketOpen = 9 * 60 + 30  // 9:30 AM = 570 minutes.
+    const marketClose = 16 * 60     // 4:00 PM = 960 minutes.
+
+    if (timeInMinutes >= marketOpen && timeInMinutes <= marketClose) {
+      tradingHoursData.push(point)
+    }
+  })
+
+  console.log(`📊 Filtered to ${tradingHoursData.length} trading hours data points`)
+
+  if (tradingHoursData.length === 0) {
+    console.warn(`⚠️ No trading hours data found for ${symbol}, returning original data`)
+    return historicalData
+  }
+
+  // Sort by timestamp to ensure proper order
+  tradingHoursData.sort((a, b) => a.timestamp - b.timestamp)
+
+  console.log(`📊 Final filtered data: ${tradingHoursData.length} points from ${new Date(tradingHoursData[0].timestamp).toLocaleString()} to ${new Date(tradingHoursData[tradingHoursData.length - 1].timestamp).toLocaleString()}`)
+
+  return tradingHoursData
+}
+
+// Helper function to bridge historical data with current real-time price.
+async function bridgeHistoricalWithCurrent(historicalData, symbol) {
+  if (!historicalData || historicalData.length === 0) return historicalData
+
+  try {
+    // Get the current real-time price.
+    const currentPrice = await getPrice(symbol)
+    if (!currentPrice || currentPrice <= 0) {
+      console.log(`📊 No current price available for ${symbol}, returning historical data as-is`)
+      return historicalData
+    }
+
+    const lastHistoricalPoint = historicalData[historicalData.length - 1]
+    const currentTime = Date.now()
+
+    // Check if there's a significant time gap (more than 1 hour) between last historical data and now.
+    const timeDifference = currentTime - lastHistoricalPoint.timestamp
+    const oneHour = 60 * 60 * 1000
+
+    if (timeDifference > oneHour) {
+      console.log(`📊 Bridging ${Math.round(timeDifference / oneHour * 10) / 10} hour gap between historical data and current price for ${symbol}`)
+
+      // Create a current price data point
+      const currentPricePoint = {
+        timestamp: currentTime,
+        open: currentPrice,
+        high: currentPrice,
+        low: currentPrice,
+        close: currentPrice,
+        volume: 0, // No volume data for current price
+        price: currentPrice
+      }
+
+      // Add the current price point to bridge the gap
+      const bridgedData = [...historicalData, currentPricePoint]
+
+      console.log(`📊 Added current price point: $${currentPrice} at ${new Date(currentTime).toLocaleString()}`)
+      return bridgedData
+    }
+
+    console.log(`📊 No significant gap detected for ${symbol}, returning historical data as-is`)
+    return historicalData
+
+  } catch (error) {
+    console.warn(`⚠️ Failed to bridge historical data with current price for ${symbol}:`, error.message)
+    return historicalData
+  }
+}
+
 function calculateDataLimitForRange(timeframe, rangeDays) {
   const timeframeMinutes = { '1Min': 1, '5Min': 5, '15Min': 15, '30Min': 30, '1Hour': 60, '4Hour': 240, '1Day': 1440 }
   const minutes = timeframeMinutes[timeframe] || 60
@@ -718,7 +921,7 @@ function calculateDataLimit(period, timeframe) {
   // Calculate optimal coverage days based on period.
   // More coverage = better panning/zooming experience but higher API usage.
   const optimalCoverageDays = {
-    '1D': 15,   // 3 weeks for intraday (allows panning back to see patterns).
+    '1D': 2,    // 2 days for intraday (ensures we get the most recent complete trading day).
     '1W': 30,   // 1 month for weekly view (sufficient context for weekly analysis).
     '1M': 90,   // 3 months for monthly view (quarterly context for monthly trends).
     '3M': 180,  // 6 months for quarterly view (semi-annual context).
@@ -760,7 +963,7 @@ function calculateStartDate(period, easternTime) {
   // Calculate start dates to maximize historical coverage while being practical.
   // These are generous ranges that will be constrained by the API limits above.
   const periodDays = {
-    '1D': 30,    // 1 month back for 1D period (allows seeing recent patterns/trends).
+    '1D': 1,     // 1 day back for 1D period (most recent trading day only).
     '1W': 90,    // 3 months back for 1W period (quarterly context for weekly analysis).
     '1M': 365,   // 1 year back for 1M period (full year context for monthly trends).
     '3M': 1095,  // 3 years back for 3M period (long-term context for quarterly analysis).

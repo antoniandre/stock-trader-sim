@@ -652,7 +652,13 @@ const lineChartOptions = computed(() => ({
       borderColor: '#3B82F6',
       borderWidth: 1,
       callbacks: {
-        title: (tooltipItems) => new Date(tooltipItems[0].parsed.x).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
+        title: (tooltipItems) => new Date(tooltipItems[0].parsed.x).toLocaleString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        }),
         label: (context) => {
           if (typeof context.parsed.y !== 'number') return ''
           return `${props.symbol}: ${stock.value.currencySymbol}${context.parsed.y.toFixed(2)}`
@@ -664,10 +670,10 @@ const lineChartOptions = computed(() => ({
   scales: {
     x: {
       type: 'time',
-      adapters: { date: { zone: 'UTC' } },
+      adapters: { date: { zone: Intl.DateTimeFormat().resolvedOptions().timeZone } },
       time: { unit: chartTimeUnit.value, displayFormats: chartDisplayFormats.value },
       grid: { display: false },
-      ticks: { color: '#C9D1D9', maxTicksLimit: 8, source: 'auto' }
+      ticks: { color: '#C9D1D9', maxTicksLimit: 16, source: 'auto' }
     },
     y: {
       position: 'right',
@@ -700,7 +706,13 @@ const candlestickChartOptions = computed(() => ({
       borderColor: '#3B82F6',
       borderWidth: 1,
       callbacks: {
-        title: (tooltipItems) => new Date(tooltipItems[0].parsed.x).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
+        title: (tooltipItems) => new Date(tooltipItems[0].parsed.x).toLocaleString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        }),
         label: (context) => {
           const value = context.parsed
           if (!value || typeof value.o !== 'number') return ''
@@ -720,10 +732,10 @@ const candlestickChartOptions = computed(() => ({
   scales: {
     x: {
       type: 'time',
-      adapters: { date: { zone: 'UTC' } },
+      adapters: { date: { zone: Intl.DateTimeFormat().resolvedOptions().timeZone } },
       time: { unit: chartTimeUnit.value, displayFormats: chartDisplayFormats.value },
       grid: { display: false },
-      ticks: { color: '#C9D1D9', maxTicksLimit: 8, source: 'auto' }
+      ticks: { color: '#C9D1D9', maxTicksLimit: 16, source: 'auto' }
     },
     y: {
       position: 'right',
@@ -1300,6 +1312,19 @@ async function fetchHistoricalData() {
     console.log(`📊 Fetching historical data for ${props.symbol}, period: ${selectedPeriod.value}, timeframe: ${selectedTimeframe.value}`)
     // Use progressive loading for faster initial display and maximum data retrieval.
     const response = await fetchStockHistoryProgressive(props.symbol, selectedPeriod.value, selectedTimeframe.value)
+
+    // Check for warnings or errors in the response
+    if (response?.warning || response?.error) {
+      const message = response.error || response.warning
+      console.error(`❌ ALPACA DATA ISSUE for ${props.symbol}:`, message)
+
+      // Show alert to user about data issues
+      if (response.dataAge) {
+        alert(`⚠️ DATA WARNING: ${props.symbol} historical data is ${response.dataAge} hours old.\n\n${message}\n\nNote: Alpaca operates in US Eastern Time. The chart shows old trading session data, not current market data.`)
+      }
+      else alert(`❌ DATA ERROR: ${message}`)
+    }
+
     if (response?.data) {
       historicalData.value = response.data.sort((a, b) => a.timestamp - b.timestamp)
 
@@ -1319,7 +1344,9 @@ async function fetchHistoricalData() {
           latestPrice: `$${(lastPoint.close || lastPoint.price || 0).toFixed(2)}`,
           samplePoint: firstPoint,
           isProgressive: response.isProgressive || false,
-          loadingMore: response.loadingMore || false
+          loadingMore: response.loadingMore || false,
+          dataAge: response.dataAge || 0,
+          warning: response.warning || null
         })
       }
       else console.log(`✅ Loaded ${historicalData.value.length} historical data points (empty)`)
@@ -1328,13 +1355,15 @@ async function fetchHistoricalData() {
       await fetchStatsHistoricalData()
     }
     else {
-      console.warn(`⚠️ No historical data available for ${props.symbol}`)
+      console.error(`❌ No historical data available for ${props.symbol}`)
+      alert(`❌ NO DATA: No historical data available for ${props.symbol} from Alpaca API.`)
       historicalData.value = []
       statsHistoricalData.value = []
     }
   }
   catch (error) {
     console.error(`❌ Error fetching historical data for ${props.symbol}:`, error)
+    alert(`❌ API ERROR: Failed to fetch historical data for ${props.symbol}.\n\n${error.message}`)
     historicalData.value = []
     statsHistoricalData.value = []
   }
@@ -1377,13 +1406,13 @@ function changePeriod(period) {
   selectedPeriod.value = period
   selectedTimeframe.value = defaultTimeframes[period] || '5Min'
 
-  // Only clear cache for the old period/timeframe combination
+  // Only clear cache for the old period/timeframe combination.
   const oldCacheKey = `${props.symbol}-${previousPeriod}-${previousTimeframe}`
   if (timeframeDataCache.value.has(oldCacheKey)) {
-    // Keep recent cache but clear old one to save memory
+    // Keep recent cache but clear old one to save memory.
     const cacheKeys = Array.from(timeframeDataCache.value.keys())
     if (cacheKeys.length > 5) {
-      // Only keep the 5 most recent cache entries
+      // Only keep the 5 most recent cache entries.
       cacheKeys.slice(0, -5).forEach(key => {
         timeframeDataCache.value.delete(key)
       })
