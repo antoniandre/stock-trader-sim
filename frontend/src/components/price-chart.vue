@@ -25,9 +25,7 @@
           :tooltip-props="{ sm: true }"
           round)
           icon.size--xl(icon="material-symbols-light:candlestick-chart-outline-rounded")
-
-      //- Reset Zoom Button (TradingView-style)
-      .reset-zoom.w-flex.gap1.no-grow
+        //- Reset Zoom Button
         w-button.pa0(
           width="26"
           height="26"
@@ -55,12 +53,22 @@
           outline)
 
   //- Indicators Toggle
-  .indicators-panel.w-flex.gap2.mb4
-    w-button.indicator-btn(:outline="!showEMA" @click="showEMA = !showEMA" xs) EMA (20,50,200)
-    w-button.indicator-btn(:outline="!showVWAP" @click="showVWAP = !showVWAP" xs) VWAP
-    w-button.indicator-btn(:outline="!showVolume" @click="showVolume = !showVolume" xs) Volume
-    w-button.indicator-btn(:outline="!showRSI" @click="showRSI = !showRSI" xs) RSI
-    w-button.indicator-btn(:outline="!showMACD" @click="showMACD = !showMACD" xs) MACD
+  .indicators-panel.w-flex.gap2.mb2.justify-end
+    w-button.indicator-btn(color="base" @click="showEMA = !showEMA" :bg-color="showEMA ? buttonsColors.active : buttonsColors.inactive" xs)
+      w-icon.mr1(v-if="showEMA" size="12") wi-check
+      | EMA (20,50,200)
+    w-button.indicator-btn(color="base" @click="showVWAP = !showVWAP" :bg-color="showVWAP ? buttonsColors.active : buttonsColors.inactive" xs)
+      w-icon.mr1(v-if="showVWAP" size="12") wi-check
+      | VWAP
+    w-button.indicator-btn(color="base" @click="showVolume = !showVolume" :bg-color="showVolume ? buttonsColors.active : buttonsColors.inactive" xs)
+      w-icon.mr1(v-if="showVolume" size="12") wi-check
+      | Volume
+    w-button.indicator-btn(color="base" @click="showRSI = !showRSI" :bg-color="showRSI ? buttonsColors.active : buttonsColors.inactive" xs)
+      w-icon.mr1(v-if="showRSI" size="12") wi-check
+      | RSI
+    w-button.indicator-btn(color="base" @click="showMACD = !showMACD" :bg-color="showMACD ? buttonsColors.active : buttonsColors.inactive" xs)
+      w-icon.mr1(v-if="showMACD" size="12") wi-check
+      | MACD
 
   //- Main Chart Display
   .charts-wrap.w-flex.column.bdrs2.pa4.w-card(v-if="!isLoadingHistoricalData")
@@ -160,6 +168,13 @@ const emit = defineEmits([
 // --------------------------------------------------------
 
 const $waveui = inject('$waveui')
+
+const buttonsColors = computed(() => {
+  return {
+    active: $waveui.theme === 'dark' ? 'primary-dark4' : 'primary-light5',
+    inactive: $waveui.theme === 'dark' ? 'primary-dark6' : 'light2'
+  }
+})
 
 // Register Chart.js plugins and components.
 // Plugin to reserve a fixed-height band at the bottom for the volume scale, sharing the same X scale.
@@ -1469,25 +1484,6 @@ const baseSynchronizedOptions = computed(() => ({
   },
   plugins: {
     legend: { display: false },
-    crosshair: {
-      line: {
-        color: $waveui.theme === 'dark' ? $waveui.colors.primary : $waveui.colors.amber,
-        width: 1,
-        dashPattern: [3, 3]
-      },
-      labels: {
-        backgroundColor: $waveui.theme === 'dark' ? '#333333' : '#ffffff',
-        color: $waveui.theme === 'dark' ? '#ffffff' : '#333333',
-        borderColor: $waveui.theme === 'dark' ? '#666666' : '#cccccc',
-        borderWidth: 1,
-        borderRadius: 4,
-        padding: 6,
-        font: {
-          size: 11,
-          family: 'Quicksand, sans-serif'
-        }
-      }
-    },
     zoom: {
       zoom: {
         wheel: {
@@ -1591,21 +1587,13 @@ const changeTimeframe = (timeframe) => emit('change-timeframe', timeframe)
 watch(
   () => [props.lineChartData, props.candlestickChartData, props.isLoadingHistoricalData],
   async ([lineData, candleData, isLoading]) => {
-    if (isLoading) {
-      return
-    }
+    if (isLoading) return
 
     // Only auto-focus if we have meaningful data.
     const data = props.chartType === 'line' ? lineData : candleData
     const chartData = data?.datasets?.[0]?.data
 
-    if (!chartData || chartData.length < 10) {
-      return
-    }
-
-    // Enhanced logging for large datasets.
-    const datasetSize = chartData.length
-    const isLargeDataset = datasetSize > 1000
+    if (!chartData || chartData.length < 10) return
 
     // For smooth transitions, only reset initialization if we have significantly different data
     // This prevents unnecessary re-focusing when just changing timeframes.
@@ -1635,12 +1623,9 @@ watch(
     // Wait for next tick to ensure charts are rendered.
     await nextTick()
 
-    // Only auto-focus if we reset initialization
-    if (!hasInitialized.value) {
-      setTimeout(() => {
-        focusOnRecentData()
-      }, 100) // Slightly longer delay for smooth transitions
-    }
+    // Only auto-focus if we reset initialization.
+    // Slightly longer delay for smooth transitions.
+    if (!hasInitialized.value) setTimeout(focusOnRecentData, 100)
   },
   { deep: true, immediate: true }
 )
@@ -1662,8 +1647,7 @@ watch(() => [props.selectedPeriod, props.selectedTimeframe], () => {
 defineExpose({
   chartContainer,
   lineChartRef,
-  candleChartRef,
-  focusOnRecentData
+  candleChartRef
 })
 </script>
 
@@ -1710,13 +1694,14 @@ defineExpose({
       height: 400px;
     }
 
-    .chart-pane {
+    .chart {
       position: relative;
 
+      canvas {cursor: crosshair;}
+
       // Individual pane heights.
-      &.chart--price {height: 400px;}
-      &.chart--rsi {height: 110px;}
-      &.chart--macd {height: 110px;}
+      &.chart--rsi {height: 120px;}
+      &.chart--macd {height: 120px;}
     }
   }
 
