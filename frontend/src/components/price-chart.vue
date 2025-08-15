@@ -122,6 +122,7 @@
 <script setup>
 // Imports
 // --------------------------------------------------------
+import { ref, computed, inject, watch, nextTick } from 'vue'
 import { Line } from 'vue-chartjs'
 import { Chart } from 'chart.js'
 import 'chart.js/auto'
@@ -129,31 +130,9 @@ import 'chartjs-chart-financial'
 import 'chartjs-adapter-luxon'
 import zoomPlugin from 'chartjs-plugin-zoom'
 import { BarController, BarElement } from 'chart.js'
+import { useTechnicalIndicators } from '@/composables/use-technical-indicators'
 import CandlestickChart from './candlestick-chart.vue'
 import DrawingTools from './drawing-tools.vue'
-import { ref, computed, inject, watch, nextTick } from 'vue'
-import { useTechnicalIndicators } from '@/composables/use-technical-indicators'
-
-const $waveui = inject('$waveui')
-
-// Register Chart.js plugins and components.
-// Plugin to reserve a fixed-height band at the bottom for the volume scale, sharing the same X scale.
-const VOLUME_BAND_HEIGHT = 115 // Pixels.
-const volumeBandPlugin = {
-  id: 'volumeBand',
-  afterLayout(chart, args, opts) {
-    if (!opts || !opts.height) return
-    const volScale = chart.scales && chart.scales.yVolume
-    if (!volScale) return
-    const area = chart.chartArea
-    const band = Math.min(opts.height, area.bottom - area.top)
-    volScale.top = area.bottom - band
-    volScale.bottom = area.bottom
-    volScale.height = band
-  }
-}
-
-Chart.register(zoomPlugin, BarController, BarElement, volumeBandPlugin)
 
 // Props & Emits
 // --------------------------------------------------------
@@ -178,6 +157,150 @@ const emit = defineEmits([
   'change-timeframe',
   'reset-zoom-complete'
 ])
+// --------------------------------------------------------
+
+const $waveui = inject('$waveui')
+
+// Register Chart.js plugins and components.
+// Plugin to reserve a fixed-height band at the bottom for the volume scale, sharing the same X scale.
+const VOLUME_BAND_HEIGHT = 115 // Pixels.
+const volumeBandPlugin = {
+  id: 'volumeBand',
+  afterLayout(chart, args, opts) {
+    if (!opts || !opts.height) return
+    const volScale = chart.scales && chart.scales.yVolume
+    if (!volScale) return
+    const area = chart.chartArea
+    const band = Math.min(opts.height, area.bottom - area.top)
+    volScale.top = area.bottom - band
+    volScale.bottom = area.bottom
+    volScale.height = band
+  }
+}
+
+// Crosshair plugin for cursor tracking with axis labels.
+const crosshairPlugin = {
+  id: 'crosshair',
+  beforeInit(chart) {
+    chart.crosshair = { x: null, y: null, draw: false }
+  },
+  afterEvent(chart, args) {
+    const { inChartArea } = args
+    const { type, x, y } = args.event
+
+    chart.crosshair.draw = inChartArea
+    chart.crosshair.x = x
+    chart.crosshair.y = y
+
+    if (type === 'mousemove' && inChartArea) {
+      getAllChartInstances().forEach(otherChart => {
+        if (otherChart !== chart && otherChart.crosshair) {
+          otherChart.crosshair.x = x
+          otherChart.crosshair.draw = true
+          otherChart.draw()
+        }
+      })
+      chart.draw()
+    }
+    else if (type === 'mouseout') {
+      getAllChartInstances().forEach(otherChart => {
+        if (otherChart.crosshair) {
+          otherChart.crosshair.draw = false
+          otherChart.draw()
+        }
+      })
+    }
+  },
+  afterDraw(chart) {
+    if (!chart.crosshair.draw) return
+
+    const ctx = chart.ctx
+    const { chartArea, scales } = chart
+    const { x, y } = chart.crosshair
+
+    if (!chartArea || x < chartArea.left || x > chartArea.right) return
+
+    ctx.save()
+
+    // Draw vertical line.
+    ctx.strokeStyle = $waveui.colors.light2
+    ctx.lineWidth = 1
+    ctx.setLineDash([3, 3])
+    ctx.beginPath()
+    ctx.moveTo(x, chartArea.top)
+    ctx.lineTo(x, chartArea.bottom)
+    ctx.stroke()
+
+    const isMainChart = chart.canvas.parentElement.classList.contains('chart--price')
+    const isWithinChartY = y >= chartArea.top && y <= chartArea.bottom
+
+    // Draw horizontal line if within chart area.
+    if (isWithinChartY) {
+      ctx.beginPath()
+      ctx.moveTo(chartArea.left, y)
+      ctx.lineTo(chartArea.right, y)
+      ctx.stroke()
+    }
+
+    ctx.setLineDash([])
+
+    // Helper function to draw labels.
+    const drawLabel = (text, labelX, labelY, width, height) => {
+      ctx.fillStyle = $waveui.colors[$waveui.theme === 'dark' ? 'primary-dark2' : 'primary-light1']
+
+      ctx.beginPath()
+      ctx.roundRect(labelX, labelY, width, height, 4)
+      ctx.fill()
+
+      ctx.fillStyle = $waveui.colors.white
+      ctx.fillText(text, labelX + width / 2, labelY + height / 2)
+    }
+
+    // Draw X-axis label (only on main chart).
+    if (isMainChart && scales.x) {
+      const xValue = scales.x.getValueForPixel(x)
+      if (xValue) {
+        const timeLabel = new Date(xValue).toLocaleString('en-US', {
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        })
+
+        ctx.font = `10px Quicksand, sans-serif`
+        const labelWidth = ctx.measureText(timeLabel).width + 4
+        const labelHeight = 10 + 4
+        const labelX = Math.max(chartArea.left + labelWidth / 2 + 12,
+                               Math.min(x, chartArea.right - labelWidth / 2 - 12)) - labelWidth / 2
+        const labelY = chartArea.bottom + 5
+
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        drawLabel(timeLabel, labelX, labelY, labelWidth, labelHeight)
+      }
+    }
+
+    // Draw Y-axis label if within chart Y area.
+    if (isWithinChartY && scales.y) {
+      const yValue = scales.y.getValueForPixel(y)
+      if (yValue) {
+        const priceLabel = `$${yValue.toFixed(2)}`
+
+        ctx.font = `10px Quicksand, sans-serif`
+        const labelWidth = ctx.measureText(priceLabel).width + 4
+        const labelHeight = 10 + 4
+        const labelX = chartArea.right + 3
+        const labelY = Math.max(chartArea.top + labelHeight / 2,
+                                Math.min(y, chartArea.bottom - labelHeight / 2)) - labelHeight / 2
+
+        ctx.textBaseline = 'middle'
+        drawLabel(priceLabel, labelX, labelY, labelWidth, labelHeight)
+      }
+    }
+
+    ctx.restore()
+  }
+}
+
+Chart.register(zoomPlugin, BarController, BarElement, volumeBandPlugin, crosshairPlugin)
 
 // Template Refs & State
 // --------------------------------------------------------
@@ -269,9 +392,7 @@ const getVisibleDataInRange = (startTime, endTime) => {
 
 // Helper function to calculate optimal Y-axis range for visible data
 const calculateOptimalYRange = (visibleData) => {
-  if (!visibleData || visibleData.length === 0) {
-    return { yMin: null, yMax: null }
-  }
+  if (!visibleData || visibleData.length === 0) return { yMin: null, yMax: null }
 
   let minPrice = Infinity
   let maxPrice = -Infinity
@@ -291,24 +412,15 @@ const calculateOptimalYRange = (visibleData) => {
     }
   })
 
-  if (minPrice === Infinity || maxPrice === -Infinity) {
-    return { yMin: null, yMax: null }
-  }
+  if (minPrice === Infinity || maxPrice === -Infinity) return { yMin: null, yMax: null }
 
   // Add smart padding based on price volatility.
   const priceRange = maxPrice - minPrice
   const volatilityRatio = priceRange / ((minPrice + maxPrice) / 2)
 
-  let pricePaddingRatio
-  if (volatilityRatio < 0.02) {
-    pricePaddingRatio = 0.05 // Low volatility: more padding.
-  }
-  else if (volatilityRatio < 0.1) {
-    pricePaddingRatio = 0.03 // Medium volatility: standard padding.
-  }
-  else {
-    pricePaddingRatio = 0.02 // High volatility: less padding.
-  }
+  let pricePaddingRatio = 0.02 // High volatility: less padding.
+  if (volatilityRatio < 0.02) pricePaddingRatio = 0.05 // Low volatility: more padding.
+  else if (volatilityRatio < 0.1) pricePaddingRatio = 0.03 // Medium volatility: standard padding.
 
   const pricePadding = priceRange * pricePaddingRatio
   const yMin = minPrice - pricePadding
@@ -319,24 +431,12 @@ const calculateOptimalYRange = (visibleData) => {
 
 // Auto-focus on recent data when chart loads
 const focusOnRecentData = () => {
-  if (hasInitialized.value) {
-    console.log('📊 Auto-focus skipped: already initialized')
-    return
-  }
+  if (hasInitialized.value || props.isLoadingHistoricalData) return
 
   const data = props.chartType === 'line' ? props.lineChartData : props.candlestickChartData
   const chartData = data?.datasets?.[0]?.data
 
-  if (!chartData || chartData.length === 0) {
-    console.log('📊 Auto-focus skipped: no chart data available')
-    return
-  }
-
-  // Don't auto-focus if we're still loading data.
-  if (props.isLoadingHistoricalData) {
-    console.log('📊 Auto-focus skipped: still loading historical data')
-    return
-  }
+  if (!chartData?.length) return
 
   // Ensure we have a reasonable amount of data before focusing.
   if (chartData.length < 10) {
@@ -344,10 +444,7 @@ const focusOnRecentData = () => {
     return
   }
 
-  console.log(`📊 Starting intelligent auto-focus with ${chartData.length} data points`)
-
-  // CRITICAL: Calculate zoom limits first.
-  calculateZoomLimits()
+  calculateZoomLimits() // CRITICAL: Calculate zoom limits first.
 
   const totalPoints = chartData.length
 
@@ -355,41 +452,34 @@ const focusOnRecentData = () => {
   let focusData, focusDescription
 
   if (props.selectedPeriod === '1D') {
-    // Find today's data specifically for 1D period
+    // Find today's data specifically for 1D period.
     const now = new Date()
 
-    // Get current Eastern Time
+    // Get current Eastern Time.
     const easternTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }))
 
-    // Create today's trading session boundaries in Eastern Time
+    // Create today's trading session boundaries in Eastern Time.
     const todayYear = easternTime.getFullYear()
     const todayMonth = easternTime.getMonth()
     const todayDate = easternTime.getDate()
 
-    // 9:30 AM ET and 4:00 PM ET in local Eastern time
+    // 9:30 AM ET and 4:00 PM ET in local Eastern time.
     const sessionStartET = new Date(todayYear, todayMonth, todayDate, 9, 30, 0, 0)
     const sessionEndET = new Date(todayYear, todayMonth, todayDate, 16, 0, 0, 0)
 
-    // Convert to UTC timestamps for comparison with chart data
+    // Convert to UTC timestamps for comparison with chart data.
     const sessionStartUTC = sessionStartET.getTime()
     const sessionEndUTC = sessionEndET.getTime()
 
-    console.log(`📊 1D Period: Looking for today's trading session`)
-    console.log(`📊   ET times: ${sessionStartET.toLocaleString()} to ${sessionEndET.toLocaleString()}`)
-    console.log(`📊   UTC times: ${new Date(sessionStartUTC).toLocaleString()} to ${new Date(sessionEndUTC).toLocaleString()}`)
-
-    // Filter data to today's trading session specifically
+    // Filter data to today's trading session specifically.
     const todaysTradingData = chartData.filter(point => {
       return point.x >= sessionStartUTC && point.x <= sessionEndUTC
     })
-
-    console.log(`📊 1D Period: Found ${todaysTradingData.length} data points in today's trading session`)
 
     if (todaysTradingData.length > 5) {
       // We have good data from today's trading session.
       focusData = todaysTradingData
       focusDescription = `today's trading session (${todaysTradingData.length} points)`
-      console.log(`📊 1D Period: Focusing on today's trading session with ${todaysTradingData.length} data points`)
     }
     else {
       // Fallback 1: Try to find the most recent trading day's session.
@@ -421,8 +511,6 @@ const focusOnRecentData = () => {
         const sessionData = chartData.filter(point => {
           return point.x >= lastSessionStartUTC && point.x <= lastSessionEndUTC
         })
-
-        console.log(`📊 1D Period: Found ${sessionData.length} data points from most recent trading session (${lastDataET.toDateString()})`)
 
         if (sessionData.length > 5) {
           focusData = sessionData
@@ -494,34 +582,13 @@ const focusOnRecentData = () => {
   const volatilityRatio = priceRange / ((minPrice + maxPrice) / 2) // Relative volatility.
 
   // Adjust padding based on volatility.
-  let pricePaddingRatio
-  if (volatilityRatio < 0.02) {
-    // Low volatility: more padding for better visibility.
-    pricePaddingRatio = 0.05
-  }
-  else if (volatilityRatio < 0.1) {
-    // Medium volatility: standard padding.
-    pricePaddingRatio = 0.03
-  }
-  else {
-    // High volatility: less padding to show full range.
-    pricePaddingRatio = 0.02
-  }
+  let pricePaddingRatio = 0.02 // High volatility: less padding to show full range.
+  if (volatilityRatio < 0.02) pricePaddingRatio = 0.05 // Low volatility: more padding for better visibility.
+  else if (volatilityRatio < 0.1) pricePaddingRatio = 0.03 // Medium volatility: standard padding.
 
   const pricePadding = priceRange * pricePaddingRatio
   const yMin = minPrice - pricePadding
   const yMax = maxPrice + pricePadding
-
-  // Enhanced logging with timeframe context.
-  const timeframeInfo = getTimeframeDisplayInfo(props.selectedTimeframe, timeRange)
-
-  console.log(`📊 Smart auto-focus applied:`)
-  console.log(`   - Period: ${props.selectedPeriod}, Timeframe: ${props.selectedTimeframe}`)
-  console.log(`   - Dataset: ${totalPoints} total points, focusing on ${focusDescription}`)
-  console.log(`   - Focus coverage: ${timeframeInfo.coverage}`)
-  console.log(`   - Time range: ${focusMin.toLocaleString()} to ${focusMax.toLocaleString()}`)
-  console.log(`   - Price range: $${yMin.toFixed(2)} - $${yMax.toFixed(2)} (volatility: ${(volatilityRatio*100).toFixed(2)}%)`)
-  console.log(`   - Zoom limits: ${(zoomLimits.value.minZoom / (1000 * 60)).toFixed(1)}min to ${(zoomLimits.value.maxZoom / (1000 * 60 * 60)).toFixed(1)}h`)
 
   zoomRange.value = { min: focusMin, max: focusMax }
   hasInitialized.value = true
@@ -552,43 +619,43 @@ function calculateSmartFocusPoints(totalPoints) {
   // Timeframe-specific focus logic.
   const focusStrategy = {
     '1Min': {
-      '1D': Math.min(totalPoints, 120),   // 2 hours of 1-min data
-      '1W': Math.min(totalPoints, 240),   // 4 hours of 1-min data
-      '1M': Math.min(totalPoints, 480),   // 8 hours of 1-min data
-      '3M': Math.min(totalPoints, 960)    // 16 hours of 1-min data
+      '1D': Math.min(totalPoints, 120), // 2 hours of 1-min data
+      '1W': Math.min(totalPoints, 240), // 4 hours of 1-min data
+      '1M': Math.min(totalPoints, 480), // 8 hours of 1-min data
+      '3M': Math.min(totalPoints, 960)  // 16 hours of 1-min data
     },
     '5Min': {
-      '1D': Math.min(totalPoints, 48),    // 4 hours of 5-min data
-      '1W': Math.min(totalPoints, 96),    // 8 hours of 5-min data
-      '1M': Math.min(totalPoints, 144),   // 12 hours of 5-min data
-      '3M': Math.min(totalPoints, 288)    // 24 hours of 5-min data
+      '1D': Math.min(totalPoints, 48),  // 4 hours of 5-min data
+      '1W': Math.min(totalPoints, 96),  // 8 hours of 5-min data
+      '1M': Math.min(totalPoints, 144), // 12 hours of 5-min data
+      '3M': Math.min(totalPoints, 288)  // 24 hours of 5-min data
     },
     '15Min': {
-      '1D': Math.min(totalPoints, 26),    // ~6.5 hours (1 trading day)
-      '1W': Math.min(totalPoints, 52),    // ~2 trading days
-      '1M': Math.min(totalPoints, 104),   // ~4 trading days
-      '3M': Math.min(totalPoints, 208)    // ~8 trading days
+      '1D': Math.min(totalPoints, 26),  // ~6.5 hours (1 trading day)
+      '1W': Math.min(totalPoints, 52),  // ~2 trading days
+      '1M': Math.min(totalPoints, 104), // ~4 trading days
+      '3M': Math.min(totalPoints, 208)  // ~8 trading days
     },
     '30Min': {
-      '1D': Math.min(totalPoints, 13),    // ~6.5 hours (1 trading day)
-      '1W': Math.min(totalPoints, 26),    // ~2 trading days
-      '1M': Math.min(totalPoints, 52),    // ~4 trading days
-      '3M': Math.min(totalPoints, 104)    // ~8 trading days
+      '1D': Math.min(totalPoints, 13),  // ~6.5 hours (1 trading day)
+      '1W': Math.min(totalPoints, 26),  // ~2 trading days
+      '1M': Math.min(totalPoints, 52),  // ~4 trading days
+      '3M': Math.min(totalPoints, 104)  // ~8 trading days
     },
     '1Hour': {
-      '1D': Math.min(totalPoints, 20),    // ~3 trading days
-      '1W': Math.min(totalPoints, 35),    // ~1 trading week
-      '1M': Math.min(totalPoints, 140),   // ~1 trading month
-      '3M': Math.min(totalPoints, 280)    // ~2 trading months
+      '1D': Math.min(totalPoints, 20),  // ~3 trading days
+      '1W': Math.min(totalPoints, 35),  // ~1 trading week
+      '1M': Math.min(totalPoints, 140), // ~1 trading month
+      '3M': Math.min(totalPoints, 280)  // ~2 trading months
     },
     '1Day': {
-      '1D': Math.min(totalPoints, 5),     // 5 days.
-      '1W': Math.min(totalPoints, 10),    // 2 weeks.
-      '1M': Math.min(totalPoints, 30),    // 1 month.
-      '3M': Math.min(totalPoints, 90),    // 3 months.
-      '1Y': Math.min(totalPoints, 365),   // 1 year (focus on recent year).
-      '5Y': Math.min(totalPoints, 730),   // 2 years (focus on recent 2 years for 5Y period).
-      '12M': Math.min(totalPoints, 365)   // 1 year.
+      '1D': Math.min(totalPoints, 5),   // 5 days.
+      '1W': Math.min(totalPoints, 10),  // 2 weeks.
+      '1M': Math.min(totalPoints, 30),  // 1 month.
+      '3M': Math.min(totalPoints, 90),  // 3 months.
+      '1Y': Math.min(totalPoints, 365), // 1 year (focus on recent year).
+      '5Y': Math.min(totalPoints, 730), // 2 years (focus on recent 2 years for 5Y period).
+      '12M': Math.min(totalPoints, 365) // 1 year.
     }
   }
 
@@ -611,12 +678,12 @@ function calculateSmartTimePadding(timeRange) {
 
   // Base padding as percentage of time range.
   const basePaddingRatio = {
-    '1Min': 0.05,   // 5% padding for 1-min (tight focus).
-    '5Min': 0.08,   // 8% padding for 5-min.
-    '15Min': 0.10,  // 10% padding for 15-min.
-    '30Min': 0.12,  // 12% padding for 30-min.
-    '1Hour': 0.15,  // 15% padding for 1-hour.
-    '1Day': 0.20    // 20% padding for daily (works for 1Y and 5Y periods).
+    '1Min': 0.05,  // 5% padding for 1-min (tight focus).
+    '5Min': 0.08,  // 8% padding for 5-min.
+    '15Min': 0.10, // 10% padding for 15-min.
+    '30Min': 0.12, // 12% padding for 30-min.
+    '1Hour': 0.15, // 15% padding for 1-hour.
+    '1Day': 0.20   // 20% padding for daily (works for 1Y and 5Y periods).
   }
 
   const paddingRatio = basePaddingRatio[timeframe] || 0.10
@@ -624,12 +691,12 @@ function calculateSmartTimePadding(timeRange) {
 
   // Minimum padding based on timeframe.
   const minimumPadding = {
-    '1Min': 5 * 60 * 1000,      // 5 minutes minimum.
-    '5Min': 15 * 60 * 1000,     // 15 minutes minimum.
-    '15Min': 30 * 60 * 1000,    // 30 minutes minimum.
-    '30Min': 60 * 60 * 1000,    // 1 hour minimum.
-    '1Hour': 2 * 60 * 60 * 1000, // 2 hours minimum.
-    '1Day': 7 * 24 * 60 * 60 * 1000  // 1 week minimum (works for 1Y and 5Y periods).
+    '1Min': 5 * 60 * 1000,          // 5 minutes minimum.
+    '5Min': 15 * 60 * 1000,         // 15 minutes minimum.
+    '15Min': 30 * 60 * 1000,        // 30 minutes minimum.
+    '30Min': 60 * 60 * 1000,        // 1 hour minimum.
+    '1Hour': 2 * 60 * 60 * 1000,    // 2 hours minimum.
+    '1Day': 7 * 24 * 60 * 60 * 1000 // 1 week minimum (works for 1Y and 5Y periods).
   }
 
   const minPadding = minimumPadding[timeframe] || 15 * 60 * 1000
@@ -781,7 +848,7 @@ function calculateSimpleEMA(prices, period) {
   }
   ema[period - 1] = sum / period // First valid EMA value.
 
-  // Calculate EMA for remaining values
+  // Calculate EMA for remaining values.
   for (let i = period; i < prices.length; i++) {
     const currentPrice = prices[i]
     const prevEMA = ema[i - 1]
@@ -791,18 +858,18 @@ function calculateSimpleEMA(prices, period) {
   return ema
 }
 
-// Enhanced chart data with technical indicators
+// Enhanced chart data with technical indicators.
 const enhancedLineChartData = computed(() => {
   if (!props.lineChartData?.datasets?.[0]?.data) return props.lineChartData
 
   const baseDataset = props.lineChartData.datasets[0]
   const datasets = [baseDataset]
 
-  // Add EMA lines if enabled
+  // Add EMA lines if enabled.
   if (showEMA.value && ohlcData.value.length > 0) {
     const closePrices = ohlcData.value.map(d => d.close || d.price || 0)
 
-    // EMA 20 (Green)
+    // EMA 20 (Green).
     if (closePrices.length >= 20) {
       const ema20 = calculateSimpleEMA(closePrices, 20)
       const ema20Data = ema20.map((value, index) => ({
@@ -813,14 +880,14 @@ const enhancedLineChartData = computed(() => {
       datasets.push({
         label: 'EMA 20',
         data: ema20Data,
-        borderColor: '#10B981', // Green
+        borderColor: '#10B981',
         backgroundColor: '#10B981',
         borderWidth: 0.5,
         pointRadius: 0
       })
     }
 
-    // EMA 50 (Blue)
+    // EMA 50 (Blue).
     if (closePrices.length >= 50) {
       const ema50 = calculateSimpleEMA(closePrices, 50)
       const ema50Data = ema50.map((value, index) => ({
@@ -831,14 +898,14 @@ const enhancedLineChartData = computed(() => {
       datasets.push({
         label: 'EMA 50',
         data: ema50Data,
-        borderColor: '#3B82F6', // Blue
+        borderColor: '#3B82F6',
         backgroundColor: '#3B82F6',
         borderWidth: 0.5,
         pointRadius: 0
       })
     }
 
-    // EMA 200 (Orange)
+    // EMA 200 (Purple).
     if (closePrices.length >= 200) {
       const ema200 = calculateSimpleEMA(closePrices, 200)
       const ema200Data = ema200.map((value, index) => ({
@@ -849,7 +916,7 @@ const enhancedLineChartData = computed(() => {
       datasets.push({
         label: 'EMA 200',
         data: ema200Data,
-        borderColor: '#8B5CF6', // Purple
+        borderColor: '#8B5CF6',
         backgroundColor: '#8B5CF6',
         borderWidth: 0.5,
         pointRadius: 0
@@ -857,17 +924,13 @@ const enhancedLineChartData = computed(() => {
     }
   }
 
-  // Add VWAP if enabled
+  // Add VWAP if enabled (orange).
   if (showVWAP.value && vwapData.value.length) {
     datasets.push({
       label: 'VWAP',
       data: vwapData.value,
-      borderColor: '#F59E0B', // Orange color
-      backgroundColor: '#F59E0B',
-      // borderWidth: 0.5,
-      // pointRadius: 0,
-      // tension: 0.1,
-      // fill: false
+      borderColor: '#F59E0B',
+      backgroundColor: '#F59E0B'
     })
   }
 
@@ -904,7 +967,7 @@ const enhancedCandlestickChartData = computed(() => {
     })
   }
 
-  // Add EMA lines if enabled (same logic as line chart)
+  // Add EMA lines if enabled (same logic as line chart).
   if (showEMA.value && ohlcData.value.length > 0) {
     const closePrices = ohlcData.value.map(d => d.close || d.price || 0)
 
@@ -963,8 +1026,8 @@ const enhancedCandlestickChartData = computed(() => {
     }
   }
 
-  // Add VWAP if enabled
-  if (showVWAP.value && vwapData.value.length > 0) {
+  // Add VWAP if enabled.
+  if (showVWAP.value && vwapData.value.length) {
     datasets.push({
       type: 'line',
       label: 'VWAP',
@@ -1018,19 +1081,12 @@ function calculateSimpleRSI(prices, period = 14) {
     avgGain[i - period] = (avgGain[i - period - 1] * (period - 1) + currentGain) / period
     avgLoss[i - period] = (avgLoss[i - period - 1] * (period - 1) + currentLoss) / period
 
-    if (avgLoss[i - period] === 0) {
-      rsi.push(100)
-    }
-    else {
-      const rs = avgGain[i - period] / avgLoss[i - period]
-      rsi.push(100 - (100 / (1 + rs)))
-    }
+    if (avgLoss[i - period] === 0) rsi.push(100)
+    else rsi.push(100 - (100 / (1 + avgGain[i - period] / avgLoss[i - period])))
   }
 
   return rsi
 }
-
-
 
 const rsiChartOptions = computed(() => ({
   responsive: true,
@@ -1059,9 +1115,7 @@ const rsiChartOptions = computed(() => ({
         // Show all major levels for better readability.
         callback: function(value, index, values) {
           // Show every 10 units: 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100.
-          if (value % 10 === 0) {
-            return value.toString()
-          }
+          if (value % 10 === 0) return value.toString()
           return ''
         }
       }
@@ -1214,7 +1268,7 @@ const dataRange = ref({ min: null, max: null })
 const originalDataRange = ref({ min: null, max: null })
 const zoomLimits = ref({ minZoom: null, maxZoom: null })
 
-// Calculate intelligent zoom boundaries based on data
+// Calculate intelligent zoom boundaries based on data.
 function calculateZoomLimits() {
   const data = props.chartType === 'line' ? props.lineChartData : props.candlestickChartData
   const chartData = data?.datasets?.[0]?.data
@@ -1226,46 +1280,39 @@ function calculateZoomLimits() {
   const maxTime = Math.max(...timestamps)
   const totalTimeRange = maxTime - minTime
 
-  // Store original data range for reference
+  // Store original data range for reference.
   originalDataRange.value = { min: minTime, max: maxTime }
   dataRange.value = { min: minTime, max: maxTime }
 
-  // Calculate intelligent zoom limits
+  // Calculate intelligent zoom limits.
   const minDataPoints = Math.max(5, Math.min(50, chartData.length * 0.02)) // Show at least 5 points, max 50, or 2% of data
   const maxDataPoints = chartData.length
 
-  // Time per data point (average)
+  // Time per data point (average).
   const avgTimePerPoint = totalTimeRange / chartData.length
 
   zoomLimits.value = {
-    // Maximum zoom in: show minimum data points
+    // Maximum zoom in: show minimum data points.
     minZoom: avgTimePerPoint * minDataPoints,
-    // Maximum zoom out: show all data plus 10% padding on each side
+    // Maximum zoom out: show all data plus 10% padding on each side.
     maxZoom: totalTimeRange * 1.2,
-    // Data boundaries (with padding)
+    // Data boundaries (with padding).
     dataMin: minTime - (totalTimeRange * 0.1),
     dataMax: maxTime + (totalTimeRange * 0.1)
   }
-
-  console.log(`📊 Zoom limits calculated:`, {
-    totalPoints: chartData.length,
-    minDataPoints,
-    timeRange: `${new Date(minTime).toLocaleString()} to ${new Date(maxTime).toLocaleString()}`,
-    zoomRange: `${(zoomLimits.value.minZoom / (1000 * 60)).toFixed(1)}min to ${(zoomLimits.value.maxZoom / (1000 * 60 * 60)).toFixed(1)}h`
-  })
 }
 
-// Smart zoom validation - prevent over-zooming or losing data
+// Smart zoom validation - prevent over-zooming or losing data.
 function validateZoomRange(min, max) {
   if (!zoomLimits.value.minZoom) return { min, max }
 
   const requestedRange = max - min
   const limits = zoomLimits.value
 
-  // MUCH MORE PERMISSIVE: Only prevent extreme cases
-  // Allow users to zoom in very close (down to 2 data points) and zoom out very far
-  const veryMinZoom = limits.minZoom * 0.1 // Allow 10x closer than calculated minimum
-  const veryMaxZoom = limits.maxZoom * 3   // Allow 3x further than calculated maximum
+  // Only prevent extreme cases.
+  // Allow users to zoom in very close (down to 2 data points) and zoom out very far.
+  const veryMinZoom = limits.minZoom * 0.1 // Allow 10x closer than calculated minimum.
+  const veryMaxZoom = limits.maxZoom * 3   // Allow 3x further than calculated maximum.
 
   // Only prevent extreme zoom-in (less than 2 data points visible).
   if (requestedRange < veryMinZoom) {
@@ -1285,7 +1332,7 @@ function validateZoomRange(min, max) {
     console.log(`📊 Extreme zoom-out prevented`)
   }
 
-  // MUCH MORE PERMISSIVE BOUNDARIES: Allow panning well beyond data.
+  // Permissive boundaries: allow panning well beyond data.
   const generousPadding = (limits.dataMax - limits.dataMin) * 2 // 200% padding on each side.
   const veryGenerousMin = limits.dataMin - generousPadding
   const veryGenerousMax = limits.dataMax + generousPadding
@@ -1313,11 +1360,6 @@ function resetView() {
   hasInitialized.value = false
   zoomLimits.value = { minZoom: null, maxZoom: null }
   nextTick(focusOnRecentData)
-}
-
-// Legacy function for compatibility - delegates to resetView.
-function resetZoom() {
-  resetView()
 }
 
 // Enhanced zoom/pan handlers with intelligent boundaries.
@@ -1427,6 +1469,25 @@ const baseSynchronizedOptions = computed(() => ({
   },
   plugins: {
     legend: { display: false },
+    crosshair: {
+      line: {
+        color: $waveui.theme === 'dark' ? $waveui.colors.primary : $waveui.colors.amber,
+        width: 1,
+        dashPattern: [3, 3]
+      },
+      labels: {
+        backgroundColor: $waveui.theme === 'dark' ? '#333333' : '#ffffff',
+        color: $waveui.theme === 'dark' ? '#ffffff' : '#333333',
+        borderColor: $waveui.theme === 'dark' ? '#666666' : '#cccccc',
+        borderWidth: 1,
+        borderRadius: 4,
+        padding: 6,
+        font: {
+          size: 11,
+          family: 'Quicksand, sans-serif'
+        }
+      }
+    },
     zoom: {
       zoom: {
         wheel: {
@@ -1451,20 +1512,20 @@ const baseSynchronizedOptions = computed(() => ({
   }
 }))
 
+// Common Y-axis configuration to reduce redundancy.
+const baseYAxisConfig = {
+  position: 'right',
+  grid: { color: $waveui.colors.light2 },
+  ticks: { color: $waveui.colors.light1 }
+}
+
 // Synchronized chart options for each pane.
 const synchronizedLineChartOptions = computed(() => ({
   ...baseSynchronizedOptions.value,
   scales: {
     ...baseSynchronizedOptions.value.scales,
-    x: {
-      ...baseSynchronizedOptions.value.scales.x,
-      display: true // Show x-axis on main chart.
-    },
-    y: {
-      position: 'right',
-      grid: { color: $waveui.colors.light2 },
-      ticks: { color: $waveui.colors.light1 }
-    }
+    x: { ...baseSynchronizedOptions.value.scales.x, display: true },
+    y: baseYAxisConfig
   }
 }))
 
@@ -1476,15 +1537,8 @@ const synchronizedCandlestickChartOptions = computed(() => ({
   },
   scales: {
     ...baseSynchronizedOptions.value.scales,
-    x: {
-      ...baseSynchronizedOptions.value.scales.x,
-      display: true // Show x-axis on main chart.
-    },
-    y: {
-      position: 'right',
-      grid: { color: $waveui.colors.light2 },
-      ticks: { color: $waveui.colors.light1 }
-    },
+    x: { ...baseSynchronizedOptions.value.scales.x, display: true },
+    y: baseYAxisConfig,
     yVolume: {
       position: 'right',
       display: false,
@@ -1498,21 +1552,18 @@ const synchronizedRsiChartOptions = computed(() => ({
   ...baseSynchronizedOptions.value,
   scales: {
     ...baseSynchronizedOptions.value.scales,
-    x: {
-      ...baseSynchronizedOptions.value.scales.x,
-      display: false // Hide x-axis on RSI chart.
-    },
+    x: { ...baseSynchronizedOptions.value.scales.x, display: false },
     y: {
-      position: 'right',
+      ...baseYAxisConfig,
       min: 0,
       max: 100,
       grid: {
+        ...baseYAxisConfig.grid,
         display: true,
-        color: $waveui.colors.light2,
         drawOnChartArea: false
       },
       ticks: {
-        color: $waveui.colors.light1,
+        ...baseYAxisConfig.ticks,
         stepSize: 20,
         callback: (value) => value
       }
@@ -1524,15 +1575,8 @@ const synchronizedMacdChartOptions = computed(() => ({
   ...baseSynchronizedOptions.value,
   scales: {
     ...baseSynchronizedOptions.value.scales,
-    x: {
-      ...baseSynchronizedOptions.value.scales.x,
-      display: true // Show x-axis on bottom chart.
-    },
-    y: {
-      position: 'right',
-      grid: { color: $waveui.colors.light2 },
-      ticks: { color: $waveui.colors.light1 }
-    }
+    x: { ...baseSynchronizedOptions.value.scales.x, display: true },
+    y: baseYAxisConfig
   }
 }))
 
@@ -1619,7 +1663,6 @@ defineExpose({
   chartContainer,
   lineChartRef,
   candleChartRef,
-  resetZoom,
   focusOnRecentData
 })
 </script>
