@@ -53,20 +53,40 @@
           outline)
 
   //- Indicators Toggle
-  .indicators-panel.w-flex.gap2.mb2.justify-end
-    w-button.indicator-btn(color="base" @click="showEMA = !showEMA" :bg-color="showEMA ? buttonsColors.active : buttonsColors.inactive" xs)
+  .indicators-panel.w-flex.gap2.mb2.justify-end(v-if="chartType === 'candlestick'")
+    w-button.indicator-btn(
+      @click="showEMA = !showEMA"
+      color="base"
+      :bg-color="showEMA ? buttonsColors.active : buttonsColors.inactive"
+      xs)
       w-icon.mr1(v-if="showEMA" size="12") wi-check
       | EMA (20,50,200)
-    w-button.indicator-btn(color="base" @click="showVWAP = !showVWAP" :bg-color="showVWAP ? buttonsColors.active : buttonsColors.inactive" xs)
+    w-button.indicator-btn(
+      @click="showVWAP = !showVWAP"
+      color="base"
+      :bg-color="showVWAP ? buttonsColors.active : buttonsColors.inactive"
+      xs)
       w-icon.mr1(v-if="showVWAP" size="12") wi-check
       | VWAP
-    w-button.indicator-btn(color="base" @click="showVolume = !showVolume" :bg-color="showVolume ? buttonsColors.active : buttonsColors.inactive" xs)
+    w-button.indicator-btn(
+      @click="showVolume = !showVolume"
+      color="base"
+      :bg-color="showVolume ? buttonsColors.active : buttonsColors.inactive"
+      xs)
       w-icon.mr1(v-if="showVolume" size="12") wi-check
       | Volume
-    w-button.indicator-btn(color="base" @click="showRSI = !showRSI" :bg-color="showRSI ? buttonsColors.active : buttonsColors.inactive" xs)
+    w-button.indicator-btn(
+      @click="showRSI = !showRSI"
+      color="base"
+      :bg-color="showRSI ? buttonsColors.active : buttonsColors.inactive"
+      xs)
       w-icon.mr1(v-if="showRSI" size="12") wi-check
       | RSI
-    w-button.indicator-btn(color="base" @click="showMACD = !showMACD" :bg-color="showMACD ? buttonsColors.active : buttonsColors.inactive" xs)
+    w-button.indicator-btn(
+      @click="showMACD = !showMACD"
+      color="base"
+      :bg-color="showMACD ? buttonsColors.active : buttonsColors.inactive"
+      xs)
       w-icon.mr1(v-if="showMACD" size="12") wi-check
       | MACD
 
@@ -89,7 +109,7 @@
     DrawingTools(:chart-container="chartContainer")
 
     //- RSI Pane (if enabled)
-    .chart.chart--rsi.mt2(v-show="showRSI")
+    .chart.chart--rsi.mt2(v-show="showRSI && chartType === 'candlestick'")
       .w-flex.align-center.justify-space-between.pa1.contrast-o05--bg
         .size--sm.text-bold.op7.ml8 RSI (14)
         .pane-values.size--xs.op3
@@ -99,11 +119,12 @@
       .chart-container
         Line(
           ref="rsiChartRef"
+          :plugins="[rsiBackgroundPlugin]"
           :data="indicators.rsiChartData.value"
           :options="synchronizedRsiChartOptions")
 
     //- MACD Pane (if enabled)
-    .chart.chart--macd.mt2(v-show="showMACD")
+    .chart.chart--macd.mt2(v-show="showMACD && chartType === 'candlestick'")
       .w-flex.align-center.justify-space-between.pa1.contrast-o05--bg
         .size--sm.text-bold.op7.ml8 MACD (12,26,9)
         .pane-values.size--xs.op3
@@ -132,12 +153,11 @@
 // --------------------------------------------------------
 import { ref, computed, inject, watch, nextTick } from 'vue'
 import { Line } from 'vue-chartjs'
-import { Chart } from 'chart.js'
+import { Chart, BarController, BarElement } from 'chart.js'
 import 'chart.js/auto'
 import 'chartjs-chart-financial'
 import 'chartjs-adapter-luxon'
 import zoomPlugin from 'chartjs-plugin-zoom'
-import { BarController, BarElement } from 'chart.js'
 import { useTechnicalIndicators } from '@/composables/use-technical-indicators'
 import CandlestickChart from './candlestick-chart.vue'
 import DrawingTools from './drawing-tools.vue'
@@ -179,143 +199,44 @@ const buttonsColors = computed(() => {
 // Register Chart.js plugins and components.
 // Plugin to reserve a fixed-height band at the bottom for the volume scale, sharing the same X scale.
 const VOLUME_BAND_HEIGHT = 115 // Pixels.
-const volumeBandPlugin = {
-  id: 'volumeBand',
-  afterLayout(chart, args, opts) {
-    if (!opts || !opts.height) return
-    const volScale = chart.scales && chart.scales.yVolume
-    if (!volScale) return
-    const area = chart.chartArea
-    const band = Math.min(opts.height, area.bottom - area.top)
-    volScale.top = area.bottom - band
-    volScale.bottom = area.bottom
-    volScale.height = band
-  }
-}
 
-// Crosshair plugin for cursor tracking with axis labels.
-const crosshairPlugin = {
-  id: 'crosshair',
-  beforeInit(chart) {
-    chart.crosshair = { x: null, y: null, draw: false }
-  },
-  afterEvent(chart, args) {
-    const { inChartArea } = args
-    const { type, x, y } = args.event
-
-    chart.crosshair.draw = inChartArea
-    chart.crosshair.x = x
-    chart.crosshair.y = y
-
-    if (type === 'mousemove' && inChartArea) {
-      getAllChartInstances().forEach(otherChart => {
-        if (otherChart !== chart && otherChart.crosshair) {
-          otherChart.crosshair.x = x
-          otherChart.crosshair.draw = true
-          otherChart.draw()
-        }
-      })
-      chart.draw()
-    }
-    else if (type === 'mouseout') {
-      getAllChartInstances().forEach(otherChart => {
-        if (otherChart.crosshair) {
-          otherChart.crosshair.draw = false
-          otherChart.draw()
-        }
-      })
-    }
-  },
-  afterDraw(chart) {
-    if (!chart.crosshair.draw) return
-
+// RSI background plugin - register globally but only apply to RSI charts
+const rsiBackgroundPlugin = {
+  beforeDraw(chart) {
     const ctx = chart.ctx
-    const { chartArea, scales } = chart
-    const { x, y } = chart.crosshair
+    const chartArea = chart.chartArea
+    if (!chartArea) return
 
-    if (!chartArea || x < chartArea.left || x > chartArea.right) return
+    // Draw colored background fill between 30 and 70 (neutral zone)
+    const y30 = chart.scales.y.getPixelForValue(30)
+    const y70 = chart.scales.y.getPixelForValue(70)
 
     ctx.save()
+    ctx.fillStyle = '#8b5cf611' // Translucent purple.
+    ctx.fillRect(chartArea.left, y70, chartArea.right - chartArea.left, y30 - y70)
 
-    // Draw vertical line.
-    ctx.strokeStyle = $waveui.colors.light2
+    ctx.strokeStyle = $waveui.colors.light2 // Grey color for reference lines.
+    ctx.setLineDash([2, 3]) // Dashed lines.
     ctx.lineWidth = 1
-    ctx.setLineDash([3, 3])
-    ctx.beginPath()
-    ctx.moveTo(x, chartArea.top)
-    ctx.lineTo(x, chartArea.bottom)
-    ctx.stroke()
 
-    const isMainChart = chart.canvas.parentElement.classList.contains('chart--price')
-    const isWithinChartY = y >= chartArea.top && y <= chartArea.bottom
-
-    // Draw horizontal line if within chart area.
-    if (isWithinChartY) {
+    // Draw horizontal reference lines at key levels.
+    const levels = [30, 50, 70]
+    levels.forEach(level => {
+      const y = chart.scales.y.getPixelForValue(level)
       ctx.beginPath()
       ctx.moveTo(chartArea.left, y)
       ctx.lineTo(chartArea.right, y)
       ctx.stroke()
-    }
-
-    ctx.setLineDash([])
-
-    // Helper function to draw labels.
-    const drawLabel = (text, labelX, labelY, width, height) => {
-      ctx.fillStyle = $waveui.colors[$waveui.theme === 'dark' ? 'primary-dark2' : 'primary-light1']
-
-      ctx.beginPath()
-      ctx.roundRect(labelX, labelY, width, height, 4)
-      ctx.fill()
-
-      ctx.fillStyle = $waveui.colors.white
-      ctx.fillText(text, labelX + width / 2, labelY + height / 2)
-    }
-
-    // Draw X-axis label (only on main chart).
-    if (isMainChart && scales.x) {
-      const xValue = scales.x.getValueForPixel(x)
-      if (xValue) {
-        const timeLabel = new Date(xValue).toLocaleString('en-US', {
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-        })
-
-        ctx.font = `10px Quicksand, sans-serif`
-        const labelWidth = ctx.measureText(timeLabel).width + 4
-        const labelHeight = 10 + 4
-        const labelX = Math.max(chartArea.left + labelWidth / 2 + 12,
-                               Math.min(x, chartArea.right - labelWidth / 2 - 12)) - labelWidth / 2
-        const labelY = chartArea.bottom + 5
-
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        drawLabel(timeLabel, labelX, labelY, labelWidth, labelHeight)
-      }
-    }
-
-    // Draw Y-axis label if within chart Y area.
-    if (isWithinChartY && scales.y) {
-      const yValue = scales.y.getValueForPixel(y)
-      if (yValue) {
-        const priceLabel = `$${yValue.toFixed(2)}`
-
-        ctx.font = `10px Quicksand, sans-serif`
-        const labelWidth = ctx.measureText(priceLabel).width + 4
-        const labelHeight = 10 + 4
-        const labelX = chartArea.right + 3
-        const labelY = Math.max(chartArea.top + labelHeight / 2,
-                                Math.min(y, chartArea.bottom - labelHeight / 2)) - labelHeight / 2
-
-        ctx.textBaseline = 'middle'
-        drawLabel(priceLabel, labelX, labelY, labelWidth, labelHeight)
-      }
-    }
-
+    })
     ctx.restore()
   }
 }
 
-Chart.register(zoomPlugin, BarController, BarElement, volumeBandPlugin, crosshairPlugin)
+Chart.register(
+  zoomPlugin,
+  BarController,
+  BarElement
+)
 
 // Template Refs & State
 // --------------------------------------------------------
@@ -346,11 +267,8 @@ const formatPrice = (price) => {
 
 // Get all active chart instances.
 const getAllChartInstances = () => {
-  const charts = []
-
-  // Main price chart (line or candlestick).
-  if (lineChartRef.value?.chart) charts.push(lineChartRef.value.chart)
-  if (candleChartRef.value?.chart) charts.push(candleChartRef.value.chart)
+  // First add the main price chart (line or candlestick).
+  const charts = [candleChartRef.value.chart || lineChartRef.value.chart]
 
   // Indicator charts.
   if (showRSI.value && rsiChartRef.value?.chart) charts.push(rsiChartRef.value.chart)
@@ -407,7 +325,7 @@ const getVisibleDataInRange = (startTime, endTime) => {
 
 // Helper function to calculate optimal Y-axis range for visible data
 const calculateOptimalYRange = (visibleData) => {
-  if (!visibleData || visibleData.length === 0) return { yMin: null, yMax: null }
+  if (!visibleData?.length) return { yMin: null, yMax: null }
 
   let minPrice = Infinity
   let maxPrice = -Infinity
@@ -504,12 +422,12 @@ const focusOnRecentData = () => {
       const recentPointsCount = Math.max(100, Math.floor(totalPoints * 0.2)) // At least 100 points, or 20% of data.
       const mostRecentData = chartData.slice(-recentPointsCount)
 
-      if (mostRecentData.length > 0) {
+      if (mostRecentData.length) {
         // Find the most recent trading day and get its trading session data.
         const lastDataTime = new Date(mostRecentData[mostRecentData.length - 1].x)
 
         // Convert to Eastern Time to get the correct date.
-        const lastDataET = new Date(lastDataTime.toLocaleString("en-US", { timeZone: "America/New_York" }))
+        const lastDataET = new Date(lastDataTime.toLocaleString('en-US', { timeZone: 'America/New_York' }))
         const lastYear = lastDataET.getFullYear()
         const lastMonth = lastDataET.getMonth()
         const lastDate = lastDataET.getDate()
@@ -1109,8 +1027,21 @@ const rsiChartOptions = computed(() => ({
   animation: false,
   plugins: {
     legend: { display: false },
-    tooltip: { enabled: false }
+    tooltip: { enabled: false },
+    annotation: {
+      annotations: [{
+        drawTime: "beforeDatasetsDraw",
+        type: "box",
+        xScaleID: "x-axis-0",
+        yScaleID: "y-axis-0",
+        borderWidth: 0,
+        yMin: 25,
+        yMax: 40,
+        backgroundColor: "rgba(46, 204, 113,0.3)"
+      }]
+    }
   },
+
   scales: {
     x: {
       type: 'time',
@@ -1136,43 +1067,7 @@ const rsiChartOptions = computed(() => ({
       }
     }
   },
-  // Add background fill and reference lines like in the reference image.
-  plugins: [{
-    beforeDraw: (chart) => {
-      const ctx = chart.ctx
-      const chartArea = chart.chartArea
 
-      // Draw light background fill between 30 and 70 (neutral zone).
-      const y30 = chart.scales.y.getPixelForValue(30)
-      const y70 = chart.scales.y.getPixelForValue(70)
-
-      ctx.save()
-      ctx.fillStyle = 'rgba(100, 116, 139, 0.1)' // Light gray background
-      ctx.fillRect(chartArea.left, y70, chartArea.right - chartArea.left, y30 - y70)
-      ctx.restore()
-    },
-    afterDraw: (chart) => {
-      const ctx = chart.ctx
-      const chartArea = chart.chartArea
-
-      ctx.save()
-      ctx.strokeStyle = 'rgba(107, 114, 128, 0.5)' // Gray color for reference lines
-      ctx.setLineDash([2, 3]) // Dashed lines
-      ctx.lineWidth = 1
-
-      // Draw horizontal reference lines at key levels.
-      const levels = [30, 50, 70]
-      levels.forEach(level => {
-        const y = chart.scales.y.getPixelForValue(level)
-        ctx.beginPath()
-        ctx.moveTo(chartArea.left, y)
-        ctx.lineTo(chartArea.right, y)
-        ctx.stroke()
-      })
-
-      ctx.restore()
-    }
-  }]
 }))
 
 const macdChartOptions = computed(() => ({
@@ -1560,8 +1455,14 @@ const synchronizedRsiChartOptions = computed(() => ({
       },
       ticks: {
         ...baseYAxisConfig.ticks,
-        stepSize: 20,
-        callback: (value) => value
+        stepSize: 10,
+        callback: (value) => {
+          // Always show 30 and 70, plus other major levels
+          if (value === 30 || value === 70 || value % 20 === 0) {
+            return value.toString()
+          }
+          return ''
+        }
       }
     }
   }
