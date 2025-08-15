@@ -35,12 +35,28 @@ export function formatNextOpen(nextOpenISO) {
   }
 }
 
+const currencySymbols = {
+  'USD': '$',
+  'EUR': '€',
+  'GBP': '£',
+  'JPY': '¥',
+  'CAD': 'C$',
+  'AUD': 'A$',
+  'CHF': 'Fr',
+  'CNY': '¥',
+  'BTC': '₿',
+  'ETH': 'Ξ',
+  'USDT': '$',
+  'USDC': '$'
+}
+
+
 // Currency Formatting
 // --------------------------------------------------------
-export function formatCurrency(amount, currency = 'USD', currencySymbol = '$', decimals = 2) {
+export function formatCurrency(amount, currency = 'USD', decimals = 2) {
   const value = parseFloat(amount)
-  if (isNaN(value)) return `${currencySymbol}0.00`
-  return `${currencySymbol}${value.toFixed(decimals)}`
+  if (isNaN(value)) return `${currencySymbols[currency]}0.00`
+  return `<small class="op6">${currencySymbols[currency]}</small><span class="${value > 0 ? 'currency-positive' : (value ? 'currency-negative' : 'base')}">${value.toFixed(decimals)}</span>`
 }
 
 export function getCurrencySymbol(currency) {

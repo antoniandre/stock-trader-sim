@@ -14,11 +14,11 @@
               .current-position(:style="{ top: dayPosition + '%' }")
           .range-values
             .range-high
-              .label High
-              .value {{ formatPrice(dayHigh) }}
-            .range-low
-              .label Low
-              .value {{ formatPrice(dayLow) }}
+              .size--xs.op6 High
+              .value.lh0(v-html="formatPrice(dayHigh)")
+            .range-low.mt2
+              .size--xs.op6 Low
+              .value.lh0(v-html="formatPrice(dayLow)")
 
     //- 52 Week Range Card
     .range-card.gradient-card.gradient-card--tall.grow
@@ -31,11 +31,11 @@
               .current-position(:style="{ top: weekPosition + '%' }")
           .range-values
             .range-high
-              .label High
-              .value {{ formatPrice(weekHigh) }}
-            .range-low
-              .label Low
-              .value {{ formatPrice(weekLow) }}
+              .size--xs.op6 High
+              .value.lh0(v-html="formatPrice(weekHigh)")
+            .range-low.mt2
+              .size--xs.op6 Low
+              .value.lh0(v-html="formatPrice(weekLow)")
 
   //- Financial Metrics
   .metrics-list.mt4
@@ -46,6 +46,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { formatCurrency } from '@/utils/formatters'
 
 const props = defineProps({
   stock: { type: Object, required: true },
@@ -214,7 +215,7 @@ const weekBarWidth = computed(() => {
 
 const formatPrice = (price) => {
   if (price === 0) return '$0.00'
-  return '$' + price.toFixed(2)
+  return formatCurrency(price, 'USD', 2)
 }
 
 // Calculate actual volume from historical data.
@@ -378,18 +379,10 @@ const financialMetrics = computed(() => [
       }
 
       .range-values {
-        .range-high,
-        .range-low {
-          .label {
-            font-size: 12px;
-            font-weight: 500;
-            margin-bottom: 4px;
-          }
-
-          .value {
-            font-size: 14px;
-            font-weight: 700;
-          }
+        .range-high .value,
+        .range-low .value {
+          font-size: 14px;
+          font-weight: 700;
         }
       }
     }
