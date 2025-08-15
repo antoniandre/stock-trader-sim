@@ -828,13 +828,23 @@ function handlePriceUpdate(data) {
   const oldPrice = stock.value.price
   stock.value.price = data.price
   stock.value.previousPrice = oldPrice
-  stock.value.marketState = data.marketState
-  stock.value.marketMessage = data.marketMessage
-  stock.value.nextOpen = data.nextOpen
-  stock.value.nextClose = data.nextClose
+
+  // Always update market status if provided, otherwise preserve existing.
+  if (data.marketState) {
+    stock.value.marketState = data.marketState
+    stock.value.marketMessage = data.marketMessage || 'Status Updated'
+    stock.value.nextOpen = data.nextOpen
+    stock.value.nextClose = data.nextClose
+  }
+  // If no market status provided but current status is unknown/loading, set default.
+  else if (!stock.value.marketState || stock.value.marketState === 'unknown' || stock.value.marketMessage === 'Loading...') {
+    stock.value.marketState = 'closed'
+    stock.value.marketMessage = 'Market Status Unavailable'
+  }
 
   console.log(`📊 Price update for ${data.symbol}: $${oldPrice.toFixed(2)} → $${data.price.toFixed(2)} (${((data.price - oldPrice) / oldPrice * 100).toFixed(2)}%)`, {
-    marketState: data.marketState,
+    marketState: stock.value.marketState,
+    marketMessage: stock.value.marketMessage,
     timestamp: new Date().toLocaleString()
   })
 
@@ -861,10 +871,12 @@ function handlePriceUpdate(data) {
 }
 
 function handleMarketStatusUpdate(data) {
-  stock.value.marketState = data.status
-  stock.value.marketMessage = data.message
-  stock.value.nextOpen = data.nextOpen
-  stock.value.nextClose = data.nextClose
+  console.log('📊 Market status update received:', data)
+  const statusData = data.data || data
+  stock.value.marketState = statusData.status || 'closed'
+  stock.value.marketMessage = statusData.message || 'Market Status Updated'
+  stock.value.nextOpen = statusData.nextOpen
+  stock.value.nextClose = statusData.nextClose
 }
 
 // Dynamic Loading Functions
@@ -1293,11 +1305,34 @@ async function fetchStockData() {
 
   try {
     const data = await fetchStock(props.symbol)
-    stock.value = { ...stock.value, ...data }
+    // Ensure market status is always set.
+    stock.value = {
+      ...stock.value,
+      ...data,
+      marketState: data.marketState || 'closed',
+      marketMessage: data.marketMessage || 'Market Status Unavailable',
+      nextOpen: data.nextOpen || null,
+      nextClose: data.nextClose || null
+    }
+
+    console.log(`📊 Stock data loaded for ${props.symbol}:`, {
+      price: stock.value.price,
+      marketState: stock.value.marketState,
+      marketMessage: stock.value.marketMessage
+    })
+
     subscribeToStock(props.symbol)
   }
   catch (error) {
     console.error(`❌ Error fetching stock data for ${props.symbol}:`, error)
+    // Set fallback values if API fails.
+    stock.value = {
+      ...stock.value,
+      marketState: 'closed',
+      marketMessage: 'Data Unavailable',
+      nextOpen: null,
+      nextClose: null
+    }
   }
 }
 
@@ -1534,10 +1569,26 @@ async function refreshMarketStatus() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
     const data = await response.json()
-    stock.value = { ...stock.value, marketState: data.status, marketMessage: data.message, nextOpen: data.nextOpen, nextClose: data.nextClose }
+    stock.value = {
+      ...stock.value,
+      marketState: data.status || 'closed',
+      marketMessage: data.message || 'Market Status Updated',
+      nextOpen: data.nextOpen,
+      nextClose: data.nextClose
+    }
+
+    console.log('📊 Market status refreshed:', {
+      status: stock.value.marketState,
+      message: stock.value.marketMessage
+    })
   }
   catch (error) {
     console.error('❌ Error refreshing market status:', error)
+    // Don't leave stock in loading state - set reasonable defaults.
+    if (!stock.value.marketState || stock.value.marketState === 'unknown' || stock.value.marketMessage === 'Loading...') {
+      stock.value.marketState = 'closed'
+      stock.value.marketMessage = 'Market Status Unavailable'
+    }
   }
 }
 

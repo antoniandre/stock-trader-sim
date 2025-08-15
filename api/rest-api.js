@@ -202,7 +202,7 @@ export function createRestApiRoutes() {
             currency: stock.currency || 'USD',
             currencySymbol: stock.currencySymbol || '$',
             marketState: 'closed',
-            marketMessage: 'Data unavailable',
+            marketMessage: 'Data Unavailable',
             nextOpen: null,
             nextClose: null
           }
@@ -273,7 +273,20 @@ export function createRestApiRoutes() {
       // Cache the price for future WebSocket updates.
       if (price > 0) state.stockPrices[symbol] = price
 
-      const marketStatus = await getStockMarketStatus(stockData)
+      let marketStatus
+      try {
+        marketStatus = await getStockMarketStatus(stockData)
+      }
+      catch (error) {
+        console.warn(`⚠️ Failed to get market status for ${symbol}:`, error.message)
+        // Provide fallback market status.
+        marketStatus = {
+          status: 'closed',
+          message: 'Market Status Unavailable',
+          nextOpen: null,
+          nextClose: null
+        }
+      }
 
       res.json(createStandardResponse({
         symbol: stockData.symbol,

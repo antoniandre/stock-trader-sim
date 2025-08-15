@@ -59,107 +59,189 @@ async function isMarketTradingDay(date) {
 
 // Market Status Functions
 // --------------------------------------------------------
-export async function getMarketStatus() {
-  const easternTime = getEasternTime()
-  const day = easternTime.getDay()
-  const currentTimeMinutes = easternTime.getHours() * 60 + easternTime.getMinutes()
-  const isTradingDay = await isMarketTradingDay(easternTime)
+// IMPROVED MARKET STATUS LOGIC:
+//
+// 1. getMarketStatus() - Gets global US market status using Alpaca's official market clock API
+//    - Uses Alpaca's /v2/clock endpoint for accurate, timezone-aware market status
+//    - Provides detailed status: open, premarket, afterhours, overnight, closed (weekend)
+//    - Includes next_open and next_close times from Alpaca
+//    - Falls back to local time calculation if Alpaca API is unavailable
+//
+// 2. getStockMarketStatus(stock) - Determines status for individual stocks with priority logic:
+//    Priority 1: Stock status (inactive stocks are never tradable)
+//    Priority 2: Stock tradable flag (non-tradable stocks are always closed)
+//    Priority 3: Get global market status from Alpaca
+//    Priority 4: Apply exchange-specific rules:
+//      - US exchanges (NYSE, NASDAQ, AMEX, BATS, IEX, ARCA): Use global market status
+//      - Non-US exchanges: Return closed status (we don't have their market hours)
+//
+// This ensures accurate per-stock status determination while leveraging Alpaca's official market data.
 
-  if (!isTradingDay) {
-    return {
-      status: 'closed',
-      message: 'Closed',
-      nextOpen: getNextMarketOpen(),
-      isWeekend: day === 0 || day === 6
-    }
-  }
+// Market hours constants (ET) to avoid duplication.
+const MARKET_HOURS = {
+  PREMARKET_START: 4 * 60,  // 4:00 AM ET
+  MARKET_OPEN: 9 * 60 + 30, // 9:30 AM ET
+  MARKET_CLOSE: 16 * 60,    // 4:00 PM ET
+  AFTERHOURS_END: 20 * 60   // 8:00 PM ET
+}
 
-  // Market hours in minutes since midnight ET.
-  const preMarketStart = 4 * 60 // 4:00 AM ET.
-  const marketOpen = 9 * 60 + 30 // 9:30 AM ET.
-  const marketClose = 16 * 60 // 4:00 PM ET.
-  const afterHoursEnd = 20 * 60 // 8:00 PM ET.
+const US_EXCHANGES = ['NYSE', 'NASDAQ', 'AMEX', 'BATS', 'IEX', 'ARCA']
 
-  if (currentTimeMinutes < preMarketStart) {
-    return {
-      status: 'overnight',
-      message: 'Overnight',
-      nextOpen: getNextMarketOpen(),
-      isWeekend: false
-    }
-  }
+// Helper function to get current ET time in minutes since midnight.
+function getCurrentETTimeMinutes() {
+  const now = new Date()
+  const easternTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  return easternTime.getHours() * 60 + easternTime.getMinutes()
+}
 
-  if (currentTimeMinutes >= preMarketStart && currentTimeMinutes < marketOpen) {
-    return {
-      status: 'premarket',
-      message: 'Pre-market',
-      nextOpen: getNextMarketOpen(),
-      isWeekend: false
-    }
-  }
-
-  if (currentTimeMinutes >= marketOpen && currentTimeMinutes < marketClose) {
+// Helper function to determine detailed market status from Alpaca clock data.
+function determineDetailedStatus(isOpen, timestamp) {
+  if (isOpen) {
     return {
       status: 'open',
-      message: 'Open',
-      nextClose: getNextMarketClose(),
-      isWeekend: false
+      message: 'Open'
     }
   }
 
-  if (currentTimeMinutes >= marketClose && currentTimeMinutes < afterHoursEnd) {
+  // Market is closed - determine specific status.
+  const easternTime = new Date(timestamp.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const currentTimeMinutes = easternTime.getHours() * 60 + easternTime.getMinutes()
+  const dayOfWeek = easternTime.getDay()
+
+  // Weekend check.
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
     return {
-      status: 'afterhours',
-      message: 'After-hours',
-      nextOpen: getNextMarketOpen(),
-      isWeekend: false
+      status: 'closed',
+      message: 'Weekend'
     }
   }
+
+  // Weekday - determine specific closed status using consolidated market hours.
+  if (currentTimeMinutes >= MARKET_HOURS.PREMARKET_START && currentTimeMinutes < MARKET_HOURS.MARKET_OPEN) {
+    return { status: 'premarket', message: 'Pre-market' }
+  }
+
+  if (currentTimeMinutes >= MARKET_HOURS.MARKET_CLOSE && currentTimeMinutes < MARKET_HOURS.AFTERHOURS_END) {
+    return { status: 'afterhours', message: 'After-hours' }
+  }
+
+  // Overnight (before 4 AM or after 8 PM).
+  return { status: 'overnight', message: 'Overnight' }
+}
+
+export async function getMarketStatus() {
+  // Use cached market clock data for better performance.
+  const clockData = await getMarketClock()
+  if (!clockData) {
+    console.warn('⚠️ Using fallback market status calculation - Alpaca clock unavailable')
+    return getMarketStatusFallback()
+  }
+
+  // Use Alpaca's official market status.
+  const isOpen = clockData.is_open
+  const timestamp = new Date(clockData.timestamp)
+  const nextOpen = clockData.next_open ? new Date(clockData.next_open).toISOString() : null
+  const nextClose = clockData.next_close ? new Date(clockData.next_close).toISOString() : null
+
+  // Get detailed status using consolidated logic.
+  const detailedStatus = determineDetailedStatus(isOpen, timestamp)
 
   return {
-    status: 'overnight',
-    message: 'Overnight',
-    nextOpen: getNextMarketOpen(),
-    isWeekend: false
+    status: detailedStatus.status,
+    message: detailedStatus.message,
+    nextOpen: detailedStatus.status === 'open' ? null : nextOpen,
+    nextClose: detailedStatus.status === 'open' ? nextClose : null,
+    isWeekend: detailedStatus.status === 'closed' && detailedStatus.message === 'Weekend',
+    timestamp: timestamp.toISOString()
   }
 }
 
-export async function getStockMarketStatus(stock) {
+// Simplified fallback using consolidated market hours.
+function getMarketStatusFallback() {
   const easternTime = getEasternTime()
+  const day = easternTime.getDay()
   const currentTimeMinutes = easternTime.getHours() * 60 + easternTime.getMinutes()
 
-  // Priority 1: Stock status.
+  if (day === 0 || day === 6) {
+    return {
+      status: 'closed',
+      message: 'Weekend',
+      nextOpen: getNextMarketOpen(),
+      nextClose: null,
+      isWeekend: true
+    }
+  }
+
+  // Use consolidated market hours for consistency.
+  if (currentTimeMinutes < MARKET_HOURS.PREMARKET_START) {
+    return { status: 'overnight', message: 'Overnight', nextOpen: getNextMarketOpen(), nextClose: null, isWeekend: false }
+  }
+
+  if (currentTimeMinutes >= MARKET_HOURS.PREMARKET_START && currentTimeMinutes < MARKET_HOURS.MARKET_OPEN) {
+    return { status: 'premarket', message: 'Pre-market', nextOpen: getNextMarketOpen(), nextClose: null, isWeekend: false }
+  }
+
+  if (currentTimeMinutes >= MARKET_HOURS.MARKET_OPEN && currentTimeMinutes < MARKET_HOURS.MARKET_CLOSE) {
+    return { status: 'open', message: 'Open', nextOpen: null, nextClose: getNextMarketClose(), isWeekend: false }
+  }
+
+  if (currentTimeMinutes >= MARKET_HOURS.MARKET_CLOSE && currentTimeMinutes < MARKET_HOURS.AFTERHOURS_END) {
+    return { status: 'afterhours', message: 'After-hours', nextOpen: getNextMarketOpen(), nextClose: null, isWeekend: false }
+  }
+
+  return { status: 'overnight', message: 'Overnight', nextOpen: getNextMarketOpen(), nextClose: null, isWeekend: false }
+}
+
+export async function getStockMarketStatus(stock) {
+  // Priority 1: Check stock status first (inactive stocks are never tradable).
   if (stock.status && stock.status.toLowerCase() === 'inactive') {
-    return { status: 'closed', message: 'Inactive Stock', nextOpen: null, nextClose: null }
+    return {
+      status: 'closed',
+      message: 'Inactive Stock',
+      nextOpen: null,
+      nextClose: null,
+      reason: 'stock_inactive'
+    }
   }
+
+  // Priority 2: Check if stock is tradable.
   if (stock.tradable === false) {
-    return { status: 'closed', message: 'Not Tradable', nextOpen: null, nextClose: null }
+    return {
+      status: 'closed',
+      message: 'Not Tradable',
+      nextOpen: null,
+      nextClose: null,
+      reason: 'stock_not_tradable'
+    }
   }
 
-  const isTradingDay = await isMarketTradingDay(easternTime)
-  if (!isTradingDay) {
-    return { status: 'closed', message: 'Closed', nextOpen: getNextMarketOpen(), nextClose: null }
-  }
+  // Priority 3: Get official market status from Alpaca (reuse cached data).
+  const globalMarketStatus = await getMarketStatus()
 
-  // US market hours.
-  const usExchanges = ['NYSE', 'NASDAQ', 'AMEX', 'BATS', 'IEX']
+  // Priority 4: Apply exchange-specific rules using consolidated exchange list.
   const exchange = stock.exchange || 'Unknown'
 
-  if (usExchanges.includes(exchange)) {
-    const preMarketStart = 4 * 60
-    const marketOpen = 9 * 60 + 30
-    const marketClose = 16 * 60
-    const afterHoursEnd = 20 * 60
-
-    if (currentTimeMinutes < preMarketStart) return { status: 'overnight', message: 'Overnight', nextOpen: getNextMarketOpen(), nextClose: null }
-    if (currentTimeMinutes >= preMarketStart && currentTimeMinutes < marketOpen) return { status: 'premarket', message: 'Pre-market', nextOpen: getNextMarketOpen(), nextClose: null }
-    if (currentTimeMinutes >= marketOpen && currentTimeMinutes < marketClose) return { status: 'open', message: 'Open', nextOpen: null, nextClose: getNextMarketClose() }
-    if (currentTimeMinutes >= marketClose && currentTimeMinutes < afterHoursEnd) return { status: 'afterhours', message: 'After-hours', nextOpen: getNextMarketOpen(), nextClose: null }
-
-    return { status: 'overnight', message: 'Overnight', nextOpen: getNextMarketOpen(), nextClose: null }
+  if (!US_EXCHANGES.includes(exchange)) {
+    // Non-US exchanges - we don't have their market hours.
+    return {
+      status: 'Non-US',
+      message: `${exchange} Exchange`,
+      nextOpen: null,
+      nextClose: null,
+      reason: 'non_us_exchange'
+    }
   }
 
-  return { status: 'closed', message: 'Unavailable', nextOpen: null, nextClose: null }
+  // For US exchanges, use the global market status directly (no duplication).
+  return {
+    status: globalMarketStatus.status,
+    message: globalMarketStatus.message,
+    nextOpen: globalMarketStatus.nextOpen,
+    nextClose: globalMarketStatus.nextClose,
+    exchange: exchange,
+    timestamp: globalMarketStatus.timestamp,
+    reason: 'market_hours'
+  }
 }
 
 function getNextMarketOpen() {
@@ -760,13 +842,9 @@ function filterToContinuousTrading(historicalData, symbol) {
 
   console.log(`📊 Filtering ${historicalData.length} data points for continuous trading session`)
 
-  // Filter data to regular trading hours (9:30 AM - 4:00 PM ET)
-  const tradingHoursData = []
-
-  historicalData.forEach(point => {
+  // Filter data to regular trading hours using consolidated market hours.
+  const tradingHoursData = historicalData.filter(point => {
     const pointTime = new Date(point.timestamp)
-
-    // Convert to Eastern Time
     const etTimeString = pointTime.toLocaleString('en-US', {
       timeZone: 'America/New_York',
       hour12: false
@@ -775,17 +853,10 @@ function filterToContinuousTrading(historicalData, symbol) {
     // Parse the time - format: "M/D/YYYY, HH:MM:SS".
     const timePart = etTimeString.split(', ')[1] // Get "HH:MM:SS".
     const [hourStr, minuteStr] = timePart.split(':')
-    const etHour = parseInt(hourStr)
-    const etMinute = parseInt(minuteStr)
-    const timeInMinutes = etHour * 60 + etMinute
+    const timeInMinutes = parseInt(hourStr) * 60 + parseInt(minuteStr)
 
-    // Trading hours: 9:30 AM (570 min) to 4:00 PM (960 min) ET.
-    const marketOpen = 9 * 60 + 30  // 9:30 AM = 570 minutes.
-    const marketClose = 16 * 60     // 4:00 PM = 960 minutes.
-
-    if (timeInMinutes >= marketOpen && timeInMinutes <= marketClose) {
-      tradingHoursData.push(point)
-    }
+    // Use consolidated market hours for consistency.
+    return timeInMinutes >= MARKET_HOURS.MARKET_OPEN && timeInMinutes <= MARKET_HOURS.MARKET_CLOSE
   })
 
   console.log(`📊 Filtered to ${tradingHoursData.length} trading hours data points`)
@@ -795,7 +866,7 @@ function filterToContinuousTrading(historicalData, symbol) {
     return historicalData
   }
 
-  // Sort by timestamp to ensure proper order
+  // Sort by timestamp to ensure proper order.
   tradingHoursData.sort((a, b) => a.timestamp - b.timestamp)
 
   console.log(`📊 Final filtered data: ${tradingHoursData.length} points from ${new Date(tradingHoursData[0].timestamp).toLocaleString()} to ${new Date(tradingHoursData[tradingHoursData.length - 1].timestamp).toLocaleString()}`)
@@ -1032,9 +1103,31 @@ export async function initializeMarketData() {
   }
 
   console.log('📅 Initializing market data...')
-  const [calendarData, clockData] = await Promise.all([fetchMarketCalendar(), fetchMarketClock(), initializeStockPrices()])
+
+  // Initialize market data in parallel.
+  const [calendarData, clockData] = await Promise.all([
+    fetchMarketCalendar(),
+    fetchMarketClock(),
+    initializeStockPrices()
+  ])
+
   console.log('✅ Market data initialization complete')
   return { calendar: calendarData, clock: clockData }
+}
+
+// Consolidated market clock management with smart caching.
+export async function getMarketClock(forceFresh = false) {
+  // Use cached data if it's fresh (less than 30 seconds old).
+  if (!forceFresh && marketClockData) {
+    const cacheAge = Date.now() - new Date(marketClockData.timestamp).getTime()
+    if (cacheAge < 30000) { // 30 seconds cache.
+      return marketClockData
+    }
+  }
+
+  // Fetch fresh data and cache it automatically.
+  const freshData = await fetchMarketClock()
+  return freshData // fetchMarketClock already caches the data in marketClockData
 }
 
 // Price Polling Functions
@@ -1044,7 +1137,7 @@ let lastPollTime = 0
 export function startPricePolling(subscribedStocks, broadcast) {
   if (IS_SIMULATION || isPollingActive) return
 
-  // Don't start polling if WebSocket is connected and active
+  // Don't start polling if WebSocket is connected and active.
   if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1) {
     console.log('🔄 WebSocket is active - skipping price polling to avoid conflicts')
     return
@@ -1057,13 +1150,10 @@ export function startPricePolling(subscribedStocks, broadcast) {
   pricePollingInterval = setInterval(async () => {
     try {
       const marketStatus = await getMarketStatus()
-
-      // Determine polling interval based on market status.
       const pollIntervalMs = getPollIntervalForStatus(marketStatus.status) * 1000
       const timeSinceLastPoll = Date.now() - lastPollTime
 
       // Check if enough time has passed for this market status.
-      // Don't log every skip to avoid spam.
       if (timeSinceLastPoll < pollIntervalMs) return
 
       console.log(`📊 Market ${marketStatus.status}, polling for price updates...`)
@@ -1079,17 +1169,21 @@ export function startPricePolling(subscribedStocks, broadcast) {
           if (newPrice > 0 && newPrice !== cachedPrice) {
             const stockData = state.allStocks.find(s => s.symbol === symbol)
             if (stockData) {
-              const marketStatus = await getStockMarketStatus(stockData)
+              // Reuse the global market status instead of recalculating per stock.
+              const stockMarketStatus = US_EXCHANGES.includes(stockData.exchange)
+                ? marketStatus
+                : { status: 'closed', message: `${stockData.exchange} Exchange` }
+
               priceUpdates.push({
                 type: 'price',
                 symbol,
                 price: newPrice,
                 currency: stockData.currency || 'USD',
                 currencySymbol: stockData.currencySymbol || '$',
-                marketState: marketStatus.status,
-                marketMessage: marketStatus.message,
-                nextOpen: marketStatus.nextOpen,
-                nextClose: marketStatus.nextClose,
+                marketState: stockMarketStatus.status,
+                marketMessage: stockMarketStatus.message,
+                nextOpen: stockMarketStatus.nextOpen,
+                nextClose: stockMarketStatus.nextClose,
                 timestamp: new Date().toISOString()
               })
             }

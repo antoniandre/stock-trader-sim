@@ -237,7 +237,17 @@ async function fetchStocks(resetPage = false) {
 
     const data = await fetchAllStocks(currentPage.value, itemsPerPage, searchQuery.value)
 
-    stocks.value = data.stocks || []
+    // Ensure all stocks have proper market status.
+    const processedStocks = (data.stocks || []).map(stock => ({
+      ...stock,
+      // Ensure market status is always set.
+      marketState: stock.marketState || 'closed',
+      marketMessage: stock.marketMessage || 'Market Status Unavailable',
+      nextOpen: stock.nextOpen || null,
+      nextClose: stock.nextClose || null
+    }))
+
+    stocks.value = processedStocks
     totalStocks.value = data.pagination?.total || 0
     totalPages.value = data.pagination?.totalPages || 1
     loading.value = false
@@ -246,6 +256,13 @@ async function fetchStocks(resetPage = false) {
 
     console.log(`✅ Loaded ${stocks.value.length} stocks for page ${currentPage.value}/${totalPages.value}`)
     console.log(`💰 Stocks with prices: ${stocks.value.filter(s => s.price > 0).length}/${stocks.value.length}`)
+
+    // Log market status distribution for debugging.
+    const statusCounts = stocks.value.reduce((acc, stock) => {
+      acc[stock.marketState] = (acc[stock.marketState] || 0) + 1
+      return acc
+    }, {})
+    console.log(`📊 Market status distribution:`, statusCounts)
   }
   catch (err) {
     error.value = 'Failed to load stocks. Make sure the API server is running.'
@@ -320,12 +337,17 @@ function handlePriceUpdate(data) {
     existingStock.currency = data.currency || 'USD'
     existingStock.currencySymbol = data.currencySymbol || '$'
 
-    // Update market state if provided
+    // Always update market state if provided, or preserve existing state.
     if (data.marketState) {
       existingStock.marketState = data.marketState
-      existingStock.marketMessage = data.marketMessage
+      existingStock.marketMessage = data.marketMessage || 'Status Updated'
       existingStock.nextOpen = data.nextOpen
       existingStock.nextClose = data.nextClose
+    }
+    // If no market state in update but stock has none, set a reasonable default.
+    else if (!existingStock.marketState || existingStock.marketState === 'unknown') {
+      existingStock.marketState = 'closed'
+      existingStock.marketMessage = 'Market Status Unavailable'
     }
   }
 }
@@ -336,6 +358,14 @@ function handleTrade(data) {
   const stockIndex = stocks.value.findIndex(s => s.symbol === data.symbol)
   if (stockIndex !== -1) {
     stocks.value[stockIndex].price = data.price
+
+    // Update market status if provided in trade data.
+    if (data.marketState) {
+      stocks.value[stockIndex].marketState = data.marketState
+      stocks.value[stockIndex].marketMessage = data.marketMessage || 'Status Updated'
+      stocks.value[stockIndex].nextOpen = data.nextOpen
+      stocks.value[stockIndex].nextClose = data.nextClose
+    }
   }
 }
 
@@ -344,12 +374,27 @@ function handleTradingHistoryUpdate(data) {
   // You can update any trading-related UI here.
 }
 
+// Handle general market status updates.
+function handleMarketStatusUpdate(data) {
+  console.log('📊 Global market status update:', data)
+  // Update all stocks with the new market status if they don't have individual status.
+  stocks.value.forEach(stock => {
+    if (!stock.marketState || stock.marketState === 'unknown' || stock.marketMessage === 'Loading...') {
+      stock.marketState = data.status || data.data?.status || 'closed'
+      stock.marketMessage = data.message || data.data?.message || 'Market Status Updated'
+      stock.nextOpen = data.nextOpen || data.data?.nextOpen
+      stock.nextClose = data.nextClose || data.data?.nextClose
+    }
+  })
+}
+
 // Set up WebSocket handlers.
 function setupWebSocket() {
   addMessageHandler('market-update', handleMarketUpdate)
   addMessageHandler('price', handlePriceUpdate)
   addMessageHandler('trade', handleTrade)
   addMessageHandler('trading-history-update', handleTradingHistoryUpdate)
+  addMessageHandler('market-status-update', handleMarketStatusUpdate)
 }
 
 onMounted(async () => {

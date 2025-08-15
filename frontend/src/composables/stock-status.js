@@ -61,18 +61,38 @@ function formatNextOpen(nextOpenISO) {
 export function useStockStatus(stock) {
   // Extract status information from the comprehensive stock data.
   const currentStatus = computed(() => {
-    if (!stock.value) return {
-      status: 'unknown',
-      message: 'Loading...',
-      icon: '',
-      nextOpen: null,
-      nextClose: null
+    if (!stock.value) {
+      return {
+        status: 'unknown',
+        message: 'Loading...',
+        icon: '',
+        nextOpen: null,
+        nextClose: null
+      }
+    }
+
+    // Handle cases where marketState is missing or invalid.
+    let status = stock.value.marketState || 'unknown'
+    let message = stock.value.marketMessage || 'Loading...'
+
+    // If we have a valid stock but no market status, determine a reasonable default.
+    if (status === 'unknown' || message === 'Loading...') {
+      // If stock is inactive or not tradable, override status.
+      if (stock.value.status === 'inactive' || stock.value.tradable === false) {
+        status = 'closed'
+        message = stock.value.status === 'inactive' ? 'Inactive Stock' : 'Not Tradable'
+      }
+      else {
+        // Default to closed with a more informative message.
+        status = 'closed'
+        message = 'Market Status Unavailable'
+      }
     }
 
     return {
-      status: stock.value.marketState || 'unknown',
-      message: stock.value.marketMessage || 'Loading...',
-      icon: marketIcons[stock.value.marketState] || '',
+      status,
+      message,
+      icon: marketIcons[status] || '',
       nextOpen: stock.value.nextOpen,
       nextClose: stock.value.nextClose
     }
