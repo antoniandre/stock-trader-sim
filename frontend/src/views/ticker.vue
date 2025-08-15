@@ -91,8 +91,7 @@
           @change-chart-type="changeChartType"
           @change-period="changePeriod"
           @change-timeframe="changeTimeframe"
-          @reset-zoom-complete="handleResetZoomComplete"
-          ref="priceChartRef")
+          @reset-zoom-complete="handleResetZoomComplete")
 
     //- Right Column: Trading Interface & Stats
     .spacer.ma3.no-grow
@@ -264,7 +263,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { fetchStock, fetchStockPrice, fetchStockHistory, fetchStockHistoryProgressive } from '@/api'
+import { fetchStock, fetchStockHistoryProgressive } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from '@/components/ticker-logo.vue'
@@ -300,10 +299,9 @@ const historicalData = ref([])
 const statsHistoricalData = ref([])
 const realtimeOHLC = ref([])
 const selectedPeriod = ref('1D')
-const selectedTimeframe = ref('5Min')
+const selectedTimeframe = ref('1Min')
 const chartType = ref('candlestick')
 const recentTrades = ref([])
-const priceChartRef = ref(null)
 const isRefreshing = ref(false)
 const showDialog = ref(false)
 const isLoadingHistoricalData = ref(false)
@@ -324,23 +322,17 @@ const isTransitioningTimeframe = ref(false)
 const timeframeDataCache = ref(new Map()) // Cache data for different timeframes.
 
 // Smooth data transition function.
+// Instead of replacing all data at once, we'll update it smoothly.
+// This keeps the chart instances alive and just updates their data.
+// Don't show loading spinner - keep chart visible during transition.
+// isLoadingHistoricalData.value = true  // REMOVED: This caused the spinner
 async function transitionChartData(newData) {
-  // Instead of replacing all data at once, we'll update it smoothly.
-  // This keeps the chart instances alive and just updates their data.
-
-  console.log(`📊 Transitioning chart data (${newData.length} points)`)
-
-  // Don't show loading spinner - keep chart visible during transition.
-  // isLoadingHistoricalData.value = true  // REMOVED: This caused the spinner
-
   try {
     // Update historical data with smooth transition.
     historicalData.value = newData
 
     // Minimal delay for smooth rendering - almost instantaneous.
     await new Promise(resolve => setTimeout(resolve, 25))
-
-    console.log(`✅ Chart data transition complete`)
   }
   catch (error) {
     console.error('❌ Error during data transition:', error)
@@ -539,13 +531,8 @@ function createZoomPanConfig() {
       wheel: { enabled: true, speed: 0.1 },
       pinch: { enabled: true },
       mode: 'x',
-      onZoomStart: ({ chart }) => {
-        console.log('📊 Zoom START')
-      },
-      onZoomComplete: ({ chart }) => {
-        console.log('📊 Zoom COMPLETE')
-        handleChartViewChange(chart, 'zoom')
-      }
+      // onZoomStart: ({ chart }) => {},
+      onZoomComplete: ({ chart }) => handleChartViewChange(chart, 'zoom')
     }
   }
 }
@@ -762,13 +749,6 @@ function getReasonableTimeRange() {
 
 function getAdditionalDataRange(period) {
   return period
-}
-
-function resetZoom() {
-  // Trigger reset zoom on the chart component.
-  if (priceChartRef.value?.resetZoom) {
-    priceChartRef.value.resetZoom()
-  }
 }
 
 function handleResetZoomComplete() {
@@ -1286,11 +1266,7 @@ function stopMarketStatusMonitoring() {
 }
 
 function handleChartViewChange(chart, action) {
-  console.log(`📊 Chart ${action} detected`)
-
-  if (action === 'pan' || action === 'zoom') {
-    checkAndLoadAdditionalData(chart, action)
-  }
+  if (action === 'pan' || action === 'zoom') checkAndLoadAdditionalData(chart, action)
 }
 
 function setupWebSocket() {
@@ -1520,7 +1496,7 @@ async function changeTimeframe(timeframe) {
     // Clear transition state quickly.
     setTimeout(() => {
       isTransitioningTimeframe.value = false
-    }, 100) // Very short delay to show completion
+    }, 100) // Very short delay to show completion.
   }
 }
 
@@ -1614,24 +1590,6 @@ async function placeOrder(side) {
 
 function setQuickQuantity(quantity) {
   orderForm.value.quantity = quantity
-}
-
-function snapToCurrentTime() {
-  console.log('📊 Snapping to current time')
-
-  // Reset all states immediately.
-  userHasPanned.value = false
-  isPanning.value = false
-  dataCache.value.clear()
-
-  // Clear any pending timers.
-  if (panDebounceTimer) {
-    clearTimeout(panDebounceTimer)
-    panDebounceTimer = null
-  }
-
-  // Reset chart zoom.
-  resetZoom()
 }
 
 // Lifecycle
