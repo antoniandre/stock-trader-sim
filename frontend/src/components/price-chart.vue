@@ -1700,23 +1700,14 @@ defineExpose({
       canvas {cursor: crosshair;}
 
       // Individual pane heights.
-      &.chart--rsi {height: 120px;}
-      &.chart--macd {height: 120px;}
-    }
-  }
-
-  // Responsive design.
-  @media (max-width: 768px) {
-    .charts-wrap {
-      .chart-pane {
-        &.price-pane .chart-container {height: 250px;}
-        &.volume-pane .chart-container {height: 80px;}
-        &.rsi-pane .chart-container {height: 80px;}
-        &.macd-pane .chart-container {height: 100px;}
+      &.chart--rsi .chart-container canvas,
+      &.chart--macd .chart-container canvas {
+        max-height: 100% !important;
+        overflow: hidden;
       }
+      &.chart--rsi .chart-container  {max-height: 100px;}
+      &.chart--macd .chart-container  {max-height: 130px;}
     }
-
-    .indicators-panel {flex-wrap: wrap;}
   }
 }
 </style>
