@@ -25,7 +25,10 @@
       mini-trend-chart(
         v-if="!trendLoading && trendData.length"
         :data="trendData"
-        :loading="trendLoading")
+        :symbol="stock.symbol"
+        :loading="trendLoading"
+        @update:data="trendData = $event"
+        ref="trendChart")
       w-spinner.op3(v-else-if="trendLoading" xs color="inherit")
       .trend-placeholder(v-else) No data
 
@@ -35,8 +38,9 @@
 </template>
 
 <script setup>
-import { toRef, ref, onMounted, computed, watch } from 'vue'
+import { toRef, ref, onMounted, computed, watch, onBeforeUnmount } from 'vue'
 import { useStockStatus } from '@/composables/stock-status'
+import { useWebSocket } from '@/composables/web-socket'
 import { fetchStockTrend } from '@/api'
 import TickerLogo from './ticker-logo.vue'
 import MiniTrendChart from './mini-trend-chart.vue'
@@ -105,8 +109,28 @@ watch(() => props.stock.trendData, (newTrendData) => {
   }
 }, { immediate: true })
 
+// WebSocket integration for real-time trend updates
+const { subscribeToStock, unsubscribeFromStock } = useWebSocket()
+const trendChart = ref(null)
+
+// Handle real-time price updates
+const handlePriceUpdate = (priceData) => {
+  if (priceData.symbol === props.stock.symbol && trendChart.value) {
+    // Update trend chart with new price
+    trendChart.value.updateTrendData(priceData.price)
+  }
+}
+
 onMounted(() => {
   initializeTrendData()
+
+  // Subscribe to real-time price updates for trend chart
+  subscribeToStock(props.stock.symbol, handlePriceUpdate)
+})
+
+onBeforeUnmount(() => {
+  // Cleanup WebSocket subscription
+  unsubscribeFromStock(props.stock.symbol, handlePriceUpdate)
 })
 </script>
 

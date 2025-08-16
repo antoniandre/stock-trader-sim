@@ -47,7 +47,31 @@ const props = defineProps({
   showGradient: { type: Boolean, default: true },
   showDot: { type: Boolean, default: true },
   dotRadius: { type: Number, default: 2 },
-  loading: { type: Boolean, default: false }
+  loading: { type: Boolean, default: false },
+  symbol: { type: String, default: '' } // For WebSocket updates
+})
+
+const emit = defineEmits(['update:data'])
+
+// Expose method to parent components for real-time updates
+const updateTrendData = (newPrice) => {
+  if (!props.data || !Array.isArray(props.data) || !props.symbol) return
+
+  const now = Date.now()
+  const newDataPoint = {
+    timestamp: now,
+    price: newPrice
+  }
+
+  // Add new point and keep only last 30 points (sliding window)
+  const updatedData = [...props.data, newDataPoint].slice(-30)
+
+  // Emit update to parent component
+  emit('update:data', updatedData)
+}
+
+defineExpose({
+  updateTrendData
 })
 
 // Generate unique chart ID for gradients.

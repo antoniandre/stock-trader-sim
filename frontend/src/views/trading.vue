@@ -241,10 +241,8 @@ async function loadMovers() {
     // Load trend data for all movers in batch (much faster!)
     try {
       const allSymbols = [...normalizedGainers, ...normalizedLosers].map(stock => stock.symbol)
-      console.log(`🚀 Trading view: Loading batch trends for ${allSymbols.length} stocks:`, allSymbols)
       if (allSymbols.length > 0) {
         const trendsResponse = await fetchBatchTrends(allSymbols, 20)
-        console.log(`✅ Trading view: Batch trends loaded for ${Object.keys(trendsResponse || {}).length} stocks`)
 
         if (trendsResponse) {
           // Attach trend data to gainers
@@ -273,7 +271,6 @@ async function loadMovers() {
         }
       }
     } catch (trendError) {
-      console.error('❌ Trading view batch trend loading failed:', trendError)
       console.warn('⚠️ Batch trend loading failed for trading view, ticker cards will load individually:', trendError.message)
       // Set empty trend data so ticker cards will load individually
       normalizedGainers.forEach(gainer => {

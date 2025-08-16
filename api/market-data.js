@@ -283,6 +283,12 @@ function getNextMarketClose() {
 const trendDataCache = new Map() // symbol -> { data, timestamp, fallback }
 const TREND_CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
+// Clear cache function for rate limit recovery
+export function clearTrendCache() {
+  trendDataCache.clear()
+  console.log('🧹 Trend cache cleared to recover from rate limits')
+}
+
 function getCachedTrendData(symbol) {
   const cached = trendDataCache.get(symbol)
   if (!cached) return null

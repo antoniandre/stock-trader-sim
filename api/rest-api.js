@@ -11,10 +11,18 @@ import { createStandardResponse } from './utils.js'
 export function createRestApiRoutes() {
   const app = express()
 
+  // JSON body parsing middleware.
+  app.use(express.json())
+
   // CORS middleware.
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*')
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept')
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization')
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+
+    // Handle preflight requests
+    if (req.method === 'OPTIONS') return res.sendStatus(200)
+
     next()
   })
 
@@ -415,18 +423,32 @@ export function createRestApiRoutes() {
         return res.status(400).json({ error: 'symbols array is required' })
       }
 
+      console.log(`🚀 Batch trends: Processing ${symbols.length} symbols with simplified approach`)
+
       const results = {}
       const batchSize = 5 // Process in small batches to avoid overwhelming the API
 
       // Process ALL stocks in parallel - no batching, no delays!
       const promises = symbols.map(async (symbol) => {
           try {
-            // Use cached fetchStockTrend function - MUCH FASTER!
-            const result = await fetchStockTrend(symbol, points)
-            return {
-              symbol,
-              data: result.data || [],
-              fallback: result.fallback || null
+            // Simple single API call to avoid rate limits
+            const historicalData = await getStockHistoricalData(symbol, '1W', '1Day')
+
+            if (historicalData?.data && historicalData.data.length >= 2) {
+              const trendData = historicalData.data
+                .slice(-parseInt(points))
+                .map(item => ({
+                  timestamp: item.timestamp,
+                  price: item.close || item.price || 0
+                }))
+
+              return {
+                symbol,
+                data: trendData,
+                fallback: { period: '1W', timeframe: '1Day' }
+              }
+            } else {
+              return { symbol, data: [], fallback: null }
             }
           }
           catch (error) {

@@ -210,8 +210,8 @@ async function loadGainers() {
         })
       }
 
-      gainers.value = normalizedGainers
-      lastUpdate.value = new Date().toLocaleTimeString()
+              gainers.value = normalizedGainers
+    lastUpdate.value = new Date().toLocaleTimeString()
   }
   catch (e) {
     console.error('❌ Failed to load gainers:', e)
