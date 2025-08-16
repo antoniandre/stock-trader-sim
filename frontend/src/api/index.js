@@ -202,3 +202,24 @@ export async function fetchStockTrend(symbol, points = 20) {
     throw error
   }
 }
+
+// Batch trend data fetching for multiple stocks (much faster)
+export async function fetchBatchTrends(symbols, points = 20) {
+  try {
+    const response = await fetch(`${API_BASE}/stocks/trends/batch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ symbols, points })
+    })
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('Batch trends API Error:', error)
+    throw error
+  }
+}

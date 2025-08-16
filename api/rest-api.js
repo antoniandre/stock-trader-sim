@@ -1,7 +1,7 @@
 import express from 'express'
 import { state } from './config.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
-import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive, getTopMovers } from './market-data.js'
+import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive, getTopMovers, fetchStockTrend } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, placeOrder } from './alpaca-account.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse } from './utils.js'
@@ -406,7 +406,87 @@ export function createRestApiRoutes() {
     }
   })
 
-  // Mini trend data endpoint for ticker cards.
+  // Batch trend data endpoint for multiple stocks (much faster than individual calls).
+  app.post('/api/stocks/trends/batch', async (req, res) => {
+    try {
+      const { symbols, points = 20 } = req.body
+
+      if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
+        return res.status(400).json({ error: 'symbols array is required' })
+      }
+
+      console.log(`📊 Batch trend request for ${symbols.length} stocks`)
+
+      const results = {}
+      const batchSize = 5 // Process in small batches to avoid overwhelming the API
+
+      for (let i = 0; i < symbols.length; i += batchSize) {
+        const batch = symbols.slice(i, i + batchSize)
+
+                // Process batch in parallel for speed
+        const batchPromises = batch.map(async (symbol) => {
+          try {
+            // Use very aggressive fallback strategy for batch processing
+            const fallbackOptions = [
+              { period: '1D', timeframe: '1Hour' }, // Start with 1Hour for better availability
+              { period: '1W', timeframe: '1Day' },
+              { period: '1M', timeframe: '1Day' },
+              { period: '3M', timeframe: '1Day' },
+              { period: '1Y', timeframe: '1Day' } // Very long fallback
+            ]
+
+            for (const option of fallbackOptions) {
+              try {
+                const historicalData = await getStockHistoricalData(symbol, option.period, option.timeframe)
+
+                if (historicalData?.data && historicalData.data.length >= 5) { // Need at least 5 points
+                  const trendData = historicalData.data
+                    .slice(-parseInt(points))
+                    .map(item => ({
+                      timestamp: item.timestamp,
+                      price: item.close || item.price || 0
+                    }))
+
+                  return { symbol, data: trendData, fallback: option }
+                }
+              } catch (error) {
+                continue // Try next fallback
+              }
+            }
+
+            return { symbol, data: [], fallback: null }
+          } catch (error) {
+            console.warn(`Failed to fetch trend for ${symbol}:`, error.message)
+            return { symbol, data: [], fallback: null }
+          }
+        })
+
+        const batchResults = await Promise.all(batchPromises)
+        batchResults.forEach(result => {
+          results[result.symbol] = {
+            data: result.data,
+            fallback: result.fallback
+          }
+        })
+
+        // Small delay between batches to be API-friendly
+        if (i + batchSize < symbols.length) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+
+      const successCount = Object.values(results).filter(r => r.data.length > 0).length
+      console.log(`✅ Batch trend complete: ${successCount}/${symbols.length} stocks have data`)
+
+      res.json(createStandardResponse(results))
+    }
+    catch (error) {
+      console.error('Error in batch trend fetch:', error)
+      res.status(500).json({ error: 'Failed to fetch batch trend data' })
+    }
+  })
+
+    // Mini trend data endpoint for ticker cards (single stock - kept for compatibility).
   app.get('/api/stocks/:symbol/trend', async (req, res) => {
     try {
       const { symbol } = req.params
@@ -414,23 +494,23 @@ export function createRestApiRoutes() {
 
       // Try multiple timeframes as fallbacks for better data availability.
       const fallbackOptions = [
-        { period: '1D', timeframe: '5Min' },
-        { period: '1D', timeframe: '15Min' },
-        { period: '1D', timeframe: '1Hour' },
-        { period: '1W', timeframe: '1Hour' },
+        { period: '1D', timeframe: '1Hour' }, // Start with 1Hour for better availability
         { period: '1W', timeframe: '1Day' },
         { period: '1M', timeframe: '1Day' },
-        { period: '3M', timeframe: '1Day' }
+        { period: '3M', timeframe: '1Day' },
+        { period: '1Y', timeframe: '1Day' } // Very long fallback
       ]
 
       let historicalData = null
+      let usedFallback = null
 
       for (const option of fallbackOptions) {
         try {
           historicalData = await getStockHistoricalData(symbol, option.period, option.timeframe)
 
           // If we got data and no error/warning, use it.
-          if (historicalData?.data && historicalData.data.length > 0 && !historicalData.warning) {
+          if (historicalData?.data && historicalData.data.length >= 5) {
+            usedFallback = option
             break
           }
         }
@@ -441,7 +521,7 @@ export function createRestApiRoutes() {
       }
 
       if (!historicalData?.data || historicalData.data.length === 0) {
-        return res.json({ symbol, data: [] })
+        return res.json(createStandardResponse({ symbol, data: [] }))
       }
 
       // Take the most recent data points for the trend chart.
@@ -452,7 +532,7 @@ export function createRestApiRoutes() {
           price: item.close || item.price || 0
         }))
 
-      res.json(createStandardResponse({ symbol, data: trendData }))
+      res.json(createStandardResponse({ symbol, data: trendData, fallback: usedFallback }))
     }
     catch (error) {
       console.error(`Error fetching trend data for ${req.params.symbol}:`, error)

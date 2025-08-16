@@ -279,6 +279,86 @@ function getNextMarketClose() {
   return new Date(Date.UTC(year, month, date, utcHour, 0, 0, 0)).toISOString()
 }
 
+// Simple in-memory cache for trend data (5 minute expiry)
+const trendDataCache = new Map() // symbol -> { data, timestamp, fallback }
+const TREND_CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
+function getCachedTrendData(symbol) {
+  const cached = trendDataCache.get(symbol)
+  if (!cached) return null
+
+  const now = Date.now()
+  if (now - cached.timestamp > TREND_CACHE_DURATION) {
+    trendDataCache.delete(symbol)
+    return null
+  }
+
+  return cached
+}
+
+function setCachedTrendData(symbol, data, fallback) {
+  trendDataCache.set(symbol, {
+    data,
+    fallback,
+    timestamp: Date.now()
+  })
+}
+
+// Helper function to fetch trend data with caching
+export async function fetchStockTrend(symbol, points = 20) {
+  // Check cache first
+  const cached = getCachedTrendData(symbol)
+  if (cached) {
+    console.debug(`📋 Using cached trend data for ${symbol}`)
+    return {
+      symbol,
+      data: cached.data,
+      fallback: cached.fallback,
+      cached: true
+    }
+  }
+
+  // Try multiple timeframes as fallbacks for better data availability.
+  const fallbackOptions = [
+    { period: '1D', timeframe: '1Hour' }, // Start with 1Hour for better availability
+    { period: '1W', timeframe: '1Day' },
+    { period: '1M', timeframe: '1Day' },
+    { period: '3M', timeframe: '1Day' },
+    { period: '1Y', timeframe: '1Day' } // Very long fallback
+  ]
+
+  for (const option of fallbackOptions) {
+    try {
+      const historicalData = await getStockHistoricalData(symbol, option.period, option.timeframe)
+
+      if (historicalData?.data && historicalData.data.length >= 5) { // Need at least 5 points
+        const trendData = historicalData.data
+          .slice(-parseInt(points))
+          .map(item => ({
+            timestamp: item.timestamp,
+            price: item.close || item.price || 0
+          }))
+
+        // Cache the result
+        setCachedTrendData(symbol, trendData, option)
+
+        return {
+          symbol,
+          data: trendData,
+          fallback: option,
+          cached: false
+        }
+      }
+    } catch (error) {
+      continue // Try next fallback
+    }
+  }
+
+  // No data found, cache empty result for a shorter time
+  setCachedTrendData(symbol, [], null)
+  return { symbol, data: [], fallback: null, cached: false }
+}
+
 // Price Data Functions
 // --------------------------------------------------------
 export async function getPrice(symbol) {

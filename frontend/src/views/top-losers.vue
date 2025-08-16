@@ -82,7 +82,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { fetchTopMovers } from '@/api'
+import { fetchTopMovers, fetchBatchTrends } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import TickerCard from '@/components/ticker-card.vue'
 
@@ -163,7 +163,7 @@ async function loadLosers() {
     }
 
     // Normalize and sort by percentage loss (most negative first)
-    losers.value = losersData
+    const normalizedLosers = losersData
       .map(r => ({
         ...r,
         pct: extractPercent(r),
@@ -181,6 +181,14 @@ async function loadLosers() {
       .sort((a, b) => (a.pct || 0) - (b.pct || 0))
       .slice(0, selectedCount.value)
 
+        // Temporarily disable batch loading - let individual ticker cards load their own data
+    console.log(`📊 Skipping batch trend loading - ticker cards will load individually`)
+    // normalizedLosers.forEach(loser => {
+    //   loser.trendData = []
+    //   loser.trendFallback = null
+    // })
+
+    losers.value = normalizedLosers
     lastUpdate.value = new Date().toLocaleTimeString()
     console.log(`✅ Loaded ${losers.value.length} top losers`)
   }

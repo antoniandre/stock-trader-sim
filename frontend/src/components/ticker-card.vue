@@ -35,7 +35,7 @@
 </template>
 
 <script setup>
-import { toRef, ref, onMounted } from 'vue'
+import { toRef, ref, onMounted, computed, watch } from 'vue'
 import { useStockStatus } from '@/composables/stock-status'
 import { fetchStockTrend } from '@/api'
 import TickerLogo from './ticker-logo.vue'
@@ -49,20 +49,44 @@ const props = defineProps({
 const stockRef = toRef(props, 'stock')
 const { currentStatus } = useStockStatus(stockRef)
 
-// Trend chart data.
+// Trend chart data - use pre-loaded data if available, otherwise fetch.
 const trendData = ref([])
 const trendLoading = ref(true)
 
-// Fetch trend data for the mini chart.
+// Check if trend data is pre-loaded in the stock object
+const hasPreloadedTrend = computed(() => {
+  return props.stock.trendData && Array.isArray(props.stock.trendData)
+})
+
+// Use pre-loaded trend data or fetch it
+async function initializeTrendData() {
+  if (hasPreloadedTrend.value) {
+    // Use pre-loaded trend data (from batch loading)
+    trendData.value = props.stock.trendData
+    trendLoading.value = false
+
+    if (props.stock.trendFallback) {
+      console.debug(`Using ${props.stock.trendFallback.period}/${props.stock.trendFallback.timeframe} trend data for ${props.stock.symbol}`)
+    }
+  } else {
+    // Fallback to individual API call (slower)
+    console.log(`Loading individual trend data for ${props.stock.symbol}`)
+    await loadTrendData()
+  }
+}
+
+// Fetch trend data for the mini chart (fallback method).
 async function loadTrendData() {
   try {
     trendLoading.value = true
     const response = await fetchStockTrend(props.stock.symbol, 20)
+    console.log(`Trend API response for ${props.stock.symbol}:`, response)
     trendData.value = response.data || []
 
-    // Debug logging for stocks with no data
     if (!trendData.value.length) {
-      console.debug(`No trend data available for ${props.stock.symbol}`)
+      console.warn(`No trend data available for ${props.stock.symbol}`, response)
+    } else {
+      console.log(`✅ Loaded ${trendData.value.length} trend points for ${props.stock.symbol}`)
     }
   }
   catch (error) {
@@ -74,8 +98,16 @@ async function loadTrendData() {
   }
 }
 
+// Watch for changes in pre-loaded trend data
+watch(() => props.stock.trendData, (newTrendData) => {
+  if (newTrendData && Array.isArray(newTrendData) && newTrendData.length > 0) {
+    trendData.value = newTrendData
+    trendLoading.value = false
+  }
+}, { immediate: true })
+
 onMounted(() => {
-  loadTrendData()
+  initializeTrendData()
 })
 </script>
 
