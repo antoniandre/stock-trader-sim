@@ -155,7 +155,7 @@ w-grid.gap-xl
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
-import { fetchAllStocks, fetchTopMovers } from '@/api'
+import { fetchAllStocks, fetchTopMovers, fetchBatchTrends } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
@@ -235,7 +235,58 @@ async function loadMovers() {
       pct: extractPercent(r)
     }))
 
-    topMovers.value.data = { gainers: normalize(gainers), losers: normalize(losers) }
+    const normalizedGainers = normalize(gainers)
+    const normalizedLosers = normalize(losers)
+
+    // Load trend data for all movers in batch (much faster!)
+    try {
+      const allSymbols = [...normalizedGainers, ...normalizedLosers].map(stock => stock.symbol)
+      console.log(`🚀 Trading view: Loading batch trends for ${allSymbols.length} stocks:`, allSymbols)
+      if (allSymbols.length > 0) {
+        const trendsResponse = await fetchBatchTrends(allSymbols, 20)
+        console.log(`✅ Trading view: Batch trends loaded for ${Object.keys(trendsResponse || {}).length} stocks`)
+
+        if (trendsResponse) {
+          // Attach trend data to gainers
+          normalizedGainers.forEach(gainer => {
+            const trendInfo = trendsResponse[gainer.symbol]
+            if (trendInfo) {
+              gainer.trendData = trendInfo.data || []
+              gainer.trendFallback = trendInfo.fallback || null
+            } else {
+              gainer.trendData = []
+              gainer.trendFallback = null
+            }
+          })
+
+          // Attach trend data to losers
+          normalizedLosers.forEach(loser => {
+            const trendInfo = trendsResponse[loser.symbol]
+            if (trendInfo) {
+              loser.trendData = trendInfo.data || []
+              loser.trendFallback = trendInfo.fallback || null
+            } else {
+              loser.trendData = []
+              loser.trendFallback = null
+            }
+          })
+        }
+      }
+    } catch (trendError) {
+      console.error('❌ Trading view batch trend loading failed:', trendError)
+      console.warn('⚠️ Batch trend loading failed for trading view, ticker cards will load individually:', trendError.message)
+      // Set empty trend data so ticker cards will load individually
+      normalizedGainers.forEach(gainer => {
+        gainer.trendData = []
+        gainer.trendFallback = null
+      })
+      normalizedLosers.forEach(loser => {
+        loser.trendData = []
+        loser.trendFallback = null
+      })
+    }
+
+    topMovers.value.data = { gainers: normalizedGainers, losers: normalizedLosers }
   }
   catch (e) {
     console.error('❌ Failed to load movers:', e)

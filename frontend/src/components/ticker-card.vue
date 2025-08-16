@@ -70,7 +70,6 @@ async function initializeTrendData() {
     }
   } else {
     // Fallback to individual API call (slower)
-    console.log(`Loading individual trend data for ${props.stock.symbol}`)
     await loadTrendData()
   }
 }

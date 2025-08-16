@@ -77,7 +77,7 @@ const chartPoints = computed(() => {
   if (!props.data?.length) return []
 
   // Extract prices from data.
-  const prices = props.data.map(item => item.price || item.close || 0).filter(p => p > 0)
+  const prices = props.data.map(item => item.price || item.close || 0).filter(p => p >= 0 && isFinite(p))
   if (!prices.length) return []
 
   const minPrice = Math.min(...prices)

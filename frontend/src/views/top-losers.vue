@@ -181,8 +181,37 @@ async function loadLosers() {
       .sort((a, b) => (a.pct || 0) - (b.pct || 0))
       .slice(0, selectedCount.value)
 
-    losers.value = normalizedLosers
-    lastUpdate.value = new Date().toLocaleTimeString()
+          // Load trend data for all losers in batch (much faster!).
+      try {
+        const symbols = normalizedLosers.map(l => l.symbol)
+        const trendsResponse = await fetchBatchTrends(symbols, 20)
+
+        if (trendsResponse) {
+          // Attach trend data to each loser.
+          normalizedLosers.forEach(loser => {
+            const trendInfo = trendsResponse[loser.symbol]
+            if (trendInfo) {
+              loser.trendData = trendInfo.data || []
+              loser.trendFallback = trendInfo.fallback || null
+            }
+            else {
+              loser.trendData = []
+              loser.trendFallback = null
+            }
+          })
+        }
+      }
+      catch (trendError) {
+        console.warn('⚠️ Batch trend loading failed, ticker cards will load individually:', trendError.message)
+        // Set empty trend data so ticker cards will load individually.
+        normalizedLosers.forEach(loser => {
+          loser.trendData = []
+          loser.trendFallback = null
+        })
+      }
+
+      losers.value = normalizedLosers
+      lastUpdate.value = new Date().toLocaleTimeString()
   }
   catch (e) {
     console.error('❌ Failed to load losers:', e)

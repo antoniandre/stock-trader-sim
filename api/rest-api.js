@@ -415,68 +415,33 @@ export function createRestApiRoutes() {
         return res.status(400).json({ error: 'symbols array is required' })
       }
 
-      console.log(`📊 Batch trend request for ${symbols.length} stocks`)
-
       const results = {}
       const batchSize = 5 // Process in small batches to avoid overwhelming the API
 
-      for (let i = 0; i < symbols.length; i += batchSize) {
-        const batch = symbols.slice(i, i + batchSize)
-
-                // Process batch in parallel for speed
-        const batchPromises = batch.map(async (symbol) => {
+      // Process ALL stocks in parallel - no batching, no delays!
+      const promises = symbols.map(async (symbol) => {
           try {
-            // Use very aggressive fallback strategy for batch processing
-            const fallbackOptions = [
-              { period: '1D', timeframe: '1Hour' }, // Start with 1Hour for better availability
-              { period: '1W', timeframe: '1Day' },
-              { period: '1M', timeframe: '1Day' },
-              { period: '3M', timeframe: '1Day' },
-              { period: '1Y', timeframe: '1Day' } // Very long fallback
-            ]
-
-            for (const option of fallbackOptions) {
-              try {
-                const historicalData = await getStockHistoricalData(symbol, option.period, option.timeframe)
-
-                if (historicalData?.data && historicalData.data.length >= 5) { // Need at least 5 points
-                  const trendData = historicalData.data
-                    .slice(-parseInt(points))
-                    .map(item => ({
-                      timestamp: item.timestamp,
-                      price: item.close || item.price || 0
-                    }))
-
-                  return { symbol, data: trendData, fallback: option }
-                }
-              } catch (error) {
-                continue // Try next fallback
-              }
+            // Use cached fetchStockTrend function - MUCH FASTER!
+            const result = await fetchStockTrend(symbol, points)
+            return {
+              symbol,
+              data: result.data || [],
+              fallback: result.fallback || null
             }
-
-            return { symbol, data: [], fallback: null }
-          } catch (error) {
+          }
+          catch (error) {
             console.warn(`Failed to fetch trend for ${symbol}:`, error.message)
             return { symbol, data: [], fallback: null }
           }
         })
 
-        const batchResults = await Promise.all(batchPromises)
-        batchResults.forEach(result => {
-          results[result.symbol] = {
-            data: result.data,
-            fallback: result.fallback
-          }
-        })
-
-        // Small delay between batches to be API-friendly
-        if (i + batchSize < symbols.length) {
-          await new Promise(resolve => setTimeout(resolve, 100))
+      const allResults = await Promise.all(promises)
+      allResults.forEach(result => {
+        results[result.symbol] = {
+          data: result.data,
+          fallback: result.fallback
         }
-      }
-
-      const successCount = Object.values(results).filter(r => r.data.length > 0).length
-      console.log(`✅ Batch trend complete: ${successCount}/${symbols.length} stocks have data`)
+      })
 
       res.json(createStandardResponse(results))
     }

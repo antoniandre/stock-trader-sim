@@ -181,8 +181,37 @@ async function loadGainers() {
       .sort((a, b) => (b.pct || 0) - (a.pct || 0))
       .slice(0, selectedCount.value)
 
-    gainers.value = normalizedGainers
-    lastUpdate.value = new Date().toLocaleTimeString()
+          // Load trend data for all gainers in batch (much faster!).
+      try {
+        const symbols = normalizedGainers.map(g => g.symbol)
+        const trendsResponse = await fetchBatchTrends(symbols, 20)
+
+        if (trendsResponse) {
+          // Attach trend data to each gainer.
+          normalizedGainers.forEach(gainer => {
+            const trendInfo = trendsResponse[gainer.symbol]
+            if (trendInfo) {
+              gainer.trendData = trendInfo.data || []
+              gainer.trendFallback = trendInfo.fallback || null
+            }
+            else {
+              gainer.trendData = []
+              gainer.trendFallback = null
+            }
+          })
+        }
+      }
+      catch (trendError) {
+        console.warn('⚠️ Batch trend loading failed, ticker cards will load individually:', trendError.message)
+        // Set empty trend data so ticker cards will load individually.
+        normalizedGainers.forEach(gainer => {
+          gainer.trendData = []
+          gainer.trendFallback = null
+        })
+      }
+
+      gainers.value = normalizedGainers
+      lastUpdate.value = new Date().toLocaleTimeString()
   }
   catch (e) {
     console.error('❌ Failed to load gainers:', e)
