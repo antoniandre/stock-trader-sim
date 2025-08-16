@@ -12,48 +12,47 @@ w-grid.gap-xl
           | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
 
     //- Top Movers Strip.
-    .glass-box.pa3.mb3
-      .w-flex.gap4.mt3.wrap
-        //- Gainers
-        .w-flex.column.gap1
-          .title3.size--sm.op4 TOP GAINERS
-          .w-flex.gap1.wrap
-            template(v-for="n in topGainersCount" :key="n")
-              w-tag.clickable.px2.py1(
-                v-if="movers.gainers[n - 1]"
-                @click="$router.push(`/trading/${movers.gainers[n - 1].symbol}`)"
-                round
-                xs)
-                span.text-bold {{ movers.gainers[n - 1].symbol }}
-                span.ml2.currency-positive {{ ~~(movers.gainers[n - 1].pct) }}%
-            w-button(
-              v-if="topGainersCount < 15"
-              @click="topGainersCount += 15"
-              color="info"
-              text
-              xs
-              round)
-              span.mb2.mt-1.size--xl ...
-        //- Losers
-        .w-flex.column.gap1
-          .title3.size--sm.op4 TOP LOSERS
-          .w-flex.gap1.wrap
-            template(v-for="n in topLosersCount" :key="n")
-              w-tag.clickable.px2.py1(
-                v-if="movers.losers[n - 1]"
-                @click="$router.push(`/trading/${movers.losers[n - 1].symbol}`)"
-                round
-                xs)
-                span.text-bold {{ movers.losers[n - 1].symbol }}
-                span.ml2.currency-negative {{ ~~(movers.losers[n - 1].pct) }}%
-            w-button(
-              v-if="topLosersCount < 15"
-              @click="topLosersCount += 15"
-              color="info"
-              text
-              xs
-              round)
-              span.mb2.mt-1.size--xl ...
+    .my4.w-flex.wrap.gap2
+      //- Gainers
+      .w-flex.column.gap1
+        .title3.size--sm.op4 TOP GAINERS
+        .w-flex.gap1.wrap
+          template(v-for="n in topMovers.gainersDisplayCount" :key="n")
+            w-tag.clickable.px2.py1(
+              v-if="topMovers.data.gainers[n - 1]"
+              @click="$router.push(`/trading/${topMovers.data.gainers[n - 1].symbol}`)"
+              round
+              xs)
+              span.text-bold {{ topMovers.data.gainers[n - 1].symbol }}
+              span.ml2.currency-positive {{ ~~(topMovers.data.gainers[n - 1].pct) }}%
+          w-button(
+            v-if="topMovers.gainersDisplayCount < 15"
+            @click="topMovers.gainersDisplayCount += 15"
+            color="info"
+            text
+            xs
+            round)
+            span.mb2.mt-1.size--xl ...
+      //- Losers
+      .w-flex.column.gap1
+        .title3.size--sm.op4 TOP LOSERS
+        .w-flex.gap1.wrap
+          template(v-for="n in topMovers.losersDisplayCount" :key="n")
+            w-tag.clickable.px2.py1(
+              v-if="topMovers.data.losers[n - 1]"
+              @click="$router.push(`/trading/${topMovers.data.losers[n - 1].symbol}`)"
+              round
+              xs)
+              span.text-bold {{ topMovers.data.losers[n - 1].symbol }}
+              span.ml2.currency-negative {{ ~~(topMovers.data.losers[n - 1].pct) }}%
+          w-button(
+            v-if="topMovers.losersDisplayCount < 15"
+            @click="topMovers.losersDisplayCount += 15"
+            color="info"
+            text
+            xs
+            round)
+            span.mb2.mt-1.size--xl ...
     w-input.w-input.light.my4.h-auto(
       v-model="searchQuery"
       @input="handleSearchChange"
@@ -160,9 +159,13 @@ const totalPages = ref(1)
 const fetchingPrices = ref(false)
 let searchTimeout = null
 
-// Movers state.
-const movers = ref({ gainers: [], losers: [] })
-const moversCount = ref(20)
+// Top movers state - consolidated into single object.
+const topMovers = ref({
+  data: { gainers: [], losers: [] },
+  count: 20,
+  gainersDisplayCount: 5,
+  losersDisplayCount: 5
+})
 
 // Use composables for WebSocket and market status.
 const { wsConnected, lastUpdate, connect, addMessageHandler } = useWebSocket()
@@ -182,9 +185,6 @@ const tableHeaders = [
   { key: 'actions', label: 'Actions', align: 'center' }
 ]
 
-const topGainersCount = ref(5)
-const topLosersCount = ref(5)
-
 function extractPercent(rec) {
   let p = rec.change_percent ?? rec.changePercent ?? rec.percent_change ?? rec.changePct
   if (p === undefined || p === null) {
@@ -202,7 +202,7 @@ function extractPercent(rec) {
 
 async function loadMovers() {
   try {
-    const top = moversCount.value
+    const top = topMovers.value.count
     const payload = await fetchTopMovers(top, 'stocks')
     const data = payload?.data || payload
 
@@ -223,11 +223,11 @@ async function loadMovers() {
       pct: extractPercent(r)
     }))
 
-    movers.value = { gainers: normalize(gainers), losers: normalize(losers) }
+    topMovers.value.data = { gainers: normalize(gainers), losers: normalize(losers) }
   }
   catch (e) {
     console.error('❌ Failed to load movers:', e)
-    movers.value = { gainers: [], losers: [] }
+    topMovers.value.data = { gainers: [], losers: [] }
   }
 }
 
