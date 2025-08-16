@@ -799,7 +799,7 @@ const enhancedLineChartData = computed(() => {
   const datasets = [baseDataset]
 
   // Add EMA lines if enabled.
-  if (showEMA.value && ohlcData.value.length > 0) {
+  if (showEMA.value && ohlcData.value.length && props.chartType === 'candlestick') {
     const closePrices = ohlcData.value.map(d => d.close || d.price || 0)
 
     // EMA 20 (Green).
@@ -858,7 +858,7 @@ const enhancedLineChartData = computed(() => {
   }
 
   // Add VWAP if enabled (orange).
-  if (showVWAP.value && vwapData.value.length) {
+  if (showVWAP.value && vwapData.value.length && props.chartType === 'candlestick') {
     datasets.push({
       label: 'VWAP',
       data: vwapData.value,
