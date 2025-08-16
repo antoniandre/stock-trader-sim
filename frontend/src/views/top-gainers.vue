@@ -66,25 +66,11 @@
 
     //- Gainers Grid
     w-grid.gap4(:columns="{ xs: 1, sm: 2, md: 3, lg: 4, xl: 5 }")
-      .gainer-card.glass-box.pa4.clickable(
+      ticker-card(
         v-for="gainer in gainers"
         :key="gainer.symbol"
+        :stock="gainer"
         @click="$router.push(`/trading/${gainer.symbol}`)")
-        .w-flex.align-center.justify-between.mb2
-          .w-flex.align-center.gap2
-            ticker-logo(:symbol="gainer.symbol" size="sm")
-            .text-bold {{ gainer.symbol }}
-          .currency-positive.text-bold +{{ gainer.pct?.toFixed(2) || 'N/A' }}%
-
-        .size--sm.op7.mb2 {{ gainer.name || gainer.symbol }}
-
-        .w-flex.align-center.justify-between.gap2
-          .price-info(v-if="gainer.price || gainer.close")
-            .text-bold ${{ (gainer.price || gainer.close)?.toFixed(2) || 'N/A' }}
-            .size--xs.op6 Current Price
-          .change-info(v-if="gainer.change")
-            .currency-positive.size--sm +${{ gainer.change?.toFixed(2) || 'N/A' }}
-            .size--xs.op6 Change
 
     //- Empty State
     .w-flex.column.py12.align-center.justify-center(v-if="!loading && gainers.length === 0")
@@ -98,16 +84,16 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { fetchTopMovers } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
-import TickerLogo from '@/components/ticker-logo.vue'
+import TickerCard from '@/components/ticker-card.vue'
 
-// State
+// State.
 const gainers = ref([])
 const loading = ref(true)
 const error = ref(null)
 const selectedCount = ref(20)
 const selectedMarket = ref('stocks')
 
-// Options
+// Options.
 const countOptions = [
   { label: '10', value: 10 },
   { label: '20', value: 20 },
@@ -120,10 +106,10 @@ const marketOptions = [
   { label: 'ETFs', value: 'etfs' }
 ]
 
-// WebSocket
+// WebSocket.
 const { wsConnected, lastUpdate, connect, addMessageHandler } = useWebSocket()
 
-// Computed
+// Computed.
 const topGainer = computed(() => {
   if (gainers.value.length === 0) return null
   return gainers.value.reduce((top, current) => {
@@ -141,7 +127,7 @@ const averageGain = computed(() => {
   return sum / validGains.length
 })
 
-// Helper function to extract percentage
+// Helper function to extract percentage.
 function extractPercent(rec) {
   let p = rec.change_percent ?? rec.changePercent ?? rec.percent_change ?? rec.changePct
   if (p === undefined || p === null) {
@@ -157,7 +143,7 @@ function extractPercent(rec) {
   return n
 }
 
-// Data fetching
+// Data fetching.
 async function loadGainers() {
   try {
     loading.value = true
@@ -166,7 +152,7 @@ async function loadGainers() {
     const payload = await fetchTopMovers(selectedCount.value, selectedMarket.value)
     const data = payload?.data || payload
 
-    // Extract gainers
+    // Extract gainers.
     let gainersData = Array.isArray(data?.gainers) ? data.gainers : []
 
     if (!gainersData.length) {
@@ -176,11 +162,20 @@ async function loadGainers() {
       }
     }
 
-    // Normalize and sort by percentage gain
+    // Normalize and sort by percentage gain.
     gainers.value = gainersData
       .map(r => ({
         ...r,
-        pct: extractPercent(r)
+        pct: extractPercent(r),
+        // Map to ticker-card expected format.
+        symbol: r.symbol,
+        name: r.name || r.symbol,
+        price: r.price || r.close || r.latest_close,
+        lastSide: 'buy', // Default for gainers.
+        currency: 'USD',
+        currencySymbol: '$',
+        marketState: 'open', // Default for now.
+        marketMessage: 'Open'
       }))
       .filter(r => r.pct != null && r.pct > 0)
       .sort((a, b) => (b.pct || 0) - (a.pct || 0))
@@ -203,13 +198,13 @@ async function refreshData() {
   await loadGainers()
 }
 
-// WebSocket handlers
+// WebSocket handlers.
 function handlePriceUpdate(data) {
   const gainer = gainers.value.find(g => g.symbol === data.symbol)
   if (gainer) {
     gainer.price = data.price
     gainer.close = data.price
-    // Recalculate percentage if we have the necessary data
+    // Recalculate percentage if we have the necessary data.
     if (gainer.previous_close || gainer.prev_close) {
       const prevClose = gainer.previous_close || gainer.prev_close
       const change = data.price - prevClose
@@ -234,10 +229,6 @@ onMounted(async () => {
   setupWebSocket()
   connect()
 })
-
-onBeforeUnmount(() => {
-  // Cleanup if needed
-})
 </script>
 
 <style lang="scss" scoped>
@@ -256,17 +247,4 @@ onBeforeUnmount(() => {
   }
 }
 
-.gainer-card {
-  transition: all 0.2s ease;
-  cursor: pointer;
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-  }
-
-  .price-info, .change-info {
-    text-align: right;
-  }
-}
 </style>

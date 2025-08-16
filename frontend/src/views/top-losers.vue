@@ -66,25 +66,11 @@
 
     //- Losers Grid
     w-grid.gap4(:columns="{ xs: 1, sm: 2, md: 3, lg: 4, xl: 5 }")
-      .loser-card.glass-box.pa4.clickable(
+      ticker-card(
         v-for="loser in losers"
         :key="loser.symbol"
+        :stock="loser"
         @click="$router.push(`/trading/${loser.symbol}`)")
-        .w-flex.align-center.justify-between.mb2
-          .w-flex.align-center.gap2
-            ticker-logo(:symbol="loser.symbol" size="sm")
-            .text-bold {{ loser.symbol }}
-          .currency-negative.text-bold {{ loser.pct?.toFixed(2) || 'N/A' }}%
-
-        .size--sm.op7.mb2 {{ loser.name || loser.symbol }}
-
-        .w-flex.align-center.justify-between.gap2
-          .price-info(v-if="loser.price || loser.close")
-            .text-bold ${{ (loser.price || loser.close)?.toFixed(2) || 'N/A' }}
-            .size--xs.op6 Current Price
-          .change-info(v-if="loser.change")
-            .currency-negative.size--sm ${{ loser.change?.toFixed(2) || 'N/A' }}
-            .size--xs.op6 Change
 
     //- Empty State
     .w-flex.column.py12.align-center.justify-center(v-if="!loading && losers.length === 0")
@@ -98,7 +84,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { fetchTopMovers } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
-import TickerLogo from '@/components/ticker-logo.vue'
+import TickerCard from '@/components/ticker-card.vue'
 
 // State
 const losers = ref([])
@@ -180,7 +166,16 @@ async function loadLosers() {
     losers.value = losersData
       .map(r => ({
         ...r,
-        pct: extractPercent(r)
+        pct: extractPercent(r),
+        // Map to ticker-card expected format
+        symbol: r.symbol,
+        name: r.name || r.symbol,
+        price: r.price || r.close || r.latest_close,
+        lastSide: 'sell', // Default for losers
+        currency: 'USD',
+        currencySymbol: '$',
+        marketState: 'open', // Default for now
+        marketMessage: 'Open'
       }))
       .filter(r => r.pct != null && r.pct < 0)
       .sort((a, b) => (a.pct || 0) - (b.pct || 0))
@@ -202,6 +197,8 @@ async function loadLosers() {
 async function refreshData() {
   await loadLosers()
 }
+
+
 
 // WebSocket handlers
 function handlePriceUpdate(data) {
@@ -256,17 +253,5 @@ onBeforeUnmount(() => {
   }
 }
 
-.loser-card {
-  transition: all 0.2s ease;
-  cursor: pointer;
 
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-  }
-
-  .price-info, .change-info {
-    text-align: right;
-  }
-}
 </style>
