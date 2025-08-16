@@ -181,16 +181,8 @@ async function loadLosers() {
       .sort((a, b) => (a.pct || 0) - (b.pct || 0))
       .slice(0, selectedCount.value)
 
-        // Temporarily disable batch loading - let individual ticker cards load their own data
-    console.log(`📊 Skipping batch trend loading - ticker cards will load individually`)
-    // normalizedLosers.forEach(loser => {
-    //   loser.trendData = []
-    //   loser.trendFallback = null
-    // })
-
     losers.value = normalizedLosers
     lastUpdate.value = new Date().toLocaleTimeString()
-    console.log(`✅ Loaded ${losers.value.length} top losers`)
   }
   catch (e) {
     console.error('❌ Failed to load losers:', e)

@@ -181,16 +181,8 @@ async function loadGainers() {
       .sort((a, b) => (b.pct || 0) - (a.pct || 0))
       .slice(0, selectedCount.value)
 
-        // Temporarily disable batch loading - let individual ticker cards load their own data
-    console.log(`📊 Skipping batch trend loading - ticker cards will load individually`)
-    // normalizedGainers.forEach(gainer => {
-    //   gainer.trendData = []
-    //   gainer.trendFallback = null
-    // })
-
     gainers.value = normalizedGainers
     lastUpdate.value = new Date().toLocaleTimeString()
-    console.log(`✅ Loaded ${gainers.value.length} top gainers`)
   }
   catch (e) {
     console.error('❌ Failed to load gainers:', e)
