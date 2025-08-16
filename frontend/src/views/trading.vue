@@ -13,39 +13,47 @@ w-grid.gap-xl
 
     //- Top Movers Strip.
     .glass-box.pa3.mb3
-      .w-flex.align-center.justify-end
-        w-select(
-          :items="moverSizes"
-          :model-value="moversCount"
-          @input="n => { moversCount = n; loadMovers() }"
-          xs
-          outline)
       .w-flex.gap4.mt3.wrap
         //- Gainers
         .w-flex.column.gap1
-          .title3.op7 Top Gainers
+          .title3.size--sm.op4 TOP GAINERS
           .w-flex.gap1.wrap
-            w-tag.clickable.px2.py1(
-              v-for="s in movers.gainers"
-              :key="s.symbol"
-              @click="$router.push(`/trading/${s.symbol}`)"
-              round
-              xs)
-              span.text-bold {{ s.symbol }}
-              span.op6.ml2 {{ (s.pct * 100).toFixed(2) }}%
+            template(v-for="n in topGainersCount" :key="n")
+              w-tag.clickable.px2.py1(
+                v-if="movers.gainers[n - 1]"
+                @click="$router.push(`/trading/${movers.gainers[n - 1].symbol}`)"
+                round
+                xs)
+                span.text-bold {{ movers.gainers[n - 1].symbol }}
+                span.ml2.currency-positive {{ ~~(movers.gainers[n - 1].pct) }}%
+            w-button(
+              v-if="topGainersCount < 15"
+              @click="topGainersCount += 15"
+              color="info"
+              text
+              xs
+              round)
+              span.mb2.mt-1.size--xl ...
         //- Losers
         .w-flex.column.gap1
-          .title3.op7 Top Losers
+          .title3.size--sm.op4 TOP LOSERS
           .w-flex.gap1.wrap
-            w-tag.clickable.px2.py1(
-              v-for="s in movers.losers"
-              :key="s.symbol"
-              @click="$router.push(`/trading/${s.symbol}`)"
-              round
-              xs)
-              span.text-bold {{ s.symbol }}
-              span.op6.ml2 {{ (s.pct * 100).toFixed(2) }}%
-
+            template(v-for="n in topLosersCount" :key="n")
+              w-tag.clickable.px2.py1(
+                v-if="movers.losers[n - 1]"
+                @click="$router.push(`/trading/${movers.losers[n - 1].symbol}`)"
+                round
+                xs)
+                span.text-bold {{ movers.losers[n - 1].symbol }}
+                span.ml2.currency-negative {{ ~~(movers.losers[n - 1].pct) }}%
+            w-button(
+              v-if="topLosersCount < 15"
+              @click="topLosersCount += 15"
+              color="info"
+              text
+              xs
+              round)
+              span.mb2.mt-1.size--xl ...
     w-input.w-input.light.my4.h-auto(
       v-model="searchQuery"
       @input="handleSearchChange"
@@ -154,12 +162,7 @@ let searchTimeout = null
 
 // Movers state.
 const movers = ref({ gainers: [], losers: [] })
-const moversCount = ref(10)
-const moverSizes = [
-  { label: 'Top 5', value: 5 },
-  { label: 'Top 10', value: 10 },
-  { label: 'Top 20', value: 20 }
-]
+const moversCount = ref(20)
 
 // Use composables for WebSocket and market status.
 const { wsConnected, lastUpdate, connect, addMessageHandler } = useWebSocket()
@@ -178,6 +181,9 @@ const tableHeaders = [
   { key: 'price', label: 'Price', align: 'right' },
   { key: 'actions', label: 'Actions', align: 'center' }
 ]
+
+const topGainersCount = ref(5)
+const topLosersCount = ref(5)
 
 function extractPercent(rec) {
   let p = rec.change_percent ?? rec.changePercent ?? rec.percent_change ?? rec.changePct
