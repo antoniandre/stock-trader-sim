@@ -15,7 +15,13 @@ w-grid.gap-xl
     .my4.w-flex.wrap.gap2
       //- Gainers
       .w-flex.column.gap1
-        .title3.size--sm.op4 TOP GAINERS
+        .w-flex.align-center.gap2.mb2
+          .title3.size--sm.op4 TOP GAINERS
+          w-button.ml2(
+            @click="$router.push('/trading/top-gainers')"
+            text
+            xs
+            round) View All
         .w-flex.gap1.wrap
           template(v-for="n in topMovers.gainersDisplayCount" :key="n")
             w-tag.clickable.px2.py1(
@@ -35,7 +41,13 @@ w-grid.gap-xl
             span.mb2.mt-1.size--xl ...
       //- Losers
       .w-flex.column.gap1
-        .title3.size--sm.op4 TOP LOSERS
+        .w-flex.align-center.gap2.mb2
+          .title3.size--sm.op4 TOP LOSERS
+          w-button.ml2(
+            @click="$router.push('/trading/top-losers')"
+            text
+            xs
+            round) View All
         .w-flex.gap1.wrap
           template(v-for="n in topMovers.losersDisplayCount" :key="n")
             w-tag.clickable.px2.py1(

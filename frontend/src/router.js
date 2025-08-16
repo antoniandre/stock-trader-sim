@@ -12,6 +12,16 @@ const routes = [
     component: () => import('@/views/trading.vue'),
   },
   {
+    path: '/trading/top-gainers',
+    name: 'top-gainers',
+    component: () => import('@/views/top-gainers.vue')
+  },
+  {
+    path: '/trading/top-losers',
+    name: 'top-losers',
+    component: () => import('@/views/top-losers.vue')
+  },
+  {
     path: '/trading/:symbol',
     name: 'ticker',
     component: () => import('@/views/ticker.vue'),
