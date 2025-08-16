@@ -25,10 +25,9 @@
       mini-trend-chart(
         v-if="!trendLoading && trendData.length"
         :data="trendData"
-        :height="40"
         :loading="trendLoading")
-      .trend-placeholder(v-else-if="trendLoading" style="width: 120px; height: 40px; background: rgba(255,255,255,0.1); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px;") Loading...
-      .trend-placeholder(v-else style="width: 120px; height: 40px; background: rgba(255,255,255,0.05); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #666;") No data
+      w-spinner.op3(v-else-if="trendLoading" xs color="inherit")
+      .trend-placeholder(v-else) No data
 
     p.text-bold.mt2
       span.op6.mr1 {{ stock.currencySymbol }}
@@ -104,8 +103,17 @@ onMounted(() => {
     min-height: 40px;
     opacity: 0.8;
     transition: opacity 0.2s ease;
-
   }
   &:hover .trend-chart-container {opacity: 1;}
+
+  .trend-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    opacity: 0.4;
+  }
+
+  .w-spinner {height: 12px;}
 }
 </style>

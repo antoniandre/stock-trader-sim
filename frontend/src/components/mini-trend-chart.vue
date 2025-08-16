@@ -1,144 +1,219 @@
 <template lang="pug">
-.mini-trend-chart(:class="trendClass" :style="`width: ${width}px; height: ${height}px`")
-  .loading-state(v-if="loading" :style="`width: ${width}px; height: ${height}px`")
+.mini-trend-chart(
+  :class="trendClass"
+  :style="`height: ${height}px; --path-length: ${actualPathLength}px;`")
+  .loading-state(v-if="loading")
     .loading-shimmer
 
   //- Chart content
-  svg(
-    v-else-if="!loading"
-    :viewBox="`0 0 ${width} ${height}`"
-    preserveAspectRatio="none")
-    //- Background gradient (optional)
-    defs(v-if="showGradient")
-      linearGradient(:id="`gradient-${chartId}`" x1="0%" y1="0%" x2="0%" y2="100%")
-        stop(offset="0%" :stop-color="trendColor" stop-opacity="0.3")
-        stop(offset="100%" :stop-color="trendColor" stop-opacity="0.05")
+  .chart-container(v-else-if="!loading")
+    svg(
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      width="100%"
+      :height="height")
+      //- Background gradient (optional)
+      defs(v-if="showGradient")
+        linearGradient(:id="`gradient-${chartId}`" x1="0%" y1="0%" x2="0%" y2="100%")
+          stop.gradient-start(offset="0%" stop-opacity="0.3")
+          stop.gradient-end(offset="100%" stop-opacity="0.05")
 
-    //- Trend line
-    polyline.trend-line(
-      v-if="pathPoints"
-      :points="pathPoints"
-      :stroke="trendColor"
-      :stroke-width="strokeWidth"
-      fill="none"
-      vector-effect="non-scaling-stroke")
+      //- Trend line.
+      polyline.trend-line(
+        v-if="pathPoints"
+        :points="pathPoints"
+        :stroke-width="strokeWidth"
+        fill="none"
+        vector-effect="non-scaling-stroke"
+        :stroke-dasharray="actualPathLength"
+        :stroke-dashoffset="actualPathLength"
+        :class="{ draw: shouldAnimate }")
 
-    //- Fill area under line (optional)
-    polygon.trend-fill(
-      v-if="showGradient && fillPoints"
-      :points="fillPoints"
-      :fill="`url(#gradient-${chartId})`"
-      stroke="none")
+      //- Fill area under line (optional).
+      polygon.trend-fill(
+        v-if="showGradient && fillPoints"
+        :points="fillPoints"
+        :fill="`url(#gradient-${chartId})`"
+        stroke="none")
 
-    //- Current price indicator dot
-    circle.current-price-dot(
-      v-if="showDot && lastPoint"
-      :cx="lastPoint.x"
-      :cy="lastPoint.y"
-      :r="dotRadius"
-      :fill="trendColor"
-      :stroke="backgroundColor"
-      :stroke-width="1")
+    //- Current price indicator as positioned div (appears after animation).
+    .current-price-dot(
+      :class="{ show: showDot && chartPoints.length && showDotAfterAnimation }"
+      :style="dotStyle")
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 
 const props = defineProps({
-  data: { type: Array, default: () => [] }, // Array of price data points
+  data: { type: Array, default: () => [] },
   width: { type: Number, default: 120 },
   height: { type: Number, default: 40 },
   strokeWidth: { type: Number, default: 1.5 },
   showGradient: { type: Boolean, default: true },
   showDot: { type: Boolean, default: true },
   dotRadius: { type: Number, default: 2 },
-  positiveColor: { type: String, default: '#22C55E' }, // Green for positive trend
-  negativeColor: { type: String, default: '#EF4444' }, // Red for negative trend
-  neutralColor: { type: String, default: '#6B7280' }, // Gray for neutral/no data
-  backgroundColor: { type: String, default: 'transparent' },
   loading: { type: Boolean, default: false }
 })
 
-// Generate unique chart ID for gradients
+// Generate unique chart ID for gradients.
 const chartId = ref(Math.random().toString(36).substr(2, 9))
 
-// Calculate trend direction and color
-const trendDirection = computed(() => {
-  if (!props.data || props.data.length < 2) return 'neutral'
+// Animation state.
+const shouldAnimate = ref(false)
+const showDotAfterAnimation = ref(false)
+const actualPathLength = ref(0)
+
+// Calculate trend direction for CSS classes.
+const trendClass = computed(() => {
+  if (!props.data || props.data.length < 2) return 'trend-neutral'
 
   const firstPrice = props.data[0]?.price || props.data[0]?.close || 0
   const lastPrice = props.data[props.data.length - 1]?.price || props.data[props.data.length - 1]?.close || 0
 
-  if (lastPrice > firstPrice) return 'positive'
-  if (lastPrice < firstPrice) return 'negative'
-  return 'neutral'
+  if (lastPrice > firstPrice) return 'success'
+  if (lastPrice < firstPrice) return 'error'
+  return 'grey'
 })
 
-const trendColor = computed(() => {
-  switch (trendDirection.value) {
-    case 'positive': return props.positiveColor
-    case 'negative': return props.negativeColor
-    default: return props.neutralColor
-  }
-})
-
-const trendClass = computed(() => `trend-${trendDirection.value}`)
-
-// Calculate chart points
+// Calculate chart points using percentage-based coordinates.
 const chartPoints = computed(() => {
-  if (!props.data || props.data.length === 0) return []
+  if (!props.data?.length) return []
 
-  // Extract prices from data
+  // Extract prices from data.
   const prices = props.data.map(item => item.price || item.close || 0).filter(p => p > 0)
-  if (prices.length === 0) return []
+  if (!prices.length) return []
 
   const minPrice = Math.min(...prices)
   const maxPrice = Math.max(...prices)
-  const priceRange = maxPrice - minPrice || 1 // Avoid division by zero
+  const priceRange = maxPrice - minPrice || 1 // Avoid division by zero.
 
-  // Calculate points with padding
-  const padding = 2
-  const chartWidth = props.width - (padding * 2)
-  const chartHeight = props.height - (padding * 2)
+  // Use percentage-based coordinates (0-100% for both x and y).
+  const padding = 5 // 5% padding.
+  const chartWidth = 100 - (padding * 2)  // 90% usable width.
+  const chartHeight = 100 - (padding * 2)  // 90% usable height.
 
-  return prices.map((price, index) => ({
-    x: padding + (index / (prices.length - 1)) * chartWidth,
-    y: padding + chartHeight - ((price - minPrice) / priceRange) * chartHeight
-  }))
+  // Handle single point case.
+  if (prices.length === 1) {
+    return [{
+      x: 50, // Center horizontally.
+      y: 50  // Center vertically.
+    }]
+  }
+
+  return prices.map((price, index) => {
+    const xProgress = index / (prices.length - 1) // This is now safe since prices.length >= 2.
+    const yProgress = (price - minPrice) / priceRange
+
+    return {
+      x: padding + xProgress * chartWidth,
+      y: padding + chartHeight - yProgress * chartHeight
+    }
+  })
 })
 
-// Convert points to SVG polyline format
+// Convert points to SVG polyline format.
 const pathPoints = computed(() => {
   if (chartPoints.value.length === 0) return null
-  return chartPoints.value.map(point => `${point.x},${point.y}`).join(' ')
+
+  // Additional safety check for NaN values.
+  const validPoints = chartPoints.value.filter(point =>
+    !isNaN(point.x) && !isNaN(point.y) &&
+    isFinite(point.x) && isFinite(point.y)
+  )
+
+  if (validPoints.length === 0) return null
+
+  return validPoints.map(point => `${point.x},${point.y}`).join(' ')
 })
 
-// Create fill polygon points (for gradient fill)
+// Create fill polygon points (for gradient fill).
 const fillPoints = computed(() => {
   if (chartPoints.value.length === 0) return null
 
-  const points = [...chartPoints.value]
-  // Add bottom corners to close the polygon
-  const lastPoint = points[points.length - 1]
-  const firstPoint = points[0]
+  // Use the same validated points as pathPoints.
+  const validPoints = chartPoints.value.filter(point =>
+    !isNaN(point.x) && !isNaN(point.y) &&
+    isFinite(point.x) && isFinite(point.y)
+  )
+
+  if (validPoints.length === 0) return null
+
+  // Add bottom corners to close the polygon.
+  const lastPoint = validPoints[validPoints.length - 1]
+  const firstPoint = validPoints[0]
 
   return [
-    ...points.map(p => `${p.x},${p.y}`),
-    `${lastPoint.x},${props.height}`, // Bottom right
-    `${firstPoint.x},${props.height}` // Bottom left
+    ...validPoints.map(p => `${p.x},${p.y}`),
+    `${lastPoint.x},100`, // Bottom right (100% height).
+    `${firstPoint.x},100` // Bottom left (100% height).
   ].join(' ')
 })
 
-// Last point for current price indicator
-const lastPoint = computed(() => {
-  if (chartPoints.value.length === 0) return null
-  return chartPoints.value[chartPoints.value.length - 1]
+// Dot styling and position for the positioned div.
+const dotStyle = computed(() => {
+  if (chartPoints.value.length === 0) return {}
+
+  const lastPoint = chartPoints.value[chartPoints.value.length - 1]
+
+  // Safety check for valid coordinates.
+  if (!lastPoint || isNaN(lastPoint.x) || isNaN(lastPoint.y) ||
+      !isFinite(lastPoint.x) || !isFinite(lastPoint.y)) {
+    return {}
+  }
+
+  return {
+    left: `${lastPoint.x}%`,
+    top: `${lastPoint.y}%`,
+    width: `${props.dotRadius * 2}px`,
+    height: `${props.dotRadius * 2}px`
+  }
 })
+
+// Function to calculate path length for animation.
+function updatePathLength() {
+  if (chartPoints.value.length >= 2) {
+    // Calculate path length based on percentage coordinates.
+    let totalLength = 0
+    for (let i = 1; i < chartPoints.value.length; i++) {
+      const prev = chartPoints.value[i - 1]
+      const curr = chartPoints.value[i]
+      const dx = curr.x - prev.x
+      const dy = curr.y - prev.y
+      totalLength += Math.sqrt(dx * dx + dy * dy)
+    }
+    // Scale the length for better animation timing.
+    actualPathLength.value = totalLength * 2
+  }
+  else actualPathLength.value = 0
+}
+
+// Watch for data changes to trigger animation.
+watch(() => props.data, (newData) => {
+  if (newData?.length) {
+    // Reset animation state.
+    shouldAnimate.value = false
+    showDotAfterAnimation.value = false
+
+    nextTick(() => {
+      updatePathLength()
+      // Start animation after SVG renders.
+      setTimeout(() => {
+        shouldAnimate.value = true
+        // Show dot after 1s animation completes.
+        setTimeout(() => {
+          showDotAfterAnimation.value = true
+        }, 600)
+      }, 50)
+    })
+  }
+}, { immediate: true })
 </script>
 
 <style lang="scss" scoped>
 .mini-trend-chart {
   display: inline-block;
+  width: 100%;
 
   .loading-state {
     display: flex;
@@ -156,24 +231,41 @@ const lastPoint = computed(() => {
     }
   }
 
-  svg {
-    display: block;
-    overflow: visible;
+  .chart-container {
+    position: relative;
     width: 100%;
     height: 100%;
+
+    svg {
+      display: block;
+      overflow: visible;
+    }
+
+    .current-price-dot {
+      position: absolute;
+      border-radius: 50%;
+      transform: translate(-50%, -50%) scale(0); // Center the dot on the point.
+      pointer-events: none;
+      z-index: 10;
+      border: 0.5px solid var(--w-base-bg-color);
+      transition: transform 0.3s ease-in-out;
+      animation: fade-in 0.3s ease-in-out;
+
+      &.show {transform: translate(-50%, -50%) scale(1.5);}
+    }
   }
 
-  .trend-line {transition: stroke 0.2s ease;}
+  .trend-line {
+    transition: stroke 0.2s ease;
+    stroke: currentColor;
+
+    &.draw {animation: draw-line 1s ease-in-out forwards;}
+  }
+
   .trend-fill {transition: fill 0.2s ease;}
-  .current-price-dot {transition: fill 0.2s ease;}
 
-  &.trend-positive {
-    .trend-line {filter: drop-shadow(0 0 2px rgba(34, 197, 94, 0.3));}
-  }
-
-  &.trend-negative {
-    .trend-line {filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.3));}
-  }
+  .current-price-dot {background-color: currentColor;}
+  .gradient-start, .gradient-end {stop-color: currentColor;}
 }
 
 @keyframes shimmer {
@@ -181,12 +273,13 @@ const lastPoint = computed(() => {
   100% {transform: translateX(200%);}
 }
 
-// Theme-specific adjustments.
-:root[data-theme="dark"] {
-  .mini-trend-chart .current-price-dot {stroke: var(--w-base-bg-color);}
+@keyframes draw-line {
+  0% {stroke-dashoffset: var(--path-length);}
+  100% {stroke-dashoffset: 0;}
 }
 
-:root[data-theme="light"] {
-  .mini-trend-chart .current-price-dot {stroke: #ffffff;}
+@keyframes fade-in {
+  0% {opacity: 0; transform: translate(-50%, -50%) scale(0.5);}
+  100% {opacity: 1; transform: translate(-50%, -50%) scale(1);}
 }
 </style>
