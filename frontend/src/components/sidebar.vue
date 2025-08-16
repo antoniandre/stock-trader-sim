@@ -5,7 +5,7 @@
     //- Logo Icon
     icon.w-icon.size--xl.primary(icon="icon-park-outline:increase" style="width: 30px; height: 30px")
     //- icon.w-icon.size--xl.info(icon="streamline-freehand:saving-bull-market" flip="horizontal" style="width: 34px; height: 34px")
-    .title2 Stock Trader
+    .title2.logo-title Stock Trader
   .w-divider
 
   //- Navigation
@@ -37,5 +37,17 @@
 .sidebar {
   background-color: var(--w-base-bg-color);
   border-right: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
+
+  .logo-title {
+    background-clip: text;
+    color: transparent;
+    // background-image: linear-gradient(to right, var(--w-primary-color), #ffb1ea);
+    background-image: linear-gradient(to right, var(--w-primary-color), #90ffb0);
+  }
 }
+
+:root[data-theme="light"] .logo-title {
+  background-image: linear-gradient(to right, var(--w-primary-color), #24c7a3);
+}
+
 </style>
