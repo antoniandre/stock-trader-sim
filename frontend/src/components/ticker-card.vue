@@ -59,6 +59,11 @@ async function loadTrendData() {
     trendLoading.value = true
     const response = await fetchStockTrend(props.stock.symbol, 20)
     trendData.value = response.data || []
+
+    // Debug logging for stocks with no data
+    if (!trendData.value.length) {
+      console.debug(`No trend data available for ${props.stock.symbol}`)
+    }
   }
   catch (error) {
     console.warn(`Failed to load trend data for ${props.stock.symbol}:`, error)
@@ -110,7 +115,8 @@ onMounted(() => {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 10px;
+    letter-spacing: 0.5px;
+    font-size: 11px;
     opacity: 0.4;
   }
 

@@ -416,8 +416,11 @@ export function createRestApiRoutes() {
       const fallbackOptions = [
         { period: '1D', timeframe: '5Min' },
         { period: '1D', timeframe: '15Min' },
+        { period: '1D', timeframe: '1Hour' },
         { period: '1W', timeframe: '1Hour' },
-        { period: '1W', timeframe: '1Day' }
+        { period: '1W', timeframe: '1Day' },
+        { period: '1M', timeframe: '1Day' },
+        { period: '3M', timeframe: '1Day' }
       ]
 
       let historicalData = null

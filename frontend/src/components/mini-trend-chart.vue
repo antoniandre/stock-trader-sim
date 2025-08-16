@@ -2,11 +2,7 @@
 .mini-trend-chart(
   :class="trendClass"
   :style="`height: ${height}px; --path-length: ${actualPathLength}px;`")
-  .loading-state(v-if="loading")
-    .loading-shimmer
-
-  //- Chart content
-  .chart-container(v-else-if="!loading")
+  template(v-if="!loading")
     svg(
       viewBox="0 0 100 100"
       preserveAspectRatio="none"
@@ -37,9 +33,7 @@
         stroke="none")
 
     //- Current price indicator as positioned div (appears after animation).
-    .current-price-dot(
-      :class="{ show: showDot && chartPoints.length && showDotAfterAnimation }"
-      :style="dotStyle")
+    .current-price-dot(v-if="showDot && chartPoints.length" :style="dotStyle")
 </template>
 
 <script setup>
@@ -61,19 +55,21 @@ const chartId = ref(Math.random().toString(36).substr(2, 9))
 
 // Animation state.
 const shouldAnimate = ref(false)
-const showDotAfterAnimation = ref(false)
+const animationComplete = ref(false)
 const actualPathLength = ref(0)
 
 // Calculate trend direction for CSS classes.
 const trendClass = computed(() => {
-  if (!props.data || props.data.length < 2) return 'trend-neutral'
+  let color = 'grey'
+  if (!props.data || props.data.length < 2) return color
 
   const firstPrice = props.data[0]?.price || props.data[0]?.close || 0
   const lastPrice = props.data[props.data.length - 1]?.price || props.data[props.data.length - 1]?.close || 0
 
-  if (lastPrice > firstPrice) return 'success'
-  if (lastPrice < firstPrice) return 'error'
-  return 'grey'
+  if (lastPrice > firstPrice) color = 'success'
+  if (lastPrice < firstPrice) color = 'error'
+
+  return { [color]: true, 'animation-complete': animationComplete.value }
 })
 
 // Calculate chart points using percentage-based coordinates.
@@ -193,18 +189,16 @@ watch(() => props.data, (newData) => {
   if (newData?.length) {
     // Reset animation state.
     shouldAnimate.value = false
-    showDotAfterAnimation.value = false
+    animationComplete.value = false
 
     nextTick(() => {
       updatePathLength()
       // Start animation after SVG renders.
-      setTimeout(() => {
         shouldAnimate.value = true
         // Show dot after 1s animation completes.
         setTimeout(() => {
-          showDotAfterAnimation.value = true
-        }, 600)
-      }, 50)
+          animationComplete.value = true
+        }, 500)
     })
   }
 }, { immediate: true })
@@ -214,45 +208,22 @@ watch(() => props.data, (newData) => {
 .mini-trend-chart {
   display: inline-block;
   width: 100%;
+  position: relative;
 
-  .loading-state {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 4px;
-
-    .loading-shimmer {
-      width: 80%;
-      height: 2px;
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-      border-radius: 1px;
-      animation: shimmer 1.5s infinite;
-    }
+  svg {
+    display: block;
+    overflow: visible;
   }
 
-  .chart-container {
-    position: relative;
-    width: 100%;
-    height: 100%;
-
-    svg {
-      display: block;
-      overflow: visible;
-    }
-
-    .current-price-dot {
-      position: absolute;
-      border-radius: 50%;
-      transform: translate(-50%, -50%) scale(0); // Center the dot on the point.
-      pointer-events: none;
-      z-index: 10;
-      border: 0.5px solid var(--w-base-bg-color);
-      transition: transform 0.3s ease-in-out;
-      animation: fade-in 0.3s ease-in-out;
-
-      &.show {transform: translate(-50%, -50%) scale(1.5);}
-    }
+  .current-price-dot {
+    position: absolute;
+    border-radius: 50%;
+    transform: translate(-50%, -50%) scale(0); // Center the dot on the point.
+    pointer-events: none;
+    z-index: 10;
+    border: 0.5px solid var(--w-base-bg-color);
+    transition: transform 0.3s ease-in-out;
+    background-color: currentColor;
   }
 
   .trend-line {
@@ -262,24 +233,20 @@ watch(() => props.data, (newData) => {
     &.draw {animation: draw-line 1s ease-in-out forwards;}
   }
 
-  .trend-fill {transition: fill 0.2s ease;}
-
-  .current-price-dot {background-color: currentColor;}
+  .trend-fill {
+    opacity: 0;
+    transition: fill 0.2s ease, opacity 0.2s;
+  }
   .gradient-start, .gradient-end {stop-color: currentColor;}
-}
 
-@keyframes shimmer {
-  0% {transform: translateX(-100%);}
-  100% {transform: translateX(200%);}
+  &.animation-complete {
+    .current-price-dot {transform: translate(-50%, -50%) scale(1.5);}
+    .trend-fill {opacity: 1;}
+  }
 }
 
 @keyframes draw-line {
   0% {stroke-dashoffset: var(--path-length);}
   100% {stroke-dashoffset: 0;}
-}
-
-@keyframes fade-in {
-  0% {opacity: 0; transform: translate(-50%, -50%) scale(0.5);}
-  100% {opacity: 1; transform: translate(-50%, -50%) scale(1);}
 }
 </style>
