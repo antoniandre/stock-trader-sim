@@ -189,3 +189,16 @@ export async function fetchTopMovers(top = 10, market = 'stocks') {
   const payload = await res.json()
   return payload
 }
+
+export async function fetchStockTrend(symbol, points = 20) {
+  try {
+    const response = await fetch(`${API_BASE}/stocks/${symbol}/trend?points=${points}`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('API Error:', error)
+    throw error
+  }
+}

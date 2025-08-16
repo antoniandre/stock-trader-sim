@@ -406,6 +406,57 @@ export function createRestApiRoutes() {
     }
   })
 
+  // Mini trend data endpoint for ticker cards.
+  app.get('/api/stocks/:symbol/trend', async (req, res) => {
+    try {
+      const { symbol } = req.params
+      const { points = 20 } = req.query
+
+      // Try multiple timeframes as fallbacks for better data availability.
+      const fallbackOptions = [
+        { period: '1D', timeframe: '5Min' },
+        { period: '1D', timeframe: '15Min' },
+        { period: '1W', timeframe: '1Hour' },
+        { period: '1W', timeframe: '1Day' }
+      ]
+
+      let historicalData = null
+
+      for (const option of fallbackOptions) {
+        try {
+          historicalData = await getStockHistoricalData(symbol, option.period, option.timeframe)
+
+          // If we got data and no error/warning, use it.
+          if (historicalData?.data && historicalData.data.length > 0 && !historicalData.warning) {
+            break
+          }
+        }
+        catch (error) {
+          console.warn(`Failed to fetch ${symbol} with ${option.period}/${option.timeframe}:`, error.message)
+          continue
+        }
+      }
+
+      if (!historicalData?.data || historicalData.data.length === 0) {
+        return res.json({ symbol, data: [] })
+      }
+
+      // Take the most recent data points for the trend chart.
+      const trendData = historicalData.data
+        .slice(-parseInt(points))
+        .map(item => ({
+          timestamp: item.timestamp,
+          price: item.close || item.price || 0
+        }))
+
+      res.json(createStandardResponse({ symbol, data: trendData }))
+    }
+    catch (error) {
+      console.error(`Error fetching trend data for ${req.params.symbol}:`, error)
+      res.status(500).json({ error: `Failed to fetch trend data for ${req.params.symbol}` })
+    }
+  })
+
   // Market status endpoint.
   app.get('/api/market-status', async (req, res) => {
     try {

@@ -17,8 +17,18 @@
       w-button.text-bold.mla.bd1.bdrsr.px2.py1.size--xs(
         @click.stop
         :route="`/trading/${stock.symbol}#buy`"
-        :class="stock.lastSide === 'buy' ? 'success--bg' : 'error--bg'")
-        | {{ stock.lastSide.toUpperCase() }}
+        :class="(stock.lastSide || 'buy') === 'buy' ? 'success--bg' : 'error--bg'")
+        | {{ (stock.lastSide || 'buy').toUpperCase() }}
+
+    //- Mini trend chart
+    .trend-chart-container.mt2.mb2
+      mini-trend-chart(
+        v-if="!trendLoading && trendData.length"
+        :data="trendData"
+        :height="40"
+        :loading="trendLoading")
+      .trend-placeholder(v-else-if="trendLoading" style="width: 120px; height: 40px; background: rgba(255,255,255,0.1); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px;") Loading...
+      .trend-placeholder(v-else style="width: 120px; height: 40px; background: rgba(255,255,255,0.05); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #666;") No data
 
     p.text-bold.mt2
       span.op6.mr1 {{ stock.currencySymbol }}
@@ -26,9 +36,11 @@
 </template>
 
 <script setup>
-import { toRef } from 'vue'
+import { toRef, ref, onMounted } from 'vue'
 import { useStockStatus } from '@/composables/stock-status'
+import { fetchStockTrend } from '@/api'
 import TickerLogo from './ticker-logo.vue'
+import MiniTrendChart from './mini-trend-chart.vue'
 
 const props = defineProps({
   stock: { type: Object, required: true }
@@ -37,6 +49,30 @@ const props = defineProps({
 // Use the reusable stock status composable.
 const stockRef = toRef(props, 'stock')
 const { currentStatus } = useStockStatus(stockRef)
+
+// Trend chart data.
+const trendData = ref([])
+const trendLoading = ref(true)
+
+// Fetch trend data for the mini chart.
+async function loadTrendData() {
+  try {
+    trendLoading.value = true
+    const response = await fetchStockTrend(props.stock.symbol, 20)
+    trendData.value = response.data || []
+  }
+  catch (error) {
+    console.warn(`Failed to load trend data for ${props.stock.symbol}:`, error)
+    trendData.value = []
+  }
+  finally {
+    trendLoading.value = false
+  }
+}
+
+onMounted(() => {
+  loadTrendData()
+})
 </script>
 
 <style lang="scss">
@@ -60,5 +96,16 @@ const { currentStatus } = useStockStatus(stockRef)
     aspect-ratio: 1;
     border-radius: 99em;
   }
+
+  .trend-chart-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 40px;
+    opacity: 0.8;
+    transition: opacity 0.2s ease;
+
+  }
+  &:hover .trend-chart-container {opacity: 1;}
 }
 </style>
