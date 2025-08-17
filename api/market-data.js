@@ -57,6 +57,59 @@ async function isMarketTradingDay(date) {
   return marketCalendar.some(entry => entry.date === dateStr)
 }
 
+// Volume Analysis Functions
+// --------------------------------------------------------
+
+/**
+ * Analyzes volume data to determine if current volume is unusually high
+ * @param {Array} historicalData - Array of OHLCV data points
+ * @param {number} lookbackDays - Number of days to calculate average volume (default: 20)
+ * @returns {Object} Volume analysis results
+ */
+export function analyzeVolume(historicalData, lookbackDays = 20) {
+  if (!historicalData || historicalData.length === 0) {
+    return {
+      currentVolume: 0,
+      averageVolume: 0,
+      volumeRatio: 0,
+      isUnusualVolume: false,
+      volumeStatus: 'no-data'
+    }
+  }
+
+  // Sort data by timestamp to ensure proper order
+  const sortedData = [...historicalData].sort((a, b) => a.timestamp - b.timestamp)
+
+  // Get the most recent volume (current/latest)
+  const currentVolume = sortedData[sortedData.length - 1]?.volume || 0
+
+  // Calculate average volume over the lookback period
+  const lookbackData = sortedData.slice(-Math.min(lookbackDays, sortedData.length))
+  const totalVolume = lookbackData.reduce((sum, bar) => sum + (bar.volume || 0), 0)
+  const averageVolume = lookbackData.length > 0 ? totalVolume / lookbackData.length : 0
+
+  // Calculate volume ratio (current vs average)
+  const volumeRatio = averageVolume > 0 ? currentVolume / averageVolume : 0
+
+  // Determine if volume is unusually high (threshold: 1.5x average)
+  const isUnusualVolume = volumeRatio >= 1.5
+
+  // Categorize volume status
+  let volumeStatus = 'normal'
+  if (volumeRatio >= 3.0) volumeStatus = 'extremely-high'
+  else if (volumeRatio >= 2.0) volumeStatus = 'very-high'
+  else if (volumeRatio >= 1.5) volumeStatus = 'high'
+  else if (volumeRatio <= 0.5) volumeStatus = 'low'
+
+  return {
+    currentVolume: Math.round(currentVolume),
+    averageVolume: Math.round(averageVolume),
+    volumeRatio: Number(volumeRatio.toFixed(2)),
+    isUnusualVolume,
+    volumeStatus
+  }
+}
+
 // Market Status Functions
 // --------------------------------------------------------
 // IMPROVED MARKET STATUS LOGIC:
@@ -553,7 +606,8 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
 
     // Fetch data with pagination support for maximum historical coverage.
     // This ensures we get as much data as possible within Alpaca's limits.
-    const allBars = await fetchHistoricalDataWithPagination(symbol, alpacaTimeframe, startDate, endDate, limit)
+    // Use IEX feed only as per project requirements.
+    const allBars = await fetchHistoricalDataIEX(symbol, alpacaTimeframe, startDate, endDate, limit)
 
     if (!allBars || allBars.length === 0) {
       console.error(`❌ ALPACA DATA ISSUE: No historical data returned for ${symbol}`)
@@ -684,6 +738,24 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
 // Phase 1: Fetch recent data first for immediate chart display (better UX)
 // Phase 2: Load full historical data in background for seamless panning/zooming
 // This approach gives users instant charts while building a rich dataset behind the scenes.
+
+/**
+ * Fetch historical data using IEX feed only
+ * We only use IEX feed as per project requirements
+ */
+async function fetchHistoricalDataIEX(symbol, timeframe, startDate, endDate, maxLimit = 10000) {
+  console.log(`📊 Fetching ${symbol} data using IEX feed...`)
+  const bars = await fetchHistoricalDataWithPagination(symbol, timeframe, startDate, endDate, maxLimit, 'iex')
+
+  if (bars && bars.length > 0) {
+    console.log(`✅ Found ${bars.length} bars for ${symbol} in IEX feed`)
+    return bars
+  }
+
+  console.log(`❌ No data found for ${symbol} in IEX feed`)
+  return []
+}
+
 export async function getStockHistoricalDataProgressive(symbol, period = '1D', timeframe = null) {
   if (IS_SIMULATION) {
     console.log(`🧪 [SIM] Generating mock data for ${symbol} (${period}, ${timeframe || 'auto'})`)
@@ -708,7 +780,7 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
     const recentLimit = Math.min(2000, Math.floor(limit * 0.6)) // 60% of total limit for recent data.
     console.log(`📊 Fetching recent data (${recentLimit} points max)...`)
 
-    const recentBars = await fetchHistoricalDataWithPagination(
+    const recentBars = await fetchHistoricalDataIEX(
       symbol,
       alpacaTimeframe,
       recentStartDate,
@@ -751,7 +823,7 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
       console.log(`📊 Starting background load of historical data...`)
 
       // Don't await this - let it load in background for seamless UX.
-      fetchHistoricalDataWithPagination(
+      fetchHistoricalDataIEX(
         symbol,
         alpacaTimeframe,
         fullStartDate,
@@ -803,7 +875,7 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
 // This function automatically handles pagination using next_page_token to fetch
 // comprehensive datasets that exceed the single-request limit.
 // Result: Users get seamless charts with extensive historical data for analysis.
-async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, endDate, maxLimit = 10000) {
+async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, endDate, maxLimit = 10000, feed = 'iex') {
   const allBars = []
   let pageToken = null
   let requestCount = 0
@@ -816,7 +888,7 @@ async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, e
         limit: Math.min(10000, maxLimit).toString(), // Use Alpaca's maximum limit of 10,000 per request.
         start: startDate.toISOString(),
         end: endDate.toISOString(),
-        feed: 'iex'
+        feed: feed
       })
 
       if (pageToken) {
@@ -824,7 +896,7 @@ async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, e
       }
 
       const url = `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars?${params}`
-      console.log(`📊 Fetching page ${requestCount + 1} for ${symbol}${pageToken ? ' (paginated)' : ''}`)
+      console.log(`📊 Fetching page ${requestCount + 1} for ${symbol}${pageToken ? ' (paginated)' : ''} [${feed.toUpperCase()}]`)
 
       const { data } = await axios.get(url, { headers: HEADERS })
 
@@ -853,7 +925,7 @@ async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, e
 
     }
     catch (error) {
-      console.error(`❌ Error fetching paginated data for ${symbol}:`, error.message)
+      console.error(`❌ Error fetching paginated data for ${symbol} [${feed.toUpperCase()}]:`, error.message)
       break
     }
   }

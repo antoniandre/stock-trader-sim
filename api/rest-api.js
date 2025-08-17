@@ -1,7 +1,7 @@
 import express from 'express'
 import { state } from './config.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
-import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive, getTopMovers, fetchStockTrend } from './market-data.js'
+import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive, getTopMovers, fetchStockTrend, analyzeVolume } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, placeOrder } from './alpaca-account.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse } from './utils.js'
@@ -245,7 +245,8 @@ export function createRestApiRoutes() {
         delete state.stockPrices[symbol]
         price = await getPrice(symbol)
         console.log(`🔄 Fresh price fetch for ${symbol}: $${price.toFixed(2)}`)
-      } else {
+      }
+      else {
         price = await getPrice(symbol)
       }
 
@@ -442,18 +443,45 @@ export function createRestApiRoutes() {
                   price: item.close || item.price || 0
                 }))
 
+              // Analyze volume for unusual activity
+              const volumeAnalysis = analyzeVolume(historicalData.data)
+
               return {
                 symbol,
                 data: trendData,
+                volumeAnalysis,
                 fallback: { period: '1W', timeframe: '1Day' }
               }
-            } else {
-              return { symbol, data: [], fallback: null }
+            }
+            else {
+              return {
+                symbol,
+                data: [],
+                volumeAnalysis: {
+                  currentVolume: 0,
+                  averageVolume: 0,
+                  volumeRatio: 0,
+                  isUnusualVolume: false,
+                  volumeStatus: 'no-data'
+                },
+                fallback: null
+              }
             }
           }
           catch (error) {
             console.warn(`Failed to fetch trend for ${symbol}:`, error.message)
-            return { symbol, data: [], fallback: null }
+            return {
+              symbol,
+              data: [],
+              volumeAnalysis: {
+                currentVolume: 0,
+                averageVolume: 0,
+                volumeRatio: 0,
+                isUnusualVolume: false,
+                volumeStatus: 'no-data'
+              },
+              fallback: null
+            }
           }
         })
 
@@ -461,6 +489,7 @@ export function createRestApiRoutes() {
       allResults.forEach(result => {
         results[result.symbol] = {
           data: result.data,
+          volumeAnalysis: result.volumeAnalysis,
           fallback: result.fallback
         }
       })
