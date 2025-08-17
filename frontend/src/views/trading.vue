@@ -154,12 +154,13 @@ w-grid.gap-xl
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, inject } from 'vue'
 import { fetchAllStocks, fetchTopMovers, fetchBatchTrends } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
 
+const $waveui = inject('$waveui')
 const stocks = ref([])
 const searchQuery = ref('')
 const loading = ref(true)
@@ -371,11 +372,11 @@ async function placeOrder(symbol, qty, side) {
   try {
     console.log(`📈 Placing ${side} order for ${qty} ${symbol}`)
     // For now, just log the order. In a real app, you'd call the trading API
-    alert(`${side.toUpperCase()} ${qty} ${symbol} - Order placed!`)
+    $waveui.notify(`${side.toUpperCase()} ${qty} ${symbol} - Order placed!`, 'success')
   }
   catch (err) {
     console.error('Error placing order:', err)
-    alert('Failed to place order')
+    $waveui.notify('Failed to place order', 'error')
   }
 }
 

@@ -262,7 +262,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
 import { fetchStock, fetchStockHistoryProgressive } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { useStockStatus } from '@/composables/stock-status'
@@ -273,6 +273,8 @@ import StockStatsPanel from '@/components/stock-stats-panel.vue'
 const props = defineProps({
   symbol: { type: String, required: true }
 })
+
+const $waveui = inject('$waveui')
 
 // Stock Data
 // --------------------------------------------------------
@@ -1330,9 +1332,9 @@ async function fetchHistoricalData() {
 
       // Show alert to user about data issues
       if (response.dataAge) {
-        alert(`⚠️ DATA WARNING: ${props.symbol} historical data is ${response.dataAge} hours old.\n\n${message}\n\nNote: Alpaca operates in US Eastern Time. The chart shows old trading session data, not current market data.`)
+        $waveui.notify(`DATA WARNING: ${props.symbol} historical data is ${response.dataAge} hours old.\n\n${message}\n\nNote: Alpaca operates in US Eastern Time. The chart shows old trading session data, not current market data.`, 'warning', 0)
       }
-      else alert(`❌ DATA ERROR: ${message}`)
+      else $waveui.notify(`DATA ERROR: ${message}`, 'error', 0)
     }
 
     if (response?.data) {
@@ -1365,15 +1367,13 @@ async function fetchHistoricalData() {
       await fetchStatsHistoricalData()
     }
     else {
-      console.error(`❌ No historical data available for ${props.symbol}`)
-      alert(`❌ NO DATA: No historical data available for ${props.symbol} from Alpaca API.`)
+      $waveui.notify(`NO DATA: No historical data available for ${props.symbol} from Alpaca API.`, 'error', 0)
       historicalData.value = []
       statsHistoricalData.value = []
     }
   }
   catch (error) {
-    console.error(`❌ Error fetching historical data for ${props.symbol}:`, error)
-    alert(`❌ API ERROR: Failed to fetch historical data for ${props.symbol}.\n\n${error.message}`)
+    $waveui.notify(`API ERROR: Failed to fetch historical data for ${props.symbol}.\n\n${error.message}`, 'error', 0)
     historicalData.value = []
     statsHistoricalData.value = []
   }
@@ -1577,14 +1577,14 @@ async function placeOrder(side) {
     if (orderForm.value.type === 'limit') confirmationText += ` @ $${orderForm.value.limitPrice}`
     if (orderForm.value.stopLoss) confirmationText += ` (Stop Loss: $${orderForm.value.stopLoss})`
 
-    alert(`Order placed: ${confirmationText}`)
+    $waveui.notify(`Order placed: ${confirmationText}`, 'success')
     orderForm.value.quantity = 1
     orderForm.value.limitPrice = 0
     orderForm.value.stopLoss = null
   }
   catch (error) {
     console.error('❌ Error placing order:', error)
-    alert('Failed to place order')
+    $waveui.notify('Failed to place order', 'error')
   }
 }
 
