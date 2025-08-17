@@ -4,7 +4,7 @@ import { getPrice } from './market-data.js'
 import { createStandardResponse } from './utils.js'
 import { getMockAccountData, getMockAccountActivities, getMockPositions, generateMockPortfolioHistory, mockPlaceOrder, recordTrade } from './simulation.js'
 
-// Alpaca Account Functions
+// Alpaca Account Functions.
 // --------------------------------------------------------
 export async function getAlpacaAccount() {
   if (IS_SIMULATION) return getMockAccountData()
@@ -81,7 +81,7 @@ export async function getAlpacaTradingHistory(limit = 100) {
   }
 }
 
-// Portfolio History Functions
+// Portfolio History Functions.
 // --------------------------------------------------------
 export async function getAlpacaPortfolioHistory(period = '1D', timeframe = '1Min') {
   if (IS_SIMULATION) {
@@ -133,7 +133,7 @@ function adjustTimeframeForPeriod(period, timeframe) {
 
 // Mock portfolio generation functions are now in simulation.js
 
-// Trading Functions
+// Trading Functions.
 // --------------------------------------------------------
 export async function placeOrder(symbol, qty, side) {
   if (IS_SIMULATION) {

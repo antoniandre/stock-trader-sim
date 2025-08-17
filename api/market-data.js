@@ -3,7 +3,7 @@ import { ALPACA_BASE_URL, ALPACA_API_BASE_URL, HEADERS, IS_SIMULATION, state } f
 import { getEasternTime, getCurrencyInfo } from './utils.js'
 import { getMockPrice, initializeMockPrices, getMockTradableStocks, generateMockHistoricalData, generateMockHistoricalDataByRange } from './simulation.js'
 
-// Market Calendar Functions
+// Market Calendar Functions.
 // --------------------------------------------------------
 let marketCalendar = null
 let marketClockData = null
@@ -57,7 +57,7 @@ async function isMarketTradingDay(date) {
   return marketCalendar.some(entry => entry.date === dateStr)
 }
 
-// Volume Analysis Functions
+// Volume Analysis Functions.
 // --------------------------------------------------------
 
 /**
@@ -77,24 +77,24 @@ export function analyzeVolume(historicalData, lookbackDays = 20) {
     }
   }
 
-  // Sort data by timestamp to ensure proper order
+  // Sort data by timestamp to ensure proper order.
   const sortedData = [...historicalData].sort((a, b) => a.timestamp - b.timestamp)
 
-  // Get the most recent volume (current/latest)
+  // Get the most recent volume (current/latest).
   const currentVolume = sortedData[sortedData.length - 1]?.volume || 0
 
-  // Calculate average volume over the lookback period
+  // Calculate average volume over the lookback period.
   const lookbackData = sortedData.slice(-Math.min(lookbackDays, sortedData.length))
   const totalVolume = lookbackData.reduce((sum, bar) => sum + (bar.volume || 0), 0)
   const averageVolume = lookbackData.length > 0 ? totalVolume / lookbackData.length : 0
 
-  // Calculate volume ratio (current vs average)
+  // Calculate volume ratio (current vs average).
   const volumeRatio = averageVolume > 0 ? currentVolume / averageVolume : 0
 
-  // Determine if volume is unusually high (threshold: 1.5x average)
+  // Determine if volume is unusually high (threshold: 1.5x average).
   const isUnusualVolume = volumeRatio >= 1.5
 
-  // Categorize volume status
+  // Categorize volume status.
   let volumeStatus = 'normal'
   if (volumeRatio >= 3.0) volumeStatus = 'extremely-high'
   else if (volumeRatio >= 2.0) volumeStatus = 'very-high'
@@ -110,7 +110,7 @@ export function analyzeVolume(historicalData, lookbackDays = 20) {
   }
 }
 
-// Market Status Functions
+// Market Status Functions.
 // --------------------------------------------------------
 // IMPROVED MARKET STATUS LOGIC:
 //
@@ -418,7 +418,7 @@ export async function fetchStockTrend(symbol, points = 20) {
   return { symbol, data: [], fallback: null, cached: false }
 }
 
-// Price Data Functions
+// Price Data Functions.
 // --------------------------------------------------------
 export async function getPrice(symbol) {
   if (IS_SIMULATION) return getMockPrice(symbol)
@@ -511,7 +511,7 @@ export async function initializeStockPrices() {
   console.log(`✅ Initialized ${pricesFetched} stock prices from Alpaca`)
 }
 
-// Stock Data Functions
+// Stock Data Functions.
 // --------------------------------------------------------
 export async function getAllTradableStocks() {
   if (state.allStocks.length > 0) return state.allStocks
@@ -554,7 +554,7 @@ export async function getAllTradableStocks() {
   }
 }
 
-// Historical Data Functions
+// Historical Data Functions.
 // --------------------------------------------------------
 // STRATEGY: We fetch substantial amounts of historical data to enable seamless chart interaction.
 // This allows users to pan back in time and zoom out without additional API calls or loading delays.
@@ -992,7 +992,7 @@ export async function getStockHistoricalDataByRange(symbol, timeframe, startDate
   }
 }
 
-// Helper Functions
+// Helper Functions.
 // --------------------------------------------------------
 // Helper function to filter historical data to continuous trading sessions (removes gaps)
 function filterToContinuousTrading(historicalData, symbol) {
@@ -1288,7 +1288,7 @@ export async function getMarketClock(forceFresh = false) {
   return freshData // fetchMarketClock already caches the data in marketClockData
 }
 
-// Price Polling Functions
+// Price Polling Functions.
 // --------------------------------------------------------
 let lastPollTime = 0
 

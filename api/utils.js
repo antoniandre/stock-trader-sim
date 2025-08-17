@@ -1,19 +1,19 @@
-// Utilities
+// Utilities.
 // --------------------------------------------------------
 export function getEasternTime() {
-  // Return current time - Alpaca API handles timezone conversion internally
-  // We should send UTC timestamps and let Alpaca convert to Eastern Time for trading day calculations
+  // Return current time - Alpaca API handles timezone conversion internally.
+  // We should send UTC timestamps and let Alpaca convert to Eastern Time for trading day calculations.
   return new Date()
 }
 
 export function getCurrentEasternTime() {
-  // Get current time in Eastern Time zone for display/logging purposes
+  // Get current time in Eastern Time zone for display/logging purposes.
   const now = new Date()
   return new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
 }
 
 export function formatDateForEasternTime(date) {
-  // Format a date for Eastern Time display
+  // Format a date for Eastern Time display.
   return date.toLocaleString('en-US', {
     timeZone: 'America/New_York',
     year: 'numeric',
@@ -48,7 +48,7 @@ export function handleTryCatch(fn, fallback = null) {
   }
 }
 
-// Currency utility functions
+// Currency utility functions.
 // --------------------------------------------------------
 export function getCurrencyInfo(asset) {
   // For crypto pairs, extract currency from symbol (e.g., BTC/USD -> USD).

@@ -6,7 +6,7 @@ import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory
 import { recordTrade } from './simulation.js'
 import { createStandardResponse } from './utils.js'
 
-// Express API Routes
+// Express API Routes.
 // --------------------------------------------------------
 export function createRestApiRoutes() {
   const app = express()
@@ -486,13 +486,13 @@ export function createRestApiRoutes() {
         })
 
       const allResults = await Promise.all(promises)
-      allResults.forEach(result => {
+      for (const result of allResults) {
         results[result.symbol] = {
           data: result.data,
           volumeAnalysis: result.volumeAnalysis,
           fallback: result.fallback
         }
-      })
+      }
 
       res.json(createStandardResponse(results))
     }

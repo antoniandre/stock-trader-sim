@@ -4,7 +4,7 @@ import { getMarketStatus, getStockMarketStatus, startPricePolling, stopPricePoll
 import { placeOrder } from './alpaca-account.js'
 import { runSimulation, mockPrices } from './simulation.js'
 
-// WebSocket State
+// WebSocket State.
 // --------------------------------------------------------
 const subscribedStocks = new Set()
 let isAuthenticated = false
@@ -15,7 +15,7 @@ const RECONNECT_DELAY = 30000
 // Price tracking for stale detection.
 const priceHistory = new Map() // symbol -> { recentTrades: [], lastQuoteTime: timestamp }
 
-// Market Status Tracking
+// Market Status Tracking.
 // --------------------------------------------------------
 let currentMarketStatus = null
 let marketStatusInterval = null
@@ -103,7 +103,7 @@ function cleanupAlpacaConnection() {
   }
 }
 
-// Market Status Functions
+// Market Status Functions.
 // --------------------------------------------------------
 async function checkAndBroadcastMarketStatus() {
   try {
@@ -147,7 +147,7 @@ function stopMarketStatusUpdates() {
   }
 }
 
-// Stock Subscription Functions
+// Stock Subscription Functions.
 // --------------------------------------------------------
 export function subscribeToStock(symbol) {
   if (!subscribedStocks.has(symbol)) {
@@ -197,7 +197,7 @@ export function unsubscribeFromStock(symbol) {
   }
 }
 
-// WebSocket Server
+// WebSocket Server.
 // --------------------------------------------------------
 export function createWebSocketServer(server) {
   const wss = new WebSocketServer({ server })
@@ -284,7 +284,7 @@ export function createWebSocketServer(server) {
   return wss
 }
 
-// Alpaca WebSocket Functions
+// Alpaca WebSocket Functions.
 // --------------------------------------------------------
 export function connectAlpacaWebSocket() {
   if (IS_SIMULATION) return
@@ -458,7 +458,7 @@ export function disconnectAlpacaWebSocket() {
   cleanupAlpacaConnection()
 }
 
-// Simulation Functions
+// Simulation Functions.
 // --------------------------------------------------------
 export async function runSimulationWrapper() {
   const { priceUpdates, trades } = await runSimulation()
@@ -466,7 +466,7 @@ export async function runSimulationWrapper() {
   for (const trade of trades) broadcast(trade)
 }
 
-// Export Functions
+// Export Functions.
 // --------------------------------------------------------
 export function getCurrentMarketStatus() {
   return currentMarketStatus

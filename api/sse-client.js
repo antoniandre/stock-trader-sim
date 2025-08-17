@@ -1,7 +1,7 @@
 import { ALPACA_BASE_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state } from './config.js'
 import { getAlpacaAccountActivities } from './alpaca-account.js'
 
-// Server-Sent Events for Account Updates
+// Server-Sent Events for Account Updates.
 // --------------------------------------------------------
 export async function connectAlpacaSSE(broadcastFn) {
   if (IS_SIMULATION) {
