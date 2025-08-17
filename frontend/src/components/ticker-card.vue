@@ -1,6 +1,6 @@
 <template lang="pug">
-.ticker-card.gradient-card(@click="$router.push(`/trading/${stock.symbol}`)")
-  .gradient-card__wrap
+.ticker-card.gradient-card.gradient-card--tall(@click="$router.push(`/trading/${stock.symbol}`)")
+  .gradient-card__wrap.pb3
     .w-flex.justify-between.align-center.gap1
       .w-flex.align-center
         w-badge.mr3(
@@ -21,7 +21,7 @@
         | {{ (stock.lastSide || 'buy').toUpperCase() }}
 
     //- Mini trend chart
-    .trend-chart-container.mt2.mb2
+    .trend-chart-container.mt2
       mini-trend-chart(
         v-if="!trendLoading && trendData.length"
         :data="trendData"
@@ -29,12 +29,15 @@
         :loading="trendLoading"
         @update:data="trendData = $event"
         ref="trendChart")
-      w-spinner.op3(v-else-if="trendLoading" xs color="inherit")
+      w-spinner.op2(v-else-if="trendLoading" xs color="inherit")
       .trend-placeholder(v-else) No data
 
-    p.text-bold.mt2
-      span.op6.mr1 {{ stock.currencySymbol }}
+    .w-flex.align-center.text-bold.mt2.gap1
+      span.op6 {{ stock.currencySymbol }}
       | {{ stock.price.toFixed(2) }}
+
+      //- Percentage change (for top movers)
+      span.text-bold.size--sm(v-if="showPercentageChange && stock.pct != null" :class="stock.pct >= 0 ? 'success' : 'error'") {{ stock.pct >= 0 ? '+' : '' }}{{ stock.pct.toFixed(2) }}%
 </template>
 
 <script setup>
@@ -46,7 +49,8 @@ import TickerLogo from './ticker-logo.vue'
 import MiniTrendChart from './mini-trend-chart.vue'
 
 const props = defineProps({
-  stock: { type: Object, required: true }
+  stock: { type: Object, required: true },
+  showPercentageChange: { type: Boolean, default: false } // Show percentage change for top movers.
 })
 
 // Use the reusable stock status composable.

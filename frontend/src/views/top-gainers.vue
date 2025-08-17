@@ -70,6 +70,7 @@
         v-for="gainer in gainers"
         :key="gainer.symbol"
         :stock="gainer"
+        show-percentage-change
         @click="$router.push(`/trading/${gainer.symbol}`)")
 
     //- Empty State

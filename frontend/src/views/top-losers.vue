@@ -70,6 +70,7 @@
         v-for="loser in losers"
         :key="loser.symbol"
         :stock="loser"
+        show-percentage-change
         @click="$router.push(`/trading/${loser.symbol}`)")
 
     //- Empty State
@@ -171,7 +172,7 @@ async function loadLosers() {
         symbol: r.symbol,
         name: r.name || r.symbol,
         price: r.price || r.close || r.latest_close,
-        lastSide: 'sell', // Default for losers
+        lastSide: 'buy', // Default for losers
         currency: 'USD',
         currencySymbol: '$',
         marketState: 'open', // Default for now
