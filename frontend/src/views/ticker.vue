@@ -16,7 +16,7 @@
             :title="currentStatus.message"
             style="width: 15px")
         .w-flex.align-center.gap4
-          .w-flex.align-center.gap2
+          .w-flex.align-center.gap2.no-grow
             span.size--xs.text-upper(:class="`market-${currentStatus.status}`") {{ currentStatus.message }}
             span.size--xs.op6(v-if="currentStatus.status === 'open' && currentStatus.nextClose")
               | (closes at {{ new Date(currentStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
@@ -406,8 +406,8 @@ const timeframeOptions = {
 // Smart timeframe selection - fallback to available timeframes.
 // --------------------------------------------------------
 const effectiveTimeframe = ref('1Min') // The actual timeframe being displayed
-const originalTimeframe = ref('1Min') // The user-selected timeframe
-const isUsingFallbackTimeframe = ref(false) // Track if we're using a fallback
+const originalTimeframe = ref('1Min') // The user-selected timeframe.
+const isUsingFallbackTimeframe = ref(false) // Track if we're using a fallback.
 
 // Get fallback timeframes for a given period, ordered by preference.
 function getFallbackTimeframes(period) {

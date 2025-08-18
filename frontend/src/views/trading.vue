@@ -1,156 +1,148 @@
 <template lang="pug">
-w-grid.gap-xl
-  .w-col-12
-    .w-flex.align-center.justify-between.gap3
-      .title1 Stock Trading
-      span.op5.size--sm.mt1 Last Update: {{ lastUpdate }}
-      //- Connection Status.
-      .w-flex.align-center.gap2.mla.no-grow
-        .w-icon.size--xs.success--bg(v-if="wsConnected")
-        .w-icon.size--xs.yellow--bg(v-else)
-        span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
-          | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
+.w-flex.align-center.justify-between.gap3
+  .title1 Stock Trading
+  span.op5.size--sm.no-grow.mt1 Last Update: {{ lastUpdate }}
+  //- Connection Status.
+  .w-flex.align-center.gap2.no-grow.mt1
+    .w-icon.size--xs(:class="wsConnected ? 'success--bg' : 'yellow--bg'")
+    span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
+      | {{ wsConnected ? 'Live' : 'Polling fallback' }}
 
-    //- Top Movers Strip.
-    .my4.w-flex.wrap.gap2
-      //- Gainers
-      .w-flex.column.gap1
-        .w-flex.align-center.gap2.mb2
-          .title3.size--sm.op4 TOP GAINERS
-          w-button.ml2(
-            @click="$router.push('/trading/top-gainers')"
-            text
-            xs
-            round) View All
-        .w-flex.gap1.wrap
-          template(v-for="n in topMovers.gainersDisplayCount" :key="n")
-            w-tag.clickable.px2.py1(
-              v-if="topMovers.data.gainers[n - 1]"
-              @click="$router.push(`/trading/${topMovers.data.gainers[n - 1].symbol}`)"
-              round
-              xs)
-              span.text-bold {{ topMovers.data.gainers[n - 1].symbol }}
-              span.ml2.currency-positive {{ ~~(topMovers.data.gainers[n - 1].pct) }}%
-          w-button(
-            v-if="topMovers.gainersDisplayCount < 15"
-            @click="topMovers.gainersDisplayCount += 15"
-            color="info"
-            text
-            xs
-            round)
-            span.mb2.mt-1.size--xl ...
-      //- Losers
-      .w-flex.column.gap1
-        .w-flex.align-center.gap2.mb2
-          .title3.size--sm.op4 TOP LOSERS
-          w-button.ml2(
-            @click="$router.push('/trading/top-losers')"
-            text
-            xs
-            round) View All
-        .w-flex.gap1.wrap
-          template(v-for="n in topMovers.losersDisplayCount" :key="n")
-            w-tag.clickable.px2.py1(
-              v-if="topMovers.data.losers[n - 1]"
-              @click="$router.push(`/trading/${topMovers.data.losers[n - 1].symbol}`)"
-              round
-              xs)
-              span.text-bold {{ topMovers.data.losers[n - 1].symbol }}
-              span.ml2.currency-negative {{ ~~(topMovers.data.losers[n - 1].pct) }}%
-          w-button(
-            v-if="topMovers.losersDisplayCount < 15"
-            @click="topMovers.losersDisplayCount += 15"
-            color="info"
-            text
-            xs
-            round)
-            span.mb2.mt-1.size--xl ...
-    w-input.w-input.light.my4.h-auto(
-      v-model="searchQuery"
-      @input="handleSearchChange"
-      outline
-      round
-      placeholder="Search for a stock..."
-      input-class="py4 px6")
+//- Top Movers Strip.
+.my4.w-flex.wrap.gap2
+  //- Gainers
+  .w-flex.column.gap1
+    .w-flex.align-center.gap2.mb2
+      .title3.size--sm.op4 TOP GAINERS
+      w-button.ml2(
+        @click="$router.push('/trading/top-gainers')"
+        text
+        xs
+        round) View All
+    .w-flex.gap1.wrap
+      template(v-for="n in topMovers.gainersDisplayCount" :key="n")
+        w-tag.clickable.px2.py1(
+          v-if="topMovers.data.gainers[n - 1]"
+          @click="$router.push(`/trading/${topMovers.data.gainers[n - 1].symbol}`)"
+          round
+          xs)
+          span.text-bold {{ topMovers.data.gainers[n - 1].symbol }}
+          span.ml2.currency-positive {{ ~~(topMovers.data.gainers[n - 1].pct) }}%
+      w-button(
+        v-if="topMovers.gainersDisplayCount < 15"
+        @click="topMovers.gainersDisplayCount += 15"
+        color="info"
+        text
+        xs
+        round)
+        span.mb2.mt-1.size--xl ...
+  //- Losers
+  .w-flex.column.gap1
+    .w-flex.align-center.gap2.mb2
+      .title3.size--sm.op4 TOP LOSERS
+      w-button.ml2(
+        @click="$router.push('/trading/top-losers')"
+        text
+        xs
+        round) View All
+    .w-flex.gap1.wrap
+      template(v-for="n in topMovers.losersDisplayCount" :key="n")
+        w-tag.clickable.px2.py1(
+          v-if="topMovers.data.losers[n - 1]"
+          @click="$router.push(`/trading/${topMovers.data.losers[n - 1].symbol}`)"
+          round
+          xs)
+          span.text-bold {{ topMovers.data.losers[n - 1].symbol }}
+          span.ml2.currency-negative {{ ~~(topMovers.data.losers[n - 1].pct) }}%
+      w-button(
+        v-if="topMovers.losersDisplayCount < 15"
+        @click="topMovers.losersDisplayCount += 15"
+        color="info"
+        text
+        xs
+        round)
+        span.mb2.mt-1.size--xl ...
+w-input.w-input.light.my4.h-auto(
+  v-model="searchQuery"
+  @input="handleSearchChange"
+  outline
+  round
+  placeholder="Search for a stock..."
+  input-class="py4 px6")
 
-    //- Loading indicator for price fetching
-    .w-flex.align-center.gap2.my2(v-if="fetchingPrices")
-      w-progress.mr2(circle sm)
-      span.size--sm.op7 Fetching current prices for visible stocks...
+//- Ticker Cards
+w-grid.gap4(:columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }" )
+  ticker-card(
+    v-for="stock in paginatedStocks.slice(0, 20)"
+    :key="stock.symbol"
+    :stock="stock")
 
-    //- Ticker Cards
-    w-grid.gap4(:columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }" )
-      ticker-card(
-        v-for="stock in paginatedStocks.slice(0, 20)"
-        :key="stock.symbol"
-        :stock="stock")
+//- Loading State
+.w-flex.column.py12.align-center.justify-center(v-if="loading")
+  w-progress(circle)
+  p.op5.mt4 Loading stocks...
 
-    //- Loading State
-    .w-flex.column.py12.align-center.justify-center(v-if="loading")
-      w-progress(circle)
-      p.op5.mt4 Loading stocks...
+//- Error State
+.error-message.w-flex.column.py12.align-center.justify-center(v-else-if="error")
+  w-icon(color="error" size="4rem") wi-info-circle
+  h2.title2.error.mt4.mb2 Oops!
+  p.mb4 {{ error }}
+  w-button(@click="connectWebSocket" text bg-color="error" round) Try again
 
-    //- Error State
-    .error-message.w-flex.column.py12.align-center.justify-center(v-else-if="error")
-      w-icon(color="error" size="4rem") wi-info-circle
-      h2.title2.error.mt4.mb2 Oops!
-      p.mb4 {{ error }}
-      w-button(@click="connectWebSocket" text bg-color="error" round) Try again
+//- Content
+div(v-else)
+  //- Stocks Table
+  .glass-box.ova.pa4
+    w-table.bd0(:headers="tableHeaders" :items="paginatedStocks")
+      template(#item="{ item: stock }")
+        tr.clickable-row(@click="$router.push(`/trading/${stock.symbol}`)")
+          td.px2.py2
+            .w-flex.align-center
+              w-badge.mr3(overlap bottom bg-color="" xs :badge-class="`market-status-indicator market-${stock.marketState}`")
+                template(#badge)
+                  span.pa1(:title="stock.marketMessage")
+                ticker-logo(:symbol="stock.symbol")
 
-    //- Content
-    div(v-else)
-      //- Stocks Table
-      .glass-box.ova.pa4
-        w-table.bd0(:headers="tableHeaders" :items="paginatedStocks")
-          template(#item="{ item: stock }")
-            tr.clickable-row(@click="$router.push(`/trading/${stock.symbol}`)")
-              td.px2.py2
-                .w-flex.align-center
-                  w-badge.mr3(overlap bottom bg-color="" xs :badge-class="`market-status-indicator market-${stock.marketState}`")
-                    template(#badge)
-                      span.pa1(:title="stock.marketMessage")
-                    ticker-logo(:symbol="stock.symbol")
+              //- ticker-logo.mr3(:symbol="stock.symbol")
+              .w-flex.gap2
+                span.text-bold {{ stock.symbol }}
+                w-tag(sm round :style="`background-color: var(--${['NYSE', 'NASDAQ'].includes(stock.exchange) ? stock.exchange.toLowerCase() : 'other-se'}-color)`")
+                  small {{ stock.exchange }}
+          td.px2.py2
+            span {{ stock.name }}
+          td.px2.py2.text-right
+            .w-flex.align-center.justify-end.gap1(v-if="stock.price > 0")
+              span.text-bold {{ stock.currencySymbol || '$' }}{{ stock.price.toFixed(2) }}
+            .w-flex.align-center.justify-end.gap1(v-else)
+              span.op5 Fetching...
+          td.px2.py2.text-center
+            .w-flex.align-center.justify-center.gap2(@click.stop)
+              w-button.px2(
+                @click="placeOrder(stock.symbol, 1, 'buy')"
+                color="success"
+                outline
+                round
+                sm
+                :disabled="stock.price === 0")
+                strong.size--xs BUY
+              w-button.px2(
+                @click="placeOrder(stock.symbol, 1, 'sell')"
+                color="error"
+                outline
+                round
+                sm
+                :disabled="stock.price === 0")
+                strong.size--xs SELL
 
-                  //- ticker-logo.mr3(:symbol="stock.symbol")
-                  .w-flex.gap2
-                    span.text-bold {{ stock.symbol }}
-                    w-tag(sm round :style="`background-color: var(--${['NYSE', 'NASDAQ'].includes(stock.exchange) ? stock.exchange.toLowerCase() : 'other-se'}-color)`")
-                      small {{ stock.exchange }}
-              td.px2.py2
-                span {{ stock.name }}
-              td.px2.py2.text-right
-                .w-flex.align-center.justify-end.gap1(v-if="stock.price > 0")
-                  span.text-bold {{ stock.currencySymbol || '$' }}{{ stock.price.toFixed(2) }}
-                .w-flex.align-center.justify-end.gap1(v-else)
-                  span.op5 Fetching...
-              td.px2.py2.text-center
-                .w-flex.align-center.justify-center.gap2(@click.stop)
-                  w-button.px2(
-                    @click="placeOrder(stock.symbol, 1, 'buy')"
-                    color="success"
-                    outline
-                    round
-                    sm
-                    :disabled="stock.price === 0")
-                    strong.size--xs BUY
-                  w-button.px2(
-                    @click="placeOrder(stock.symbol, 1, 'sell')"
-                    color="error"
-                    outline
-                    round
-                    sm
-                    :disabled="stock.price === 0")
-                    strong.size--xs SELL
-
-      //- Pagination
-      .w-flex.align-center.justify-between.mt4(v-if="totalPages > 1")
-        .w-flex.align-center.gap2
-          w-button(:disabled="currentPage === 1" @click="prevPage") Previous
-          span Page {{ currentPage }} of {{ totalPages }}
-          w-button(:disabled="currentPage === totalPages" @click="nextPage") Next
-        .w-flex.align-center.gap2
-          span.op5.size--sm Showing {{ stocks.length }} of {{ totalStocks }} stocks
-          span.op5.size--sm(v-if="searchQuery") • Filtered by "{{ searchQuery }}"
+  //- Pagination
+  .w-flex.align-center.justify-between.mt4(v-if="totalPages > 1")
+    .w-flex.align-center.gap2
+      w-button(:disabled="currentPage === 1" @click="prevPage") Previous
+      span Page {{ currentPage }} of {{ totalPages }}
+      w-button(:disabled="currentPage === totalPages" @click="nextPage") Next
+    .w-flex.align-center.gap2
+      span.op5.size--sm Showing {{ stocks.length }} of {{ totalStocks }} stocks
+      span.op5.size--sm(v-if="searchQuery") • Filtered by "{{ searchQuery }}"
 </template>
 
 <script setup>

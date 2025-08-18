@@ -12,7 +12,7 @@
       .w-icon.size--xs.success--bg(v-if="wsConnected")
       .w-icon.size--xs.yellow--bg(v-else)
       span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
-        | {{ wsConnected ? 'Live updates connected' : 'Using polling fallback' }}
+        | {{ wsConnected ? 'Live' : 'Polling fallback' }}
 
   //- Filter Controls
   .w-flex.align-center.gap4.mb4

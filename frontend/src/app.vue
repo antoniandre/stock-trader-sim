@@ -10,7 +10,7 @@
           icon.w-icon.size--sm(
             :icon="$waveui.theme === 'dark' ? 'line-md:moon-filled' : 'mingcute:sun-fill'"
             :class="$waveui.theme === 'dark' ? 'primary' : 'amber'")
-    main.pa4
+    main.pa4.pt0
       router-view
 </template>
 
