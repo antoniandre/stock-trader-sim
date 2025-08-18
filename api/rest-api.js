@@ -30,8 +30,13 @@ export function createRestApiRoutes() {
   app.get('/api/movers', async (req, res) => {
     try {
       const { market = 'stocks', direction = 'both', top = '10' } = req.query
-      const data = await getTopMovers(market, direction, parseInt(top))
-      res.json(createStandardResponse(data))
+      const response = await getTopMovers(market, direction, parseInt(top))
+
+      if (response.error) {
+        return res.status(500).json({ error: response.message || 'Failed to fetch top movers.' })
+      }
+
+      res.json(createStandardResponse(response.data))
     }
     catch (error) {
       console.error('Error fetching top movers:', error)
@@ -454,6 +459,8 @@ export function createRestApiRoutes() {
               }
             }
             else {
+              // No historical data available - this is common for some screener stocks.
+              // Return empty data but indicate this is expected for some stocks.
               return {
                 symbol,
                 data: [],
@@ -462,7 +469,7 @@ export function createRestApiRoutes() {
                   averageVolume: 0,
                   volumeRatio: 0,
                   isUnusualVolume: false,
-                  volumeStatus: 'no-data'
+                  volumeStatus: 'no-historical-data'
                 },
                 fallback: null
               }
@@ -478,7 +485,7 @@ export function createRestApiRoutes() {
                 averageVolume: 0,
                 volumeRatio: 0,
                 isUnusualVolume: false,
-                volumeStatus: 'no-data'
+                volumeStatus: 'no-historical-data'
               },
               fallback: null
             }

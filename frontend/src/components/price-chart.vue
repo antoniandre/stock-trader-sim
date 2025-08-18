@@ -47,10 +47,18 @@
       //- Timeframe Selector
       .timeframe-selector.w-flex.gap1.no-grow
         w-select.timeframe-btn(
-          :model-value="selectedTimeframe"
+          :model-value="effectiveTimeframe || selectedTimeframe"
           :items="availableTimeframes"
           @input="changeTimeframe"
           outline)
+        //- Show fallback indicator if using a different timeframe than selected.
+        w-tag(
+          v-if="isUsingFallbackTimeframe && effectiveTimeframe"
+          xs
+          bg-color="warning"
+          color="white"
+          :title="`Showing ${effectiveTimeframe} data (${selectedTimeframe} unavailable)`")
+          w-icon(size="12") wi-info-circle
 
   //- Indicators Toggle
   .indicators-panel.w-flex.gap2.mb2.justify-end(v-if="chartType === 'candlestick'")
@@ -176,7 +184,10 @@ const props = defineProps({
   lineChartData: { type: Object, required: true },
   lineChartOptions: { type: Object, required: true },
   candlestickChartData: { type: Object, required: true },
-  candlestickChartOptions: { type: Object, required: true }
+  candlestickChartOptions: { type: Object, required: true },
+  // Smart timeframe selection props.
+  effectiveTimeframe: { type: String, default: null },
+  isUsingFallbackTimeframe: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
@@ -1358,6 +1369,7 @@ const baseSynchronizedOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
   animation: { duration: 0 },
+  spanGaps: true, // Connect points across gaps to show continuous lines
   interaction: {
     intersect: false,
     mode: 'index'

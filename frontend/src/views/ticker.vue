@@ -88,6 +88,8 @@
           :line-chart-options="lineChartOptions"
           :candlestick-chart-data="candlestickChartData"
           :candlestick-chart-options="candlestickChartOptions"
+          :effective-timeframe="effectiveTimeframe"
+          :is-using-fallback-timeframe="isUsingFallbackTimeframe"
           @change-chart-type="changeChartType"
           @change-period="changePeriod"
           @change-timeframe="changeTimeframe"
@@ -255,6 +257,8 @@
       :line-chart-options="lineChartOptions"
       :candlestick-chart-data="candlestickChartData"
       :candlestick-chart-options="candlestickChartOptions"
+      :effective-timeframe="effectiveTimeframe"
+      :is-using-fallback-timeframe="isUsingFallbackTimeframe"
       @change-chart-type="changeChartType"
       @change-period="changePeriod"
       @change-timeframe="changeTimeframe"
@@ -397,6 +401,69 @@ const timeframeOptions = {
   '5Y': [
     { label: '1d', value: '1Day' }
   ]
+}
+
+// Smart timeframe selection - fallback to available timeframes.
+// --------------------------------------------------------
+const effectiveTimeframe = ref('1Min') // The actual timeframe being displayed
+const originalTimeframe = ref('1Min') // The user-selected timeframe
+const isUsingFallbackTimeframe = ref(false) // Track if we're using a fallback
+
+// Get fallback timeframes for a given period, ordered by preference.
+function getFallbackTimeframes(period) {
+  const timeframes = timeframeOptions[period] || []
+  return timeframes.map(tf => tf.value)
+}
+
+// Smart timeframe selection function.
+async function selectAvailableTimeframe(period, preferredTimeframe) {
+  console.log(`🔍 Smart timeframe selection for ${period}, preferred: ${preferredTimeframe}`)
+
+  const fallbackTimeframes = getFallbackTimeframes(period)
+  const preferredIndex = fallbackTimeframes.indexOf(preferredTimeframe)
+
+  // Start with preferred timeframe, then try fallbacks.
+  const timeframesToTry = [
+    preferredTimeframe,
+    ...fallbackTimeframes.filter(tf => tf !== preferredTimeframe)
+  ]
+
+  for (const timeframe of timeframesToTry) {
+    try {
+      console.log(`🔍 Testing timeframe: ${timeframe}`)
+
+      // Quick test to see if this timeframe has data.
+      const testResponse = await fetchStockHistoryProgressive(props.symbol, period, timeframe)
+
+      if (testResponse?.data && testResponse.data.length > 0) {
+        console.log(`✅ Found data for timeframe: ${timeframe} (${testResponse.data.length} points)`)
+
+        // Update the effective timeframe.
+        effectiveTimeframe.value = timeframe
+        originalTimeframe.value = preferredTimeframe
+        isUsingFallbackTimeframe.value = timeframe !== preferredTimeframe
+
+        if (isUsingFallbackTimeframe.value) {
+          console.log(`⚠️ Using fallback timeframe: ${timeframe} (preferred: ${preferredTimeframe} had no data)`)
+        }
+
+        return timeframe
+      }
+      else {
+        console.log(`❌ No data for timeframe: ${timeframe}`)
+      }
+    }
+    catch (error) {
+      console.log(`❌ Error testing timeframe ${timeframe}:`, error.message)
+    }
+  }
+
+  // If no timeframes have data, use the preferred one and let the error handling show.
+  console.log(`⚠️ No timeframes have data, using preferred: ${preferredTimeframe}`)
+  effectiveTimeframe.value = preferredTimeframe
+  originalTimeframe.value = preferredTimeframe
+  isUsingFallbackTimeframe.value = false
+  return preferredTimeframe
 }
 
 const defaultTimeframes = {
@@ -1321,11 +1388,17 @@ async function fetchHistoricalData() {
     isLoadingHistoricalData.value = true
     dataCache.value.clear()
 
+    // Use smart timeframe selection for initial load.
+    if (!isUsingFallbackTimeframe.value) {
+      const availableTimeframe = await selectAvailableTimeframe(selectedPeriod.value, selectedTimeframe.value)
+      selectedTimeframe.value = availableTimeframe
+    }
+
     console.log(`📊 Fetching historical data for ${props.symbol}, period: ${selectedPeriod.value}, timeframe: ${selectedTimeframe.value}`)
     // Use progressive loading for faster initial display and maximum data retrieval.
     const response = await fetchStockHistoryProgressive(props.symbol, selectedPeriod.value, selectedTimeframe.value)
 
-    // Check for warnings or errors in the response
+    // Check for warnings, errors, or fallback data in the response
     if (response?.warning || response?.error) {
       const message = response.error || response.warning
       console.error(`❌ ALPACA DATA ISSUE for ${props.symbol}:`, message)
@@ -1335,6 +1408,14 @@ async function fetchHistoricalData() {
         $waveui.notify(`DATA WARNING: ${props.symbol} historical data is ${response.dataAge} hours old.\n\n${message}\n\nNote: Alpaca operates in US Eastern Time. The chart shows old trading session data, not current market data.`, 'warning', 0)
       }
       else $waveui.notify(`DATA ERROR: ${message}`, 'error', 0)
+    }
+
+    // Handle fallback data (showing data from last available trading day)
+    if (response?.isFallbackData && response?.fallbackMessage) {
+      console.log(`📊 Using fallback data for ${props.symbol}: ${response.fallbackMessage}`)
+
+      // Show a less intrusive notification for fallback data
+      $waveui.notify(`📊 ${response.fallbackMessage}`, 'info', 5000)
     }
 
     if (response?.data) {
@@ -1406,15 +1487,19 @@ function changeChartType(type) {
   chartType.value = type
 }
 
-// Enhanced period change with smooth transitions.
-function changePeriod(period) {
-  console.log(`📊 Changing period to ${period} (smooth transition)`)
+// Enhanced period change with smart timeframe selection.
+async function changePeriod(period) {
+  console.log(`📊 Changing period to ${period} (smart timeframe selection)`)
 
   const previousPeriod = selectedPeriod.value
   const previousTimeframe = selectedTimeframe.value
 
   selectedPeriod.value = period
-  selectedTimeframe.value = defaultTimeframes[period] || '5Min'
+  const preferredTimeframe = defaultTimeframes[period] || '5Min'
+
+  // Use smart timeframe selection to find available data.
+  const availableTimeframe = await selectAvailableTimeframe(period, preferredTimeframe)
+  selectedTimeframe.value = availableTimeframe
 
   // Only clear cache for the old period/timeframe combination.
   const oldCacheKey = `${props.symbol}-${previousPeriod}-${previousTimeframe}`
@@ -1443,36 +1528,39 @@ function changePeriod(period) {
     zoomDebounceTimer = null
   }
 
-  console.log(`📊 Period changed to ${period} with timeframe ${selectedTimeframe.value}`)
+  console.log(`📊 Period changed to ${period} with effective timeframe ${selectedTimeframe.value}`)
 
   // Fetch data with new period/timeframe combination.
   fetchHistoricalData()
 }
 
-// Enhanced timeframe change with smooth transitions.
+// Enhanced timeframe change with smart selection.
 async function changeTimeframe(timeframe) {
-  console.log(`📊 Changing timeframe to ${timeframe} (smooth transition)`)
+  console.log(`📊 Changing timeframe to ${timeframe} (smart selection)`)
 
   isTransitioningTimeframe.value = true
   const previousTimeframe = selectedTimeframe.value
-  selectedTimeframe.value = timeframe
 
   try {
+    // Use smart timeframe selection to find available data.
+    const availableTimeframe = await selectAvailableTimeframe(selectedPeriod.value, timeframe)
+    selectedTimeframe.value = availableTimeframe
+
     // Check if we have cached data for this timeframe.
-    const cacheKey = `${props.symbol}-${selectedPeriod.value}-${timeframe}`
+    const cacheKey = `${props.symbol}-${selectedPeriod.value}-${availableTimeframe}`
 
     if (timeframeDataCache.value.has(cacheKey)) {
-      console.log(`📊 Using cached data for ${timeframe}`)
+      console.log(`📊 Using cached data for ${availableTimeframe}`)
       const cachedData = timeframeDataCache.value.get(cacheKey)
 
       // Smoothly transition the data instead of replacing it
       await transitionChartData(cachedData)
     }
     else {
-      console.log(`📊 Fetching new data for ${timeframe}`)
+      console.log(`📊 Fetching new data for ${availableTimeframe}`)
 
       // Fetch new data but don't clear existing data until we have the new data
-      const response = await fetchStockHistoryProgressive(props.symbol, selectedPeriod.value, timeframe)
+      const response = await fetchStockHistoryProgressive(props.symbol, selectedPeriod.value, availableTimeframe)
 
       if (response?.data) {
         const newData = response.data.sort((a, b) => a.timestamp - b.timestamp)
@@ -1483,7 +1571,7 @@ async function changeTimeframe(timeframe) {
         // Smoothly transition to new data
         await transitionChartData(newData)
 
-        console.log(`✅ Smooth transition to ${timeframe} complete with ${newData.length} data points`)
+        console.log(`✅ Smooth transition to ${availableTimeframe} complete with ${newData.length} data points`)
       }
     }
   }
@@ -1597,6 +1685,10 @@ function setQuickQuantity(quantity) {
 onMounted(async () => {
   setupWebSocket()
   connect()
+
+  // Initialize smart timeframe selection before fetching data.
+  const availableTimeframe = await selectAvailableTimeframe(selectedPeriod.value, selectedTimeframe.value)
+  selectedTimeframe.value = availableTimeframe
 
   await Promise.all([fetchStockData(), fetchHistoricalData(), refreshMarketStatus()])
   startMarketStatusMonitoring()

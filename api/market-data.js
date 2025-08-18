@@ -610,6 +610,56 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
     const allBars = await fetchHistoricalDataIEX(symbol, alpacaTimeframe, startDate, endDate, limit)
 
     if (!allBars || allBars.length === 0) {
+      console.log(`🔍 No data found for ${symbol} with ${period}/${alpacaTimeframe} - trying smart fallback`)
+
+      // Try to get data from the last 30 days with the same timeframe.
+      const fallbackEndDate = new Date()
+      const fallbackStartDate = new Date(fallbackEndDate.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+      console.log(`📅 Fallback: Looking for ${alpacaTimeframe} data from last 30 days`)
+
+      try {
+        const fallbackBars = await fetchHistoricalDataWithPagination(
+          symbol,
+          alpacaTimeframe,
+          fallbackStartDate,
+          fallbackEndDate,
+          1000
+        )
+
+        if (fallbackBars && fallbackBars.length > 0) {
+          console.log(`✅ Found ${fallbackBars.length} bars in fallback data`)
+
+          const fallbackData = fallbackBars.map(bar => ({
+            timestamp: new Date(bar.t).getTime(),
+            open: bar.o,
+            high: bar.h,
+            low: bar.l,
+            close: bar.c,
+            volume: bar.v,
+            price: bar.c
+          }))
+
+          const sortedData = fallbackData.sort((a, b) => a.timestamp - b.timestamp)
+          const lastDataPoint = sortedData[sortedData.length - 1]
+          const lastDataDate = new Date(lastDataPoint.timestamp)
+
+          console.log(`✅ Smart fallback successful for ${symbol}: Showing ${alpacaTimeframe} data from ${lastDataDate.toLocaleDateString()}`)
+
+          return {
+            symbol,
+            period,
+            timeframe: alpacaTimeframe,
+            data: sortedData,
+            isFallbackData: true,
+            fallbackMessage: `Showing ${alpacaTimeframe} data from last available trading day: ${lastDataDate.toLocaleDateString()}`,
+            lastTradingDate: lastDataDate
+          }
+        }
+      } catch (fallbackError) {
+        console.error(`❌ Fallback failed for ${symbol}:`, fallbackError.message)
+      }
+
       console.error(`❌ ALPACA DATA ISSUE: No historical data returned for ${symbol}`)
       console.error(`❌ Period: ${period}, Timeframe: ${alpacaTimeframe}`)
       console.error(`❌ Date range: ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`)
@@ -876,6 +926,10 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
 // comprehensive datasets that exceed the single-request limit.
 // Result: Users get seamless charts with extensive historical data for analysis.
 async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, endDate, maxLimit = 10000, feed = 'iex') {
+  // Ensure dates are Date objects
+  const start = startDate instanceof Date ? startDate : new Date(startDate)
+  const end = endDate instanceof Date ? endDate : new Date(endDate)
+
   const allBars = []
   let pageToken = null
   let requestCount = 0
@@ -886,8 +940,8 @@ async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, e
       const params = new URLSearchParams({
         timeframe: timeframe,
         limit: Math.min(10000, maxLimit).toString(), // Use Alpaca's maximum limit of 10,000 per request.
-        start: startDate.toISOString(),
-        end: endDate.toISOString(),
+        start: start.toISOString(),
+        end: end.toISOString(),
         feed: feed
       })
 
@@ -994,42 +1048,30 @@ export async function getStockHistoricalDataByRange(symbol, timeframe, startDate
 
 // Helper Functions.
 // --------------------------------------------------------
-// Helper function to filter historical data to continuous trading sessions (removes gaps)
+// Helper function to display continuous data without gaps (TradingView style).
 function filterToContinuousTrading(historicalData, symbol) {
   if (!historicalData || historicalData.length === 0) return []
 
-  console.log(`📊 Filtering ${historicalData.length} data points for continuous trading session`)
-
-  // Filter data to regular trading hours using consolidated market hours.
-  const tradingHoursData = historicalData.filter(point => {
-    const pointTime = new Date(point.timestamp)
-    const etTimeString = pointTime.toLocaleString('en-US', {
-      timeZone: 'America/New_York',
-      hour12: false
-    })
-
-    // Parse the time - format: "M/D/YYYY, HH:MM:SS".
-    const timePart = etTimeString.split(', ')[1] // Get "HH:MM:SS".
-    const [hourStr, minuteStr] = timePart.split(':')
-    const timeInMinutes = parseInt(hourStr) * 60 + parseInt(minuteStr)
-
-    // Use consolidated market hours for consistency.
-    return timeInMinutes >= MARKET_HOURS.MARKET_OPEN && timeInMinutes <= MARKET_HOURS.MARKET_CLOSE
-  })
-
-  console.log(`📊 Filtered to ${tradingHoursData.length} trading hours data points`)
-
-  if (tradingHoursData.length === 0) {
-    console.warn(`⚠️ No trading hours data found for ${symbol}, returning original data`)
-    return historicalData
-  }
+  console.log(`📊 Processing ${historicalData.length} data points for continuous display (TradingView style)`)
 
   // Sort by timestamp to ensure proper order.
-  tradingHoursData.sort((a, b) => a.timestamp - b.timestamp)
+  const sortedData = [...historicalData].sort((a, b) => a.timestamp - b.timestamp)
 
-  console.log(`📊 Final filtered data: ${tradingHoursData.length} points from ${new Date(tradingHoursData[0].timestamp).toLocaleString()} to ${new Date(tradingHoursData[tradingHoursData.length - 1].timestamp).toLocaleString()}`)
+  // Remove any duplicate timestamps (keep the latest one).
+  const uniqueData = []
+  const seenTimestamps = new Set()
 
-  return tradingHoursData
+  for (let i = sortedData.length - 1; i >= 0; i--) {
+    const point = sortedData[i]
+    if (!seenTimestamps.has(point.timestamp)) {
+      seenTimestamps.add(point.timestamp)
+      uniqueData.unshift(point) // Add to beginning to maintain order
+    }
+  }
+
+  console.log(`📊 Continuous data: ${uniqueData.length} unique points from ${new Date(uniqueData[0].timestamp).toLocaleString()} to ${new Date(uniqueData[uniqueData.length - 1].timestamp).toLocaleString()}`)
+
+  return uniqueData
 }
 
 // Helper function to bridge historical data with current real-time price.
@@ -1080,6 +1122,8 @@ async function bridgeHistoricalWithCurrent(historicalData, symbol) {
     return historicalData
   }
 }
+
+
 
 function calculateDataLimitForRange(timeframe, rangeDays) {
   const timeframeMinutes = { '1Min': 1, '5Min': 5, '15Min': 15, '30Min': 30, '1Hour': 60, '4Hour': 240, '1Day': 1440 }
@@ -1395,12 +1439,35 @@ export async function getTopMovers(market = 'stocks', direction = 'both', top = 
   try {
     const base = `${ALPACA_API_BASE_URL}/v1beta1/screener/${market}/movers`
     const params = new URLSearchParams()
-    if (direction && direction !== 'both') params.append('direction', direction)
     if (top) params.append('top', String(top))
 
     const url = params.toString() ? `${base}?${params.toString()}` : base
     const { data } = await axios.get(url, { headers: HEADERS })
-    return data
+
+    // Process the data to include volume analysis from screener data.
+    if (data && (data.gainers || data.losers)) {
+      const allMovers = []
+
+      if (direction === 'gainers' || direction === 'both') {
+        allMovers.push(...(data.gainers || []).map(stock => ({
+          ...stock,
+          pct: stock.percent_change,
+          volumeStatus: 'high' // Screener stocks are typically high volume by definition.
+        })))
+      }
+
+      if (direction === 'losers' || direction === 'both') {
+        allMovers.push(...(data.losers || []).map(stock => ({
+          ...stock,
+          pct: stock.percent_change,
+          volumeStatus: 'high' // Screener stocks are typically high volume by definition.
+        })))
+      }
+
+      return { success: true, data: allMovers }
+    }
+
+    return { success: true, data: [] }
   }
   catch (error) {
     const status = error.response?.status
