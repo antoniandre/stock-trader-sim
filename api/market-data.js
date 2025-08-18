@@ -609,6 +609,105 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
     // Use IEX feed only as per project requirements.
     const allBars = await fetchHistoricalDataIEX(symbol, alpacaTimeframe, startDate, endDate, limit)
 
+    // NEW: Enhanced logic to detect limited intraday data and try higher timeframes
+    if (alpacaTimeframe === '1Min' && allBars && allBars.length > 0) {
+      const testData = allBars.map(bar => ({
+        timestamp: new Date(bar.t).getTime(),
+        open: bar.o,
+        high: bar.h,
+        low: bar.l,
+        close: bar.c,
+        volume: bar.v,
+        price: bar.c
+      }))
+
+      const sortedTestData = testData.sort((a, b) => a.timestamp - b.timestamp)
+      const lastDataTime = sortedTestData[sortedTestData.length - 1]?.timestamp
+      const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000)
+
+      if (sortedTestData.length < 100 || lastDataTime < twoDaysAgo) {
+        console.log(`🔍 Limited 1Min data (${sortedTestData.length} points) - checking for more recent data in higher timeframes`)
+
+        // Try 1Hour timeframe for more recent data
+        try {
+          const hourlyBars = await fetchHistoricalDataIEX(symbol, '1Hour', startDate, endDate, limit)
+
+          if (hourlyBars && hourlyBars.length > 0) {
+            const hourlyData = hourlyBars.map(bar => ({
+              timestamp: new Date(bar.t).getTime(),
+              open: bar.o,
+              high: bar.h,
+              low: bar.l,
+              close: bar.c,
+              volume: bar.v,
+              price: bar.c
+            }))
+
+            const sortedHourlyData = hourlyData.sort((a, b) => a.timestamp - b.timestamp)
+            const lastHourlyPoint = sortedHourlyData[sortedHourlyData.length - 1]
+            const lastHourlyDate = new Date(lastHourlyPoint.timestamp)
+
+            // If hourly data is more recent, use it instead
+            if (lastHourlyPoint.timestamp > lastDataTime) {
+              console.log(`✅ Using 1Hour data instead: more recent data available until ${lastHourlyDate.toLocaleDateString()}`)
+              return {
+                symbol,
+                period,
+                timeframe: '1Hour',
+                data: sortedHourlyData,
+                isFallbackData: true,
+                fallbackMessage: `Using 1Hour data (more recent than 1Min) until ${lastHourlyDate.toLocaleDateString()}`,
+                originalTimeframe: '1Min',
+                effectiveTimeframe: '1Hour',
+                lastTradingDate: lastHourlyDate
+              }
+            }
+          }
+        } catch (hourlyError) {
+          console.warn(`⚠️ Failed to fetch hourly data:`, hourlyError.message)
+        }
+
+        // Try 1Day timeframe as final fallback
+        try {
+          const dailyBars = await fetchHistoricalDataIEX(symbol, '1Day', startDate, endDate, limit)
+
+          if (dailyBars && dailyBars.length > 0) {
+            const dailyData = dailyBars.map(bar => ({
+              timestamp: new Date(bar.t).getTime(),
+              open: bar.o,
+              high: bar.h,
+              low: bar.l,
+              close: bar.c,
+              volume: bar.v,
+              price: bar.c
+            }))
+
+            const sortedDailyData = dailyData.sort((a, b) => a.timestamp - b.timestamp)
+            const lastDailyPoint = sortedDailyData[sortedDailyData.length - 1]
+            const lastDailyDate = new Date(lastDailyPoint.timestamp)
+
+            // If daily data is more recent, use it instead
+            if (lastDailyPoint.timestamp > lastDataTime) {
+              console.log(`✅ Using 1Day data instead: more recent data available until ${lastDailyDate.toLocaleDateString()}`)
+              return {
+                symbol,
+                period,
+                timeframe: '1Day',
+                data: sortedDailyData,
+                isFallbackData: true,
+                fallbackMessage: `Using 1Day data (more recent than 1Min) until ${lastDailyDate.toLocaleDateString()}`,
+                originalTimeframe: '1Min',
+                effectiveTimeframe: '1Day',
+                lastTradingDate: lastDailyDate
+              }
+            }
+          }
+        } catch (dailyError) {
+          console.warn(`⚠️ Failed to fetch daily data:`, dailyError.message)
+        }
+      }
+    }
+
     if (!allBars || allBars.length === 0) {
       console.log(`🔍 No data found for ${symbol} with ${period}/${alpacaTimeframe} - trying smart fallback`)
 
@@ -645,6 +744,89 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
           const lastDataDate = new Date(lastDataPoint.timestamp)
 
           console.log(`✅ Smart fallback successful for ${symbol}: Showing ${alpacaTimeframe} data from ${lastDataDate.toLocaleDateString()}`)
+
+          // Enhanced fallback: Check if higher timeframes have more recent data
+          if (alpacaTimeframe === '1Min') {
+            console.log(`🔍 Checking if higher timeframes have more recent data than ${lastDataDate.toLocaleDateString()}`)
+
+            // Try 1Hour timeframe for more recent data
+            try {
+              const hourlyBars = await fetchHistoricalDataIEX(symbol, '1Hour', fallbackStartDate, fallbackEndDate, 1000)
+
+              if (hourlyBars && hourlyBars.length > 0) {
+                const hourlyData = hourlyBars.map(bar => ({
+                  timestamp: new Date(bar.t).getTime(),
+                  open: bar.o,
+                  high: bar.h,
+                  low: bar.l,
+                  close: bar.c,
+                  volume: bar.v,
+                  price: bar.c
+                }))
+
+                const sortedHourlyData = hourlyData.sort((a, b) => a.timestamp - b.timestamp)
+                const lastHourlyPoint = sortedHourlyData[sortedHourlyData.length - 1]
+                const lastHourlyDate = new Date(lastHourlyPoint.timestamp)
+
+                // If hourly data is more recent, use it instead
+                if (lastHourlyPoint.timestamp > lastDataPoint.timestamp) {
+                  console.log(`✅ Using 1Hour data instead: more recent data available until ${lastHourlyDate.toLocaleDateString()}`)
+                  return {
+                    symbol,
+                    period,
+                    timeframe: '1Hour',
+                    data: sortedHourlyData,
+                    isFallbackData: true,
+                    fallbackMessage: `Using 1Hour data (more recent than 1Min) until ${lastHourlyDate.toLocaleDateString()}`,
+                    originalTimeframe: '1Min',
+                    effectiveTimeframe: '1Hour',
+                    lastTradingDate: lastHourlyDate
+                  }
+                }
+              }
+            } catch (hourlyError) {
+              console.warn(`⚠️ Failed to fetch hourly data:`, hourlyError.message)
+            }
+
+            // Try 1Day timeframe as final fallback
+            try {
+              const dailyBars = await fetchHistoricalDataIEX(symbol, '1Day', fallbackStartDate, fallbackEndDate, 1000)
+
+              if (dailyBars && dailyBars.length > 0) {
+                const dailyData = dailyBars.map(bar => ({
+                  timestamp: new Date(bar.t).getTime(),
+                  open: bar.o,
+                  high: bar.h,
+                  low: bar.l,
+                  close: bar.c,
+                  volume: bar.v,
+                  price: bar.c
+                }))
+
+                const sortedDailyData = dailyData.sort((a, b) => a.timestamp - b.timestamp)
+                const lastDailyPoint = sortedDailyData[sortedDailyData.length - 1]
+                const lastDailyDate = new Date(lastDailyPoint.timestamp)
+
+                // If daily data is more recent, use it instead
+                if (lastDailyPoint.timestamp > lastDataPoint.timestamp) {
+                  console.log(`✅ Using 1Day data instead: more recent data available until ${lastDailyDate.toLocaleDateString()}`)
+                  return {
+                    symbol,
+                    period,
+                    timeframe: '1Day',
+                    data: sortedDailyData,
+                    isFallbackData: true,
+                    fallbackMessage: `Using 1Day data (more recent than 1Min) until ${lastDailyDate.toLocaleDateString()}`,
+                    originalTimeframe: '1Min',
+                    effectiveTimeframe: '1Day',
+                    lastTradingDate: lastDailyDate
+                  }
+                }
+              }
+            } catch (dailyError) {
+              console.warn(`⚠️ Failed to fetch daily data:`, dailyError.message)
+            }
+          }
 
           return {
             symbol,
@@ -1464,7 +1646,67 @@ export async function getTopMovers(market = 'stocks', direction = 'both', top = 
         })))
       }
 
-      return { success: true, data: allMovers }
+      return { success: true, data: { gainers: allMovers.filter(m => m.pct > 0), losers: allMovers.filter(m => m.pct < 0) } }
+    }
+
+    // If no recent data available, try to get last available data from popular stocks.
+    console.log('📊 No recent top movers data available, fetching last available data from popular stocks...')
+
+    try {
+      // Get popular stocks and their last available data
+      const popularStocks = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'NFLX', 'AMD', 'INTC']
+      const lastAvailableData = []
+
+      for (const symbol of popularStocks.slice(0, top)) {
+        try {
+          // Get the last available historical data for this stock
+          const historicalData = await getStockHistoricalData(symbol, '1W', '1Day')
+
+          if (historicalData && historicalData.length > 0) {
+            const lastPoint = historicalData[historicalData.length - 1]
+            const previousPoint = historicalData[historicalData.length - 2]
+
+            if (lastPoint && previousPoint) {
+              const change = lastPoint.close - previousPoint.close
+              const pct = (change / previousPoint.close) * 100
+
+              lastAvailableData.push({
+                symbol,
+                price: lastPoint.close,
+                change,
+                percent_change: pct,
+                pct,
+                volume: lastPoint.volume || 0,
+                volumeStatus: 'normal'
+              })
+            }
+          }
+        }
+        catch (stockError) {
+          console.warn(`⚠️ Failed to get last data for ${symbol}:`, stockError.message)
+        }
+      }
+
+      // Sort by percentage change to create gainers/losers.
+      const sortedData = lastAvailableData.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct))
+      const gainers = sortedData.filter(stock => stock.pct > 0).slice(0, Math.ceil(top / 2))
+      const losers = sortedData.filter(stock => stock.pct < 0).slice(0, Math.ceil(top / 2))
+
+      const allMovers = []
+
+      if (direction === 'gainers' || direction === 'both') {
+        allMovers.push(...gainers)
+      }
+
+      if (direction === 'losers' || direction === 'both') {
+        allMovers.push(...losers)
+      }
+
+      console.log(`✅ Using last available data: ${gainers.length} gainers, ${losers.length} losers`)
+      return { success: true, data: { gainers, losers }, isFallbackData: true }
+    }
+    catch (fallbackError) {
+      console.error('❌ Fallback data fetch failed:', fallbackError.message)
     }
 
     return { success: true, data: [] }

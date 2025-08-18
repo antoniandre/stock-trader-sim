@@ -1,7 +1,7 @@
 <template lang="pug">
-.sidebar.w-flex.column.no-shrink.no-grow(style="width: 250px")
+.sidebar.w-flex.column.no-shrink.no-grow
   //- Logo
-  .w-flex.align-center.gap4.no-grow.pa4
+  .w-flex.align-center.gap4.no-grow.pa4.pr0
     //- Logo Icon
     icon.w-icon.size--xl.primary(icon="icon-park-outline:increase" style="width: 30px; height: 30px")
     //- icon.w-icon.size--xl.info(icon="streamline-freehand:saving-bull-market" flip="horizontal" style="width: 34px; height: 34px")
@@ -35,6 +35,7 @@
 
 <style lang="scss">
 .sidebar {
+  width: 224px;
   background-color: var(--w-base-bg-color);
   border-right: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
 

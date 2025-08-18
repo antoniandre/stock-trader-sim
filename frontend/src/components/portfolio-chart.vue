@@ -302,7 +302,7 @@ watch(() => props.history, () => {
 
 <style lang="scss">
 .chart-wrap {
-  height: 40vh;
+  min-height: 40vh;
 }
 
 .period-selector {

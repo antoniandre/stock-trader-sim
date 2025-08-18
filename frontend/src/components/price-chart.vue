@@ -278,8 +278,11 @@ const formatPrice = (price) => {
 
 // Get all active chart instances.
 const getAllChartInstances = () => {
-  // First add the main price chart (line or candlestick).
-  const charts = [candleChartRef.value.chart || lineChartRef.value.chart]
+  const charts = []
+
+  // First add the main price chart (line or candlestick) with null checks.
+  const mainChart = candleChartRef.value?.chart || lineChartRef.value?.chart
+  if (mainChart) charts.push(mainChart)
 
   // Indicator charts.
   if (showRSI.value && rsiChartRef.value?.chart) charts.push(rsiChartRef.value.chart)
@@ -1370,6 +1373,11 @@ const baseSynchronizedOptions = computed(() => ({
   maintainAspectRatio: false,
   animation: { duration: 0 },
   spanGaps: true, // Connect points across gaps to show continuous lines
+  elements: {
+    line: {
+      spanGaps: true // Connect line segments across gaps
+    }
+  },
   interaction: {
     intersect: false,
     mode: 'index'
@@ -1381,7 +1389,7 @@ const baseSynchronizedOptions = computed(() => ({
         displayFormats: { minute: 'HH:mm', hour: 'MMM dd HH:mm' }
       },
       adapters: { date: { zone: Intl.DateTimeFormat().resolvedOptions().timeZone } },
-      distribution: 'series', // Position points according to their actual timestamps.
+      distribution: 'linear', // Use linear distribution to eliminate gaps
       grid: { color: $waveui.colors.light2 },
       ticks: { color: $waveui.colors.light1, source: 'data' },
       offset: false, // Prevent category offset so bars align exactly at timestamps.
@@ -1495,6 +1503,9 @@ const changeChartType = (type) => emit('change-chart-type', type)
 const changePeriod = (period) => emit('change-period', period)
 const changeTimeframe = (timeframe) => emit('change-timeframe', timeframe)
 
+// Track last data range for smooth transitions.
+let lastDataRange = null
+
 // Watchers for auto-focusing on data changes
 // --------------------------------------------------------
 watch(
@@ -1542,9 +1553,6 @@ watch(
   },
   { deep: true, immediate: true }
 )
-
-// Track last data range for smooth transitions.
-let lastDataRange = null
 
 // Watch for symbol changes to reset initialization.
 watch(() => props.symbol, () => {

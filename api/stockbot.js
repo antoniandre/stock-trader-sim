@@ -6,7 +6,7 @@ import { getAlpacaAccount, getAlpacaAccountActivities } from './alpaca-account.j
 import { connectAlpacaSSE } from './sse-client.js'
 import { createWebSocketServer, connectAlpacaWebSocket, runSimulationWrapper, broadcast } from './websocket-server.js'
 
-// Server Setup
+// Server Setup.
 // --------------------------------------------------------
 const PORT = process.env.PORT || 3000
 
