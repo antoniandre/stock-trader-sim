@@ -271,8 +271,7 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
           borderWidth: 0,
           type: 'bar',
           barThickness: 'flex',
-          maxBarThickness: 4,
-          categoryPercentage: 0.8,
+          categoryPercentage: 0.9,
           barPercentage: 0.9,
           order: 3
         })
