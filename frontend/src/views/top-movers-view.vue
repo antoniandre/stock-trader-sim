@@ -124,7 +124,7 @@ const selectedMarket = ref('all')
 const volumeFilter = ref('all')
 
 // WebSocket
-const { connected: wsConnected } = useWebSocket()
+const { wsConnected, connect } = useWebSocket()
 
 // Options
 const countOptions = [
@@ -174,43 +174,87 @@ const averageChange = computed(() => {
 // Methods
 async function loadMovers() {
   try {
+    console.log(`🔄 Loading ${props.type} with count: ${selectedCount.value}, market: ${selectedMarket.value}`)
     loading.value = true
     error.value = null
 
+    console.log('📡 Making API call to fetchTopMovers...')
     const response = await fetchTopMovers(selectedCount.value, selectedMarket.value)
+    console.log('✅ API response received:', response)
 
-    if (response.success) {
+    // The API returns { gainers: [...], losers: [...], timestamp: "..." }
+    // No success field, just the data directly
+    if (response && (response.gainers || response.losers)) {
       // Filter based on type (gainers or losers)
-      const allMovers = response.data || []
-      stocks.value = allMovers.filter(stock => {
+      const allMovers = [...(response.gainers || []), ...(response.losers || [])]
+      console.log(`📊 Found ${allMovers.length} total movers`)
+
+      const filteredStocks = allMovers.filter(stock => {
         if (!stock.pct || isNaN(stock.pct)) return false
         return isPositive.value ? stock.pct > 0 : stock.pct < 0
       })
 
-      // Load trend data for all stocks in batch
-      if (stocks.value.length > 0) {
-        const symbols = stocks.value.map(stock => stock.symbol)
+      console.log(`📈 Filtered to ${filteredStocks.length} ${props.type}`)
+
+      // Load trend data for all stocks in batch BEFORE setting stocks.value
+      if (filteredStocks.length > 0) {
+        console.log('📡 Loading batch trends...')
+        const symbols = filteredStocks.map(stock => stock.symbol)
         const trendsResponse = await fetchBatchTrends(symbols, 20)
 
-        if (trendsResponse.success) {
-          // Attach trend data and volume analysis to each stock
-          stocks.value.forEach(stock => {
-            const trendData = trendsResponse.data[stock.symbol]
+        // Batch trends API returns { symbol: {...}, timestamp: "..." } directly
+        console.log('🔍 Batch trends response structure:', {
+          hasResponse: !!trendsResponse,
+          responseKeys: trendsResponse ? Object.keys(trendsResponse) : [],
+          hasSymbols: trendsResponse ? Object.keys(trendsResponse).filter(key => key !== 'timestamp').length > 0 : false
+        })
+
+        if (trendsResponse && Object.keys(trendsResponse).filter(key => key !== 'timestamp').length > 0) {
+          console.log('✅ Batch trends loaded successfully')
+          console.log('📊 Batch trends response keys:', Object.keys(trendsResponse).filter(key => key !== 'timestamp'))
+
+          // Attach trend data and volume analysis to each stock BEFORE setting stocks.value
+          filteredStocks.forEach(stock => {
+            const trendData = trendsResponse[stock.symbol]
             if (trendData) {
               stock.trendData = trendData.data
               stock.trendFallback = trendData.fallback
               stock.volumeAnalysis = trendData.volumeAnalysis
+              console.log(`✅ Attached trend data to ${stock.symbol}: ${trendData.data?.length || 0} points`)
+              console.log(`🔍 Stock object after attachment:`, {
+                symbol: stock.symbol,
+                trendData: stock.trendData,
+                trendDataLength: stock.trendData?.length,
+                isArray: Array.isArray(stock.trendData)
+              })
+            } else {
+              console.warn(`⚠️ No trend data found for ${stock.symbol} in batch response`)
             }
           })
+        } else {
+          console.warn('⚠️ Batch trends failed:', trendsResponse)
         }
       }
 
+      // Only set stocks.value AFTER all trend data is loaded
+      stocks.value = filteredStocks
+
+      console.log('🔍 Final stocks array:', stocks.value.map(stock => ({
+        symbol: stock.symbol,
+        hasTrendData: !!stock.trendData,
+        trendDataLength: stock.trendData?.length,
+        isArray: Array.isArray(stock.trendData)
+      })))
+
       lastUpdate.value = new Date().toLocaleTimeString()
+      console.log('✅ Data loading completed successfully')
     } else {
+      console.error('❌ API returned error:', response)
       error.value = response.error || 'Failed to fetch data'
     }
   } catch (err) {
-    console.error(`Error loading ${props.type}:`, err)
+    console.error(`❌ Error loading ${props.type}:`, err)
+    console.error('❌ Error stack:', err.stack)
     error.value = `Failed to load ${props.type}: ${err.message}`
   } finally {
     loading.value = false
@@ -223,6 +267,7 @@ async function refreshData() {
 
 // Lifecycle
 onMounted(() => {
+  connect() // Connect to WebSocket
   loadMovers()
 })
 

@@ -30,7 +30,11 @@ export function createRestApiRoutes() {
   app.get('/api/movers', async (req, res) => {
     try {
       const { market = 'stocks', direction = 'both', top = '10' } = req.query
-      const response = await getTopMovers(market, direction, parseInt(top))
+
+      // Handle 'all' market type by defaulting to 'stocks'
+      const validMarket = market === 'all' ? 'stocks' : market
+
+      const response = await getTopMovers(validMarket, direction, parseInt(top))
 
       if (response.error) {
         return res.status(500).json({ error: response.message || 'Failed to fetch top movers.' })

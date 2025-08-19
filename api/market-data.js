@@ -609,104 +609,6 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
     // Use IEX feed only as per project requirements.
     const allBars = await fetchHistoricalDataIEX(symbol, alpacaTimeframe, startDate, endDate, limit)
 
-    // NEW: Enhanced logic to detect limited intraday data and try higher timeframes
-    if (alpacaTimeframe === '1Min' && allBars && allBars.length > 0) {
-      const testData = allBars.map(bar => ({
-        timestamp: new Date(bar.t).getTime(),
-        open: bar.o,
-        high: bar.h,
-        low: bar.l,
-        close: bar.c,
-        volume: bar.v,
-        price: bar.c
-      }))
-
-      const sortedTestData = testData.sort((a, b) => a.timestamp - b.timestamp)
-      const lastDataTime = sortedTestData[sortedTestData.length - 1]?.timestamp
-      const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000)
-
-      if (sortedTestData.length < 100 || lastDataTime < twoDaysAgo) {
-        console.log(`🔍 Limited 1Min data (${sortedTestData.length} points) - checking for more recent data in higher timeframes`)
-
-        // Try 1Hour timeframe for more recent data
-        try {
-          const hourlyBars = await fetchHistoricalDataIEX(symbol, '1Hour', startDate, endDate, limit)
-
-          if (hourlyBars && hourlyBars.length > 0) {
-            const hourlyData = hourlyBars.map(bar => ({
-              timestamp: new Date(bar.t).getTime(),
-              open: bar.o,
-              high: bar.h,
-              low: bar.l,
-              close: bar.c,
-              volume: bar.v,
-              price: bar.c
-            }))
-
-            const sortedHourlyData = hourlyData.sort((a, b) => a.timestamp - b.timestamp)
-            const lastHourlyPoint = sortedHourlyData[sortedHourlyData.length - 1]
-            const lastHourlyDate = new Date(lastHourlyPoint.timestamp)
-
-            // If hourly data is more recent, use it instead
-            if (lastHourlyPoint.timestamp > lastDataTime) {
-              console.log(`✅ Using 1Hour data instead: more recent data available until ${lastHourlyDate.toLocaleDateString()}`)
-              return {
-                symbol,
-                period,
-                timeframe: '1Hour',
-                data: sortedHourlyData,
-                isFallbackData: true,
-                fallbackMessage: `Using 1Hour data (more recent than 1Min) until ${lastHourlyDate.toLocaleDateString()}`,
-                originalTimeframe: '1Min',
-                effectiveTimeframe: '1Hour',
-                lastTradingDate: lastHourlyDate
-              }
-            }
-          }
-        } catch (hourlyError) {
-          console.warn(`⚠️ Failed to fetch hourly data:`, hourlyError.message)
-        }
-
-        // Try 1Day timeframe as final fallback
-        try {
-          const dailyBars = await fetchHistoricalDataIEX(symbol, '1Day', startDate, endDate, limit)
-
-          if (dailyBars && dailyBars.length > 0) {
-            const dailyData = dailyBars.map(bar => ({
-              timestamp: new Date(bar.t).getTime(),
-              open: bar.o,
-              high: bar.h,
-              low: bar.l,
-              close: bar.c,
-              volume: bar.v,
-              price: bar.c
-            }))
-
-            const sortedDailyData = dailyData.sort((a, b) => a.timestamp - b.timestamp)
-            const lastDailyPoint = sortedDailyData[sortedDailyData.length - 1]
-            const lastDailyDate = new Date(lastDailyPoint.timestamp)
-
-            // If daily data is more recent, use it instead
-            if (lastDailyPoint.timestamp > lastDataTime) {
-              console.log(`✅ Using 1Day data instead: more recent data available until ${lastDailyDate.toLocaleDateString()}`)
-              return {
-                symbol,
-                period,
-                timeframe: '1Day',
-                data: sortedDailyData,
-                isFallbackData: true,
-                fallbackMessage: `Using 1Day data (more recent than 1Min) until ${lastDailyDate.toLocaleDateString()}`,
-                originalTimeframe: '1Min',
-                effectiveTimeframe: '1Day',
-                lastTradingDate: lastDailyDate
-              }
-            }
-          }
-        } catch (dailyError) {
-          console.warn(`⚠️ Failed to fetch daily data:`, dailyError.message)
-        }
-      }
-    }
 
     if (!allBars || allBars.length === 0) {
       console.log(`🔍 No data found for ${symbol} with ${period}/${alpacaTimeframe} - trying smart fallback`)
@@ -784,7 +686,8 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
                   }
                 }
               }
-            } catch (hourlyError) {
+            }
+            catch (hourlyError) {
               console.warn(`⚠️ Failed to fetch hourly data:`, hourlyError.message)
             }
 

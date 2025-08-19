@@ -75,7 +75,8 @@ w-grid.gap4(:columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }" )
   ticker-card(
     v-for="stock in paginatedStocks.slice(0, 20)"
     :key="stock.symbol"
-    :stock="stock")
+    :stock="stock"
+    :hide-empty-trends="true")
 
 //- Loading State
 .w-flex.column.py12.align-center.justify-center(v-if="loading")
