@@ -38,6 +38,9 @@
 
       //- Percentage change (for top movers)
       span.text-bold.size--sm(v-if="showPercentageChange && stock.pct != null" :class="stock.pct >= 0 ? 'success' : 'error'") {{ stock.pct >= 0 ? '+' : '' }}{{ stock.pct.toFixed(2) }}%
+
+    //- Volume multiplier indicator (for top movers)
+    .volume-multiplier(v-if="showPercentageChange && volumeMultiplier" :class="volumeMultiplierClass") {{ volumeMultiplier }}x
 </template>
 
 <script setup>
@@ -66,13 +69,26 @@ const hasBatchData = ref(false)
 // Check if trend data is pre-loaded in the stock object
 const hasPreloadedTrend = computed(() => {
   const hasData = props.stock.trendData && Array.isArray(props.stock.trendData)
-  console.log(`🔍 hasPreloadedTrend for ${props.stock.symbol}:`, {
-    hasData,
-    trendData: props.stock.trendData,
-    isArray: Array.isArray(props.stock.trendData),
-    length: props.stock.trendData?.length
-  })
   return hasData
+})
+
+// Volume multiplier indicator for top movers
+const volumeMultiplier = computed(() => {
+  if (!props.stock.volumeAnalysis?.volumeRatio) return null
+  const ratio = props.stock.volumeAnalysis.volumeRatio
+  if (ratio >= 5) return Math.round(ratio)
+  if (ratio >= 3) return Math.round(ratio)
+  if (ratio >= 1.5) return Math.round(ratio) // Lowered threshold for testing
+  return null // Only show for 1.5x or higher
+})
+
+const volumeMultiplierClass = computed(() => {
+  if (!volumeMultiplier.value) return ''
+  const ratio = volumeMultiplier.value
+  if (ratio >= 5) return 'volume--extreme'
+  if (ratio >= 3) return 'volume--high'
+  if (ratio >= 1.5) return 'volume--medium'
+  return 'volume--medium'
 })
 
 // Use pre-loaded trend data only - NO individual API calls
@@ -208,7 +224,34 @@ onBeforeUnmount(() => {
     justify-content: center;
     letter-spacing: 0.5px;
     font-size: 11px;
-    opacity: 0.4;
+  }
+
+  .volume-multiplier {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 2px 4px;
+    border-radius: 3px;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    z-index: 10;
+
+    &.volume--extreme {
+      background: linear-gradient(135deg, #ff4444, #cc0000);
+      box-shadow: 0 2px 4px rgba(255, 68, 68, 0.4);
+    }
+
+    &.volume--high {
+      background: linear-gradient(135deg, #ff8800, #ff6600);
+      box-shadow: 0 2px 4px rgba(255, 136, 0, 0.4);
+    }
+
+    &.volume--medium {
+      background: linear-gradient(135deg, #ffaa00, #ff8800);
+      box-shadow: 0 2px 4px rgba(255, 170, 0, 0.4);
+    }
   }
 
   .w-spinner {height: 12px;}
