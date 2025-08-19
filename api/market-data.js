@@ -1533,11 +1533,18 @@ export async function getTopMovers(market = 'stocks', direction = 'both', top = 
     if (data && (data.gainers || data.losers)) {
       const allMovers = []
 
+      // Get current market status once for all stocks.
+      const marketStatus = await getMarketStatus()
+
       if (direction === 'gainers' || direction === 'both') {
         allMovers.push(...(data.gainers || []).map(stock => ({
           ...stock,
           pct: stock.percent_change,
-          volumeStatus: 'high' // Screener stocks are typically high volume by definition.
+          volumeStatus: 'high', // Screener stocks are typically high volume by definition.
+          marketState: marketStatus.status,
+          marketMessage: marketStatus.message,
+          nextOpen: marketStatus.nextOpen,
+          nextClose: marketStatus.nextClose
         })))
       }
 
@@ -1545,7 +1552,11 @@ export async function getTopMovers(market = 'stocks', direction = 'both', top = 
         allMovers.push(...(data.losers || []).map(stock => ({
           ...stock,
           pct: stock.percent_change,
-          volumeStatus: 'high' // Screener stocks are typically high volume by definition.
+          volumeStatus: 'high', // Screener stocks are typically high volume by definition.
+          marketState: marketStatus.status,
+          marketMessage: marketStatus.message,
+          nextOpen: marketStatus.nextOpen,
+          nextClose: marketStatus.nextClose
         })))
       }
 
@@ -1580,7 +1591,11 @@ export async function getTopMovers(market = 'stocks', direction = 'both', top = 
                 percent_change: pct,
                 pct,
                 volume: lastPoint.volume || 0,
-                volumeStatus: 'normal'
+                volumeStatus: 'normal',
+                marketState: 'closed', // Fallback data is typically from closed market
+                marketMessage: 'Last Available Data',
+                nextOpen: null,
+                nextClose: null
               })
             }
           }
