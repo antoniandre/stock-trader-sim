@@ -33,7 +33,14 @@ export function useWebSocket(url = 'ws://localhost:3000') {
 
           // Call all registered handlers for this message type.
           const handlers = messageHandlers.get(data.type) || []
-          for (const handler of handlers) handler(data)
+          for (const handler of handlers) {
+            try {
+              handler(data)
+            }
+            catch (handlerError) {
+              console.error('Error in WebSocket message handler:', handlerError)
+            }
+          }
         }
         catch (error) {
           console.error('Error parsing WebSocket message:', error)
@@ -84,13 +91,28 @@ export function useWebSocket(url = 'ws://localhost:3000') {
     const handlers = messageHandlers.get(type)
     const index = handlers.indexOf(handler)
     if (index > -1) handlers.splice(index, 1)
+
+    // Clean up empty handler arrays to prevent memory leaks
+    if (handlers.length === 0) messageHandlers.delete(type)
   }
 
   // Cleanup
   // --------------------------------------------------------
+  function cleanup() {
+    if (ws) {
+      ws.close()
+      ws = null
+    }
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout)
+      reconnectTimeout = null
+    }
+    messageHandlers.clear()
+    wsConnected.value = false
+  }
+
   onBeforeUnmount(() => {
-    if (ws) ws.close()
-    if (reconnectTimeout) clearTimeout(reconnectTimeout)
+    cleanup()
   })
 
   return {
@@ -101,6 +123,7 @@ export function useWebSocket(url = 'ws://localhost:3000') {
     subscribeToStock,
     unsubscribeFromStock,
     addMessageHandler,
-    removeMessageHandler
+    removeMessageHandler,
+    cleanup
   }
 }

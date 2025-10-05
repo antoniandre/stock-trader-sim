@@ -13,7 +13,6 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
   // --------------------------------------------------------
   function calculateEMA(prices, period = INDICATOR_PERIODS.EMA) {
     if (!prices || prices.length === 0 || prices.length < period) {
-      console.log(`⚠️ EMA: Not enough data (need ${period}, got ${prices.length})`)
       return []
     }
 
@@ -34,7 +33,6 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
       ema[i] = (currentPrice * multiplier) + (prevEMA * (1 - multiplier))
     }
 
-    console.log(`✅ EMA calculated: input=${prices.length}, output=${ema.length}, period=${period}`)
     return ema
   }
 
@@ -72,7 +70,6 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
   // --------------------------------------------------------
   function calculateMACD(prices, fast = INDICATOR_PERIODS.MACD.fast, slow = INDICATOR_PERIODS.MACD.slow, signal = INDICATOR_PERIODS.MACD.signal) {
     if (!prices || prices.length < slow + signal) {
-      console.log(`⚠️ MACD: Not enough data points (need ${slow + signal}, got ${prices.length})`)
       return { macd: [], signal: [], histogram: [] }
     }
 
@@ -81,7 +78,6 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
     const emaSlow = calculateEMA(prices, slow)
 
     if (emaFast.length === 0 || emaSlow.length === 0) {
-      console.log('⚠️ MACD: EMA calculation failed')
       return { macd: [], signal: [], histogram: [] }
     }
 
@@ -97,7 +93,6 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
     }
 
     if (macdLine.length === 0) {
-      console.log('⚠️ MACD: MACD line calculation failed')
       return { macd: [], signal: [], histogram: [] }
     }
 
@@ -237,22 +232,10 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
   const macdChartData = computed(() => {
     try {
       if (!macdValues.value.macd || macdValues.value.macd.length === 0) {
-        console.log('⚠️ MACD: No MACD data available')
         return { labels: [], datasets: [] }
       }
 
       const timestamps = ohlcData.value.slice(-macdValues.value.macd.length).map(d => d.timestamp)
-
-      // Debug logging to ensure we have both lines
-      console.log('📊 MACD Chart Debug:', {
-        macdLength: macdValues.value.macd.length,
-        signalLength: macdValues.value.signal.length,
-        histogramLength: macdValues.value.histogram.length,
-        timestampsLength: timestamps.length,
-        sampleMacd: macdValues.value.macd.slice(-3),
-        sampleSignal: macdValues.value.signal.slice(-3),
-        sampleHistogram: macdValues.value.histogram.slice(-3)
-      })
 
       const datasets = []
 
@@ -317,7 +300,7 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
           order: 2
         })
       }
-      else console.warn('⚠️ MACD: No Signal line data available')
+      else return { labels: [], datasets: [] }
 
       return {
         labels: timestamps,

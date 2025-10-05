@@ -93,16 +93,8 @@ const volumeMultiplierClass = computed(() => {
 
 // Use pre-loaded trend data only - NO individual API calls
 async function initializeTrendData() {
-  console.log(`🔍 Initializing trend data for ${props.stock.symbol}:`, {
-    hasPreloadedTrend: hasPreloadedTrend.value,
-    hasBatchData: hasBatchData.value,
-    trendData: props.stock.trendData,
-    trendDataLength: props.stock.trendData?.length
-  })
-
   // If we already have batch data from the watch, don't do anything
   if (hasBatchData.value) {
-    console.log(`✅ Already have batch data for ${props.stock.symbol}, skipping initialization`)
     return
   }
 
@@ -111,35 +103,15 @@ async function initializeTrendData() {
     trendData.value = props.stock.trendData
     trendLoading.value = false
     hasBatchData.value = true
-    console.log(`✅ Using pre-loaded trend data for ${props.stock.symbol} (${trendData.value.length} points)`)
 
     if (props.stock.trendFallback) {
       console.debug(`Using ${props.stock.trendFallback.period}/${props.stock.trendFallback.timeframe} trend data for ${props.stock.symbol}`)
     }
-  } else {
-    // Wait for batch data to arrive - NO individual API calls
-    console.warn(`⚠️ No pre-loaded trend data for ${props.stock.symbol}, waiting for batch data...`)
-
-    // Wait for batch data to potentially arrive
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
-    // Check again after waiting
-    if (hasPreloadedTrend.value) {
-      console.log(`✅ Batch data arrived for ${props.stock.symbol}, using pre-loaded data`)
-      trendData.value = props.stock.trendData
-      trendLoading.value = false
-      hasBatchData.value = true
-    } else {
-      console.warn(`❌ No batch data available for ${props.stock.symbol} - showing empty trend`)
-      console.log(`🔍 Final check for ${props.stock.symbol}:`, {
-        stock: props.stock,
-        trendData: props.stock.trendData,
-        hasPreloadedTrend: hasPreloadedTrend.value
-      })
-      // NO individual API call - just show empty trend
-      trendData.value = []
-      trendLoading.value = false
-    }
+  }
+  else {
+    // No pre-loaded trend data - show empty trend
+    trendData.value = []
+    trendLoading.value = false
   }
 }
 
@@ -147,14 +119,7 @@ async function initializeTrendData() {
 
 // Watch for changes in pre-loaded trend data
 watch(() => props.stock.trendData, (newTrendData) => {
-  console.log(`👀 Watch triggered for ${props.stock.symbol}:`, {
-    newTrendData,
-    isArray: Array.isArray(newTrendData),
-    length: newTrendData?.length
-  })
-
   if (newTrendData && Array.isArray(newTrendData) && newTrendData.length > 0) {
-    console.log(`✅ Watch: Using batch data for ${props.stock.symbol} (${newTrendData.length} points)`)
     trendData.value = newTrendData
     trendLoading.value = false
     hasBatchData.value = true

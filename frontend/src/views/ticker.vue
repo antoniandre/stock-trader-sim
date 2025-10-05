@@ -1708,13 +1708,25 @@ onUnmounted(() => {
   }
 
   // Clear active requests.
+  activeRequests.value.forEach(request => request.abort())
   activeRequests.value.clear()
+
+  // Clear data to free memory
+  priceHistory.value = []
+  historicalData.value = []
+  statsHistoricalData.value = []
+  realtimeOHLC.value = []
+  recentTrades.value = []
+  timeframeDataCache.value.clear()
+  dataCache.value.clear()
 })
 
 watch(() => props.symbol, async (newSymbol, oldSymbol) => {
   if (newSymbol === oldSymbol) return
 
-  console.log(`📊 Symbol changed from ${oldSymbol} to ${newSymbol}`)
+  // Cancel any ongoing requests for the old symbol
+  activeRequests.value.forEach(request => request.abort())
+  activeRequests.value.clear()
 
   // Clear all data for symbol change
   priceHistory.value = []
@@ -1723,18 +1735,17 @@ watch(() => props.symbol, async (newSymbol, oldSymbol) => {
   realtimeOHLC.value = []
   recentTrades.value = []
 
-  // Clear timeframe cache for new symbol
+  // Clear timeframe cache for new symbol.
   timeframeDataCache.value.clear()
   dataCache.value.clear()
-  activeRequests.value.clear()
 
+  // Reset state.
+  userHasPanned.value = false
+  isLoadingHistoricalData.value = false
+
+  // Fetch new data.
   await Promise.all([fetchStockData(), fetchHistoricalData()])
 }, { immediate: false })
-
-// Remove the problematic watcher that causes full reloads
-// watch([selectedPeriod, selectedTimeframe], async () => {
-//   await fetchHistoricalData()
-// })
 
 watch(() => historicalData.value.length, (newLength, oldLength) => {
   if (newLength > oldLength) console.log(`📊 Added ${newLength - oldLength} historical data points`)
