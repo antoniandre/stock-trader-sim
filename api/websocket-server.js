@@ -1,8 +1,9 @@
 import WebSocket, { WebSocketServer } from 'ws'
-import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state } from './config.js'
+import { IS_SIMULATION, state } from './config.js'
 import { getMarketStatus, getStockMarketStatus, startPricePolling, stopPricePolling } from './market-data.js'
 import { placeOrder } from './alpaca-account.js'
 import { runSimulation, mockPrices } from './simulation.js'
+import { createAlpacaWebSocket, subscribeToSymbols, unsubscribeFromSymbols } from './clients/alpaca-websocket-client.js'
 
 // WebSocket State.
 // --------------------------------------------------------
@@ -157,9 +158,7 @@ export function subscribeToStock(symbol) {
     if (subscribedStocks.size === 1) startPricePolling(subscribedStocks, broadcast)
 
     if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1 && isAuthenticated) {
-      const subscribeMessage = { action: 'subscribe', trades: [symbol], quotes: [symbol] }
-      state.alpacaWebSocket.send(JSON.stringify(subscribeMessage))
-      console.log(`📡 Subscribed to ${symbol} via WebSocket`)
+      subscribeToSymbols(state.alpacaWebSocket, [symbol])
     }
     else {
       console.log(`📡 ${symbol} queued for subscription`)
@@ -187,12 +186,7 @@ export function unsubscribeFromStock(symbol) {
     }
 
     if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1) {
-      const unsubscribeMessage = {
-        action: 'unsubscribe',
-        trades: [symbol],
-        quotes: [symbol]
-      }
-      state.alpacaWebSocket.send(JSON.stringify(unsubscribeMessage))
+      unsubscribeFromSymbols(state.alpacaWebSocket, [symbol])
     }
   }
 }
@@ -289,61 +283,47 @@ export function createWebSocketServer(server) {
 export function connectAlpacaWebSocket() {
   if (IS_SIMULATION) return
 
-  try {
-    console.log('🔌 Connecting to Alpaca WebSocket stream...')
-    state.alpacaWebSocket = new WebSocket(ALPACA_DATA_STREAM_URL)
-
-    state.alpacaWebSocket.on('open', () => {
-      console.log('✅ Connected to Alpaca WebSocket stream')
-      const authMessage = { action: 'auth', key: ALPACA_KEY, secret: ALPACA_SECRET }
-      console.log('🔑 Sending authentication message...')
-      state.alpacaWebSocket.send(JSON.stringify(authMessage))
-    })
-
-    state.alpacaWebSocket.on('message', (data) => {
-      try {
-        const messages = JSON.parse(data)
-
-        if (Array.isArray(messages)) {
-          console.log('📨 Processing', messages.length, 'messages')
-          for (const message of messages) {
-            handleAlpacaMessage(message)
-          }
-        }
+  const handleMessage = (messageData) => {
+    // Check for error responses first.
+    if (messageData.retryAfter !== undefined) {
+      if (messageData.code === 406) {
+        console.error('💡 Connection limit exceeded. Waiting 60s before retry...')
+        cleanupAlpacaConnection()
+        setTimeout(connectAlpacaWebSocket, messageData.retryAfter)
+        return
       }
-      catch (error) {
-        console.error('❌ Error parsing WebSocket message:', error)
-        console.error('Raw message:', data.toString())
+      if (messageData.code === 401) {
+        console.error('💡 Authentication failed. Check your keys.')
+        cleanupAlpacaConnection()
+        return
       }
-    })
+    }
 
-    state.alpacaWebSocket.on('error', (error) => {
-      console.error('❌ Alpaca WebSocket error:', error)
-    })
+    const { type, symbol, price } = messageData
 
-    state.alpacaWebSocket.on('close', (code, reason) => {
-      console.log(`🔌 Alpaca WebSocket disconnected (code: ${code})`)
-      cleanupAlpacaConnection()
+    if (type === 'trade') {
+      console.log(`💰 Trade received: ${symbol} @ $${price}`)
+      const currentPrice = state.stockPrices[symbol]
+      const shouldUpdate = shouldUpdatePrice(symbol, price, currentPrice, 'trade')
 
-      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        reconnectAttempts++
-        console.log(`🔄 Reconnecting in ${RECONNECT_DELAY/1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
-        setTimeout(connectAlpacaWebSocket, RECONNECT_DELAY)
+      if (shouldUpdate) {
+        state.stockPrices[symbol] = price
+        broadcastPriceUpdate(symbol, price)
       }
-      else {
-        console.error('❌ Max reconnection attempts reached')
-        reconnectAttempts = 0
+    }
+    else if (type === 'quote') {
+      console.log(`📈 Quote received: ${symbol} @ $${price}`)
+      const currentPrice = state.stockPrices[symbol]
+      const shouldUpdate = shouldUpdatePrice(symbol, price, currentPrice, 'quote')
+
+      if (shouldUpdate) {
+        state.stockPrices[symbol] = price
+        broadcastPriceUpdate(symbol, price)
       }
-    })
+    }
   }
-  catch (error) {
-    console.error('❌ Failed to connect to Alpaca WebSocket:', error)
-  }
-}
 
-function handleAlpacaMessage(message) {
-  if (message.T === 'success' && message.msg === 'authenticated') {
-    console.log('✅ Authenticated with Alpaca WebSocket')
+  const handleAuthenticated = () => {
     isAuthenticated = true
     reconnectAttempts = 0
 
@@ -355,70 +335,37 @@ function handleAlpacaMessage(message) {
 
     if (subscribedStocks.size > 0) {
       const stocksArray = Array.from(subscribedStocks)
-      const subscribeMessage = { action: 'subscribe', trades: stocksArray, quotes: stocksArray }
-      console.log('📡 Subscribing to trades and quotes for:', stocksArray)
-      state.alpacaWebSocket.send(JSON.stringify(subscribeMessage))
+      subscribeToSymbols(state.alpacaWebSocket, stocksArray)
     }
     else {
       console.log('📡 No stocks requested yet, waiting for subscriptions...')
     }
   }
 
-  if (message.T === 't') {
-    const symbol = message.S
-    const price = message.p
-    console.log(`💰 Trade received: ${symbol} @ $${price}`)
+  const handleError = (error) => {
+    console.error('❌ Alpaca WebSocket error:', error)
+  }
 
-    // Always update and broadcast trade prices as they represent actual transactions.
-    const currentPrice = state.stockPrices[symbol]
-    const shouldUpdate = shouldUpdatePrice(symbol, price, currentPrice, 'trade')
+  const handleClose = (code, reason) => {
+    cleanupAlpacaConnection()
 
-    if (shouldUpdate) {
-      state.stockPrices[symbol] = price
-      broadcastPriceUpdate(symbol, price)
+    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      reconnectAttempts++
+      console.log(`🔄 Reconnecting in ${RECONNECT_DELAY/1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
+      setTimeout(connectAlpacaWebSocket, RECONNECT_DELAY)
+    }
+    else {
+      console.error('❌ Max reconnection attempts reached')
+      reconnectAttempts = 0
     }
   }
 
-  if (message.T === 'q') {
-    const symbol = message.S
-    const askPrice = message.ap
-    const bidPrice = message.bp
-    const price = askPrice || bidPrice
-
-    if (price > 0) {
-      console.log(`📈 Quote received: ${symbol} @ $${price}`)
-
-      // Advanced stale price detection.
-      const currentPrice = state.stockPrices[symbol]
-      const shouldUpdate = shouldUpdatePrice(symbol, price, currentPrice, 'quote')
-
-      if (shouldUpdate) {
-        state.stockPrices[symbol] = price
-        broadcastPriceUpdate(symbol, price)
-      }
-    }
-  }
-
-  if (message.T === 'error') {
-    console.error(`❌ Alpaca WebSocket error: ${message.code} - ${message.msg}`)
-
-    if (message.code === 406) {
-      console.error('💡 Connection limit exceeded. Waiting 60s before retry...')
-      cleanupAlpacaConnection()
-      setTimeout(connectAlpacaWebSocket, 60000)
-      return
-    }
-
-    if (message.code === 401) {
-      console.error('💡 Authentication failed. Check your keys.')
-      cleanupAlpacaConnection()
-      return
-    }
-  }
-
-  if (message.T && message.T !== 't' && message.T !== 'q' && message.T !== 'success' && message.T !== 'error') {
-    console.log(`🔍 Unknown message type: ${message.T}`, message)
-  }
+  state.alpacaWebSocket = createAlpacaWebSocket(
+    handleMessage,
+    handleAuthenticated,
+    handleError,
+    handleClose
+  )
 }
 
 async function broadcastPriceUpdate(symbol, price) {

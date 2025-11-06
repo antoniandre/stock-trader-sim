@@ -2,6 +2,7 @@ import axios from 'axios'
 import { ALPACA_BASE_URL, ALPACA_API_BASE_URL, HEADERS, IS_SIMULATION, state } from './config.js'
 import { getEasternTime, getCurrencyInfo } from './utils.js'
 import { getMockPrice, initializeMockPrices, getMockTradableStocks, generateMockHistoricalData, generateMockHistoricalDataByRange } from './simulation.js'
+import * as AlpacaClient from './clients/alpaca-client.js'
 
 // Market Calendar Functions.
 // --------------------------------------------------------
@@ -14,12 +15,8 @@ export async function fetchMarketCalendar(startDate, endDate) {
   if (IS_SIMULATION) return null
 
   try {
-    const start = startDate || new Date().toISOString().split('T')[0]
-    const end = endDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    const url = `${ALPACA_BASE_URL}/v2/calendar?start=${start}&end=${end}`
-
     console.log('📅 Fetching market calendar from Alpaca...')
-    const { data } = await axios.get(url, { headers: HEADERS })
+    const data = await AlpacaClient.getMarketCalendar(startDate, endDate)
     marketCalendar = data
     console.log(`✅ Fetched ${data.length} market calendar entries`)
     return data
@@ -34,9 +31,8 @@ export async function fetchMarketClock() {
   if (IS_SIMULATION) return null
 
   try {
-    const url = `${ALPACA_BASE_URL}/v2/clock`
     console.log('🕐 Fetching market clock from Alpaca...')
-    const { data } = await axios.get(url, { headers: HEADERS })
+    const data = await AlpacaClient.getMarketClock()
     marketClockData = data
     console.log(`✅ Market clock: ${data.is_open ? 'OPEN' : 'CLOSED'}`)
     return data
@@ -430,39 +426,29 @@ export async function getPrice(symbol) {
 
   // Try multiple endpoints in order of preference for different market conditions.
   const endpoints = [
-    // Real-time quote (best for active trading hours).
-    {
-      url: `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/quotes/latest?feed=iex`,
-      type: 'quote',
-      priority: 1
-    },
-    // Latest trade (good for extended hours).
-    {
-      url: `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/trades/latest?feed=iex`,
-      type: 'trade',
-      priority: 2
-    },
-    // Daily bar (fallback when markets are closed).
-    {
-      url: `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars/latest?timeframe=1Day&feed=iex`,
-      type: 'bar',
-      priority: 3
-    }
+    { type: 'quote', priority: 1 },
+    { type: 'trade', priority: 2 },
+    { type: 'bar', priority: 3 }
   ]
 
   for (const endpoint of endpoints) {
     try {
       console.log(`💰 Fetching ${symbol} price from ${endpoint.type} endpoint...`)
-      const { data } = await axios.get(endpoint.url, { headers: HEADERS })
+      let data = null
       let price = 0
 
-      // Extract price based on endpoint type.
-      // For quotes, prefer ask price, fallback to bid.
-      if (endpoint.type === 'quote') price = data.quote?.ap || data.quote?.bp || 0
-      // For trades, use the trade price.
-      else if (endpoint.type === 'trade') price = data.trade?.p || 0
-      // For bars, use the closing price.
-      else if (endpoint.type === 'bar') price = data.bar?.c || 0
+      if (endpoint.type === 'quote') {
+        data = await AlpacaClient.getLatestQuote(symbol, 'iex')
+        price = data.quote?.ap || data.quote?.bp || 0
+      }
+      else if (endpoint.type === 'trade') {
+        data = await AlpacaClient.getLatestTrade(symbol, 'iex')
+        price = data.trade?.p || 0
+      }
+      else if (endpoint.type === 'bar') {
+        data = await AlpacaClient.getLatestBar(symbol, '1Day', 'iex')
+        price = data.bar?.c || 0
+      }
 
       if (price > 0) {
         console.log(`💲 Got ${symbol} price: $${price.toFixed(3)} from ${endpoint.type}`)
@@ -522,8 +508,7 @@ export async function getAllTradableStocks() {
 
   try {
     console.log('📊 Fetching all tradable stocks from Alpaca...')
-    const url = `${ALPACA_BASE_URL}/v2/assets?status=active&tradable=true&asset_class=us_equity`
-    const { data } = await axios.get(url, { headers: HEADERS })
+    const data = await AlpacaClient.getAssets('active', 'us_equity', null)
 
     state.allStocks = data
       .filter(asset =>
@@ -1022,22 +1007,10 @@ async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, e
 
   do {
     try {
-      const params = new URLSearchParams({
-        timeframe: timeframe,
-        limit: Math.min(10000, maxLimit).toString(), // Use Alpaca's maximum limit of 10,000 per request.
-        start: start.toISOString(),
-        end: end.toISOString(),
-        feed: feed
-      })
-
-      if (pageToken) {
-        params.append('page_token', pageToken)
-      }
-
-      const url = `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars?${params}`
+      const limit = Math.min(10000, maxLimit)
       console.log(`📊 Fetching page ${requestCount + 1} for ${symbol}${pageToken ? ' (paginated)' : ''} [${feed.toUpperCase()}]`)
 
-      const { data } = await axios.get(url, { headers: HEADERS })
+      const data = await AlpacaClient.getBars(symbol, timeframe, start, end, limit, feed, pageToken)
 
       if (data.bars && data.bars.length > 0) {
         allBars.push(...data.bars)
@@ -1085,18 +1058,10 @@ export async function getStockHistoricalDataByRange(symbol, timeframe, startDate
     const end = new Date(endDate)
     const rangeDays = Math.ceil((end - start) / (24 * 60 * 60 * 1000))
     const limit = calculateDataLimitForRange(timeframe, rangeDays)
-    const params = new URLSearchParams({
-      timeframe: timeframe,
-      limit: limit.toString(),
-      start: start.toISOString(),
-      end: end.toISOString(),
-      feed: 'iex'
-    })
 
-    const url = `${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars?${params}`
     console.log(`📊 Fetching range data for ${symbol}: ${timeframe}`)
 
-    const { data } = await axios.get(url, { headers: HEADERS })
+    const data = await AlpacaClient.getBars(symbol, timeframe, start, end, limit, 'iex', null)
 
     if (!data.bars || data.bars.length === 0) {
       console.error(`❌ ALPACA DATA ISSUE: No range data for ${symbol}`)
@@ -1522,12 +1487,7 @@ export function stopPricePolling() {
 
 export async function getTopMovers(market = 'stocks', direction = 'both', top = 10) {
   try {
-    const base = `${ALPACA_API_BASE_URL}/v1beta1/screener/${market}/movers`
-    const params = new URLSearchParams()
-    if (top) params.append('top', String(top))
-
-    const url = params.toString() ? `${base}?${params.toString()}` : base
-    const { data } = await axios.get(url, { headers: HEADERS })
+    const data = await AlpacaClient.getTopMovers(market, top)
 
     // Process the data to include volume analysis from screener data.
     if (data && (data.gainers || data.losers)) {
