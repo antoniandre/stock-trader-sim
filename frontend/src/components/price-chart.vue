@@ -117,12 +117,10 @@
     DrawingTools(:chart-container="chartContainer")
 
     //- RSI Pane (if enabled)
-    .chart.chart--rsi.mt2(v-show="showRSI && chartType === 'candlestick'")
-      .w-flex.align-center.justify-space-between.pa1.contrast-o05--bg
-        .size--sm.text-bold.op7.ml8 RSI (14)
-        .pane-values.size--xs.op3
-          span.mr2 {{ currentRSI }}
-          span Overbought: 70 • Oversold: 30
+    .chart.chart--rsi.mt-1(v-show="showRSI && chartType === 'candlestick'")
+      .w-flex.align-center.pa1.op4.ml7.absolute
+        strong.size--sm.op7 RSI (14)
+        code.size--sm.ml2 {{ currentRSI }}
 
       .chart-container
         Line(
@@ -132,13 +130,10 @@
           :options="synchronizedRsiChartOptions")
 
     //- MACD Pane (if enabled)
-    .chart.chart--macd.mt2(v-show="showMACD && chartType === 'candlestick'")
-      .w-flex.align-center.justify-space-between.pa1.contrast-o05--bg
-        .size--sm.text-bold.op7.ml8 MACD (12,26,9)
-        .pane-values.size--xs.op3
-          span.mr2 MACD: {{ currentMACD }}
-          span.mr2 Signal: {{ currentSignal }}
-          span Histogram: {{ currentHistogram }}
+    .chart.chart--macd.mt-1(v-show="showMACD && chartType === 'candlestick'")
+      .w-flex.align-center.pa1.op4.ml7.absolute
+        strong.size--sm.op7 MACD (12,26,9)
+        code.size--sm.ml2 {{ currentMACD }}/{{ currentSignal }}/{{ currentHistogram }}
 
       .chart-container
         Line(
@@ -1618,16 +1613,20 @@ defineExpose({
     .chart {
       position: relative;
 
-      canvas {cursor: crosshair;}
+      canvas {
+        cursor: crosshair;
+        width: 100% !important;
+        height: 100% !important;
+      }
 
-      // Individual pane heights.
+      &.chart--rsi, &.chart--macd {border-top: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 10%, transparent);}
+      &.chart--rsi .chart-container  {max-height: 100px;}
+      &.chart--macd .chart-container  {max-height: 130px;}
       &.chart--rsi .chart-container canvas,
       &.chart--macd .chart-container canvas {
         max-height: 100% !important;
         overflow: hidden;
       }
-      &.chart--rsi .chart-container  {max-height: 100px;}
-      &.chart--macd .chart-container  {max-height: 130px;}
     }
   }
 }
