@@ -97,3 +97,17 @@ export function formatPriceChangePercent(changePercent, decimals = 2) {
   const sign = value >= 0 ? '+' : ''
   return `${sign}${value.toFixed(decimals)}%`
 }
+
+// Format price to 2 decimal places (without currency symbol).
+export function formatPrice(price, decimals = 2) {
+  if (!price && price !== 0) return '0.00'
+  return typeof price === 'number' ? price.toFixed(decimals) : price
+}
+
+// Format volume with commas (no K/M/B suffixes).
+export function formatVolume(volume) {
+  if (!volume && volume !== 0) return '0'
+  if (typeof volume !== 'number') return volume
+  // Format large numbers with commas.
+  return volume.toLocaleString('en-US', { maximumFractionDigits: 0 })
+}

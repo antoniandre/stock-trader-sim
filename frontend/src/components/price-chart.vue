@@ -1,6 +1,16 @@
 <template lang="pug">
 .price-chart
-  .pane-values.size--xs.op7(v-if="currentPrice") OHLC: {{ formatPrice(currentPrice) }}
+  .pane-values.size--xs(v-if="currentOHLC" :class="ohlcColorClass")
+    span.base-color.ml1 O
+    strong {{ formatPrice(currentOHLC.open) }}
+    span.base-color.ml1 H
+    strong {{ formatPrice(currentOHLC.high) }}
+    span.base-color.ml1 L
+    strong {{ formatPrice(currentOHLC.low) }}
+    span.base-color.ml1 C
+    strong {{ formatPrice(currentOHLC.close) }}
+    span.base-color.ml1 V
+    strong {{ formatVolume(currentOHLC.volume) }}
 
   //- Chart Controls
   .chart-controls.w-flex.justify-space-between.align-center.mb2
@@ -172,6 +182,7 @@ import 'chartjs-chart-financial'
 import 'chartjs-adapter-luxon'
 import zoomPlugin from 'chartjs-plugin-zoom'
 import { useTechnicalIndicators } from '@/composables/use-technical-indicators'
+import { formatPrice, formatVolume } from '@/utils/formatters'
 import CandlestickChart from './candlestick-chart.vue'
 import DrawingTools from './drawing-tools.vue'
 
@@ -279,11 +290,6 @@ const hasInitialized = ref(false)
 
 // Helper Functions
 // --------------------------------------------------------
-const formatPrice = (price) => {
-  if (!price) return '0.00'
-  return typeof price === 'number' ? price.toFixed(2) : price
-}
-
 // Get all active chart instances.
 const getAllChartInstances = () => {
   const charts = []
@@ -1164,10 +1170,40 @@ const macdChartOptions = computed(() => ({
 
 // Current Values for Display
 // --------------------------------------------------------
-const currentPrice = computed(() => {
-  const data = props.chartType === 'line' ? props.lineChartData : props.candlestickChartData
-  const lastPoint = data?.datasets?.[0]?.data?.slice(-1)[0]
-  return lastPoint?.y || lastPoint?.c || 0
+const currentOHLC = computed(() => {
+  if (props.chartType === 'candlestick' && props.candlestickChartData?.datasets?.[0]?.data) {
+    const lastPoint = props.candlestickChartData.datasets[0].data.slice(-1)[0]
+    if (lastPoint) {
+      return {
+        open: lastPoint.o || 0,
+        high: lastPoint.h || 0,
+        low: lastPoint.l || 0,
+        close: lastPoint.c || 0,
+        volume: lastPoint.volume || 0
+      }
+    }
+  }
+  else if (props.chartType === 'line' && props.lineChartData?.datasets?.[0]?.data) {
+    const lastPoint = props.lineChartData.datasets[0].data.slice(-1)[0]
+    if (lastPoint) {
+      const price = lastPoint.y || 0
+      return {
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        volume: 0 // Line charts don't have volume data.
+      }
+    }
+  }
+  return null
+})
+
+const ohlcColorClass = computed(() => {
+  if (!currentOHLC.value) return ''
+  const { open, close } = currentOHLC.value
+  // Green (success) if price is increasing or stable, red (error) if declining.
+  return close >= open ? 'success' : 'error'
 })
 
 const currentRSI = computed(() => {
