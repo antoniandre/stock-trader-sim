@@ -36,14 +36,16 @@
     .glass-box.pa6.grow
       .chart-wrap
         .chart-info.w-flex.align-center.gap2
-          .price-display
+          .price-display.w-flex.align-center.gap2
             .title2.text-bold(v-if="stock.price")
               span.op6.mr2 {{ stock.currencySymbol }}
               span {{ stock.price.toFixed(2) }}
             .title3(v-else)
               w-icon.mr2.op4(size="1.4rem") wi-info-circle
               span.op6 Price Unavailable
-            .caption.mt1.op7.absolute Last updated: {{ lastUpdate }}
+            .caption.mt1.op7.w-flex.align-center.gap1
+              icon(icon="mdi:clock-outline")
+              | Updated {{ lastUpdate }}
 
           .price-change.text-center.lh0(
             v-if="priceChange && stock.price"
@@ -62,16 +64,16 @@
               round)
               icon(icon="mdi:refresh")
             w-button.pa0(
-                width="24"
-                height="24"
-                @click="showDialog = true"
-                tooltip="Fullscreen Chart"
-                :tooltip-props="{ sm: true }"
-                round)
-                icon(icon="mdi:fullscreen")
+              width="24"
+              height="24"
+              @click="showDialog = true"
+              tooltip="Fullscreen Chart"
+              :tooltip-props="{ sm: true }"
+              round)
+              icon(icon="mdi:fullscreen")
             //- Smooth transition indicator
             .w-flex.align-center.gap1.ml2(v-if="isTransitioningTimeframe")
-              w-spinner(size="10" color="primary")
+              w-spinner(size="10")
               span.size--xs.op5 Updating...
 
         //- Price Chart Component
@@ -124,7 +126,7 @@
               w-input(
                 v-model.number="orderForm.quantity"
                 type="number"
-                min="1"
+                min="0"
                 placeholder="Number of shares"
                 outline)
 
@@ -135,6 +137,7 @@
                 v-model.number="orderForm.limitPrice"
                 type="number"
                 step="0.01"
+                min="0"
                 placeholder="Price per share"
                 outline)
 
@@ -145,6 +148,7 @@
                 v-model.number="orderForm.stopLoss"
                 type="number"
                 step="0.01"
+                min="0"
                 placeholder="Stop loss price"
                 outline)
 
@@ -478,7 +482,7 @@ const orderForm = ref({
   type: 'limit',
   side: 'buy',
   quantity: 1,
-  limitPrice: 0
+  limitPrice: undefined
 })
 
 const orderTypes = [
@@ -1656,7 +1660,14 @@ async function refreshMarketStatus() {
 
 async function placeOrder(side) {
   try {
-    const order = { symbol: props.symbol, side, quantity: orderForm.value.quantity, type: orderForm.value.type, limitPrice: orderForm.value.limitPrice, stopLoss: orderForm.value.stopLoss }
+    const order = {
+      symbol: props.symbol,
+      side,
+      quantity: orderForm.value.quantity,
+      type: orderForm.value.type,
+      limitPrice: orderForm.value.limitPrice,
+      stopLoss: orderForm.value.stopLoss
+    }
     const orderTypeText = orderForm.value.type.charAt(0).toUpperCase() + orderForm.value.type.slice(1)
     let confirmationText = `${orderTypeText} ${side.toUpperCase()} ${order.quantity} ${props.symbol}`
 
@@ -1665,7 +1676,7 @@ async function placeOrder(side) {
 
     $waveui.notify(`Order placed: ${confirmationText}`, 'success')
     orderForm.value.quantity = 1
-    orderForm.value.limitPrice = 0
+    orderForm.value.limitPrice = undefined
     orderForm.value.stopLoss = null
   }
   catch (error) {
