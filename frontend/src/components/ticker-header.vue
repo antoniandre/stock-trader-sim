@@ -25,7 +25,7 @@
 </template>
 
 <script setup>
-import { inject } from 'vue'
+import { inject, toRef } from 'vue'
 import { useStockStatus } from '@/composables/stock-status'
 import TickerLogo from '@/components/ticker-logo.vue'
 
@@ -48,13 +48,14 @@ const $waveui = inject('$waveui')
 
 // Stock Status
 // --------------------------------------------------------
-const { currentStatus, formatNextOpenTime } = useStockStatus(props.stock)
+// Convert prop to ref so useStockStatus can reactively watch it.
+const stockRef = toRef(props, 'stock')
+const { currentStatus, formatNextOpenTime } = useStockStatus(stockRef)
 </script>
 
 <style lang="scss">
 .ticker-header {
   &--small {
-    color: red;
     .ticker-header__title {
       font-size: 1.2rem;
     }
