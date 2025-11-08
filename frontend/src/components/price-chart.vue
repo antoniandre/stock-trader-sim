@@ -3,7 +3,7 @@
   .pane-values.size--xs.op7(v-if="currentPrice") OHLC: {{ formatPrice(currentPrice) }}
 
   //- Chart Controls
-  .chart-controls.w-flex.justify-space-between.align-center.mt6.mb2
+  .chart-controls.w-flex.justify-space-between.align-center.mb2
     .chart-selectors.w-flex.gap2
       //- Chart Type Toggle
       .chart-type-toggle.w-flex.gap1.no-grow
@@ -99,7 +99,7 @@
       | MACD
 
   //- Main Chart Display
-  .charts-wrap.w-flex.column.bdrs2.pa4.w-card(v-if="!isLoadingHistoricalData")
+  .charts-wrap.w-flex.column.bdrs2.w-card(v-if="!isLoadingHistoricalData")
     //- Main Price Chart Pane
     .charts(ref="chartContainer")
       Line.chart.chart--price.chart--line(
@@ -1572,7 +1572,9 @@ defineExpose({
   .chart-controls {
     flex-wrap: wrap;
     gap: 1rem;
+    margin-top: 1rem;
   }
+  &.small .chart-controls {margin-top: 0.2rem;}
 
   .timeframe-selector .w-select__selection-wrap { min-height: 24px; }
 
@@ -1604,6 +1606,7 @@ defineExpose({
     position: relative;
     background: var(--w-base-bg-color);
     overflow: hidden;
+    padding: 0.8rem;
 
     .charts {
       position: relative;
@@ -1629,5 +1632,6 @@ defineExpose({
       }
     }
   }
+  &.small .charts-wrap {padding: 0.1rem;}
 }
 </style>

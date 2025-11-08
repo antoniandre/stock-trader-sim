@@ -4,29 +4,7 @@
     icon.w-icon.mr2(icon="mdi:arrow-left")
     | Back to Trading
 
-  .w-flex.align-center.gap4
-    ticker-logo(:symbol="stock.symbol" size="lg")
-    div
-      .w-flex.align-center.justify-space-between.gap2
-        w-tag.w-flex.gap2.pr1.no-grow(round :bg-color="$waveui.theme === 'dark' ? 'info-dark4' : 'info-light5'")
-          strong.size--lg {{ stock.symbol }}
-          icon(
-            :icon="currentStatus.icon"
-            :class="`market-${currentStatus.status}`"
-            :title="currentStatus.message"
-            style="width: 15px")
-        .w-flex.align-center.gap4
-          .w-flex.align-center.gap2.no-grow
-            span.size--xs.text-upper(:class="`market-${currentStatus.status}`") {{ currentStatus.message }}
-            span.size--xs.op6(v-if="currentStatus.status === 'open' && currentStatus.nextClose")
-              | (closes at {{ new Date(currentStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
-            span.size--xs.op6(v-else-if="currentStatus.nextOpen")
-              | (opens {{ formatNextOpenTime }})
-          .w-flex.align-center.gap2.mla
-            .w-icon.size--xs(:class="wsConnected ? 'success--bg' : 'yellow--bg'")
-            span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
-              | {{ wsConnected ? 'Live' : 'Delayed' }}
-      h1.title2 {{ stock.name || 'Loading...' }}
+  TickerHeader(:stock="stock" :ws-connected="wsConnected")
 
   //- Stock Details & Trading
   .w-flex.mt4.mdd-column
@@ -35,46 +13,14 @@
     //- Price Chart
     .glass-box.pa6.grow
       .chart-wrap
-        .chart-info.w-flex.align-center.gap2
-          .price-display.w-flex.align-center.gap2
-            .title2.text-bold(v-if="stock.price")
-              span.op6.mr2 {{ stock.currencySymbol }}
-              span {{ stock.price.toFixed(2) }}
-            .title3(v-else)
-              w-icon.mr2.op4(size="1.4rem") wi-info-circle
-              span.op6 Price Unavailable
-            .caption.mt1.op7.w-flex.align-center.gap1
-              icon(icon="mdi:clock-outline")
-              | Updated {{ lastUpdate }}
-
-          .price-change.text-center.lh0(
-            v-if="priceChange && stock.price"
-            :class="priceChange >= 0 ? 'currency-positive' : 'currency-negative'")
-            .text-bold
-              span {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
-            .size--xs ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
-          .w-flex.align-center.gap2.mla.no-grow
-            w-button.pa0(
-              width="24"
-              height="24"
-              @click="refreshPrice"
-              :loading="isRefreshing"
-              tooltip="Refresh Price"
-              :tooltip-props="{ sm: true }"
-              round)
-              icon(icon="mdi:refresh")
-            w-button.pa0(
-              width="24"
-              height="24"
-              @click="showDialog = true"
-              tooltip="Fullscreen Chart"
-              :tooltip-props="{ sm: true }"
-              round)
-              icon(icon="mdi:fullscreen")
-            //- Smooth transition indicator
-            .w-flex.align-center.gap1.ml2(v-if="isTransitioningTimeframe")
-              w-spinner(size="10")
-              span.size--xs.op5 Updating...
+        TickerPrice(
+          :stock="stock"
+          :last-update="lastUpdate"
+          :is-refreshing="isRefreshing"
+          :is-transitioning-timeframe="isTransitioningTimeframe"
+          :show-fullscreen-button="true"
+          @refresh-price="refreshPrice"
+          @toggle-fullscreen="showDialog = true")
 
         //- Price Chart Component
         PriceChart(
@@ -119,7 +65,7 @@
     v-model="showDialog"
     fullscreen
     dialog-class="fullscreen-chart"
-    content-class="pa6")
+    content-class="pa6 pt3")
     w-button.pa0.ml2(
       absolute
       right
@@ -131,7 +77,18 @@
       icon="wi-cross"
       bg-color="error"
       round)
-    PriceChart(
+    TickerHeader.mb2(
+      :stock="stock"
+      :ws-connected="wsConnected"
+      small)
+    TickerPrice(
+      :stock="stock"
+      :last-update="lastUpdate"
+      :is-refreshing="isRefreshing"
+      :is-transitioning-timeframe="isTransitioningTimeframe"
+      :show-fullscreen-button="false"
+      @refresh-price="refreshPrice")
+    PriceChart.small(
       :symbol="props.symbol"
       :chart-type="chartType"
       :selected-period="selectedPeriod"
@@ -160,11 +117,11 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
 import { fetchStock, fetchStockHistoryProgressive } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
-import { useStockStatus } from '@/composables/stock-status'
-import TickerLogo from '@/components/ticker-logo.vue'
 import PriceChart from '@/components/price-chart.vue'
 import StockStatsPanel from '@/components/stock-stats-panel.vue'
 import TradingInterface from '@/components/trading-interface.vue'
+import TickerHeader from '@/components/ticker-header.vue'
+import TickerPrice from '@/components/ticker-price.vue'
 
 const props = defineProps({
   symbol: { type: String, required: true }
@@ -247,9 +204,6 @@ const PRICE_UPDATE_THROTTLE = 1000 // 1 second.
 // --------------------------------------------------------
 const { wsConnected, lastUpdate, connect, addMessageHandler, subscribeToStock } = useWebSocket()
 
-// Stock Status
-// --------------------------------------------------------
-const { currentStatus, formatNextOpenTime } = useStockStatus(stock)
 
 // Chart Configuration
 // --------------------------------------------------------
@@ -381,8 +335,6 @@ const chartDisplayFormats = computed(() => {
   return formatMap[chartTimeUnit.value] || formatMap.hour
 })
 
-const priceChange = computed(() => stock.value.price && stock.value.previousPrice ? stock.value.price - stock.value.previousPrice : null)
-const priceChangePercent = computed(() => priceChange.value && stock.value.previousPrice ? (priceChange.value / stock.value.previousPrice) * 100 : 0)
 
 // Chart Data Functions
 // --------------------------------------------------------
