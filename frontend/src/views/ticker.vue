@@ -99,7 +99,7 @@
     .spacer.ma3.no-grow
     aside.side-panel
       //- Trading Form
-      .glass-box.pa6
+      .glass-box.pa6.order-panel(:class="'order-panel--' + orderForm.side")
         .title2.mb4.w-flex.gap2
           a#buy
           | Place
@@ -112,7 +112,11 @@
               span.size--lg.ml2.mr1.pb2 {{ item.label }}
           | Order
 
-        .w-flex.gap4.wrap
+        //- No Price Data Warning
+        w-alert.pa3.bdrs2(v-if="!stock.price" error)
+          | Trading disabled: No current market data available
+
+        .w-flex.gap4.wrap(:class="{ op3: !stock.price }")
           .grow
             //- Quantity Input
             .mb4
@@ -145,62 +149,54 @@
                 outline)
 
             //- Order Value Display
-            .pa3.glass--bg.bdrs2(v-if="orderValue > 0 && stock.price > 0")
+            .mt4(v-if="orderValue > 0 && stock.price > 0")
               .w-flex.justify-between.gap2
-                span.op7 Estimated Total:
+                span.op7.text-right.grow Total:
                 span.text-bold {{ stock.currencySymbol }}{{ orderValue.toFixed(2) }}
 
-            //- No Price Data Warning
-            .pa3.error-dark4--bg.bdrs2(v-if="stock.price === 0")
-              .w-flex.align-center.gap2
-                icon.w-icon.error(icon="mdi:alert-triangle")
-                span Trading disabled: No current market data available
-
           //- Quick Actions
-          .w-card.bdrs2.pa6.no-grow.lg-grow
+          .quick-actions.glass-box.grow.pa4
             .mb3.text-upper.op6.body Quick Actions
             .w-flex.align-center.gap2
               w-button(
                 @click="setQuickQuantity(1)"
                 round
                 tooltip="1 Share"
-                width="40"
-                height="40")
+                width="28"
+                height="28")
                 strong.size--xl 1
               w-button(
                 @click="setQuickQuantity(10)"
                 round
                 tooltip="10 Shares"
-                width="40"
-                height="40")
+                width="33"
+                height="33")
                 strong.size--xl 10
               w-button(
                 @click="setQuickQuantity(100)"
                 round
                 tooltip="100 Shares"
-                width="40"
-                height="40")
+                width="37"
+                height="37")
                 strong.size--lg 100
               w-button(
                 @click="setQuickQuantity(1000)"
                 round
                 tooltip="1000 Shares"
-                width="40"
-                height="40")
+                width="42"
+                height="42")
                 strong.size--md 1000
               span Shares
 
         //- Buy/Sell Buttons
-        .w-flex.gap4.mt4
-          w-button.grow.py4(
+        .w-flex.gap4.mt4.gap12(v-if="stock.price")
+          button.grow.buy(
             @click="placeOrder('buy')"
-            bg-color="success"
             :disabled="!isOrderValid || stock.price === 0")
             strong BUY
 
-          w-button.grow.py4(
+          button.grow.sell(
             @click="placeOrder('sell')"
-            bg-color="error"
             :disabled="!isOrderValid || stock.price === 0")
             strong SELL
 
@@ -231,8 +227,9 @@
   //- Fullscreen Chart Dialog
   w-dialog.fullscreen-chart-overlay(
     v-model="showDialog"
+    fullscreen
     dialog-class="fullscreen-chart"
-    content-class="pa12")
+    content-class="pa6")
     w-button.pa0.ml2(
       absolute
       right
@@ -478,7 +475,7 @@ const defaultTimeframes = {
 // Trading Form
 // --------------------------------------------------------
 const orderForm = ref({
-  type: 'market',
+  type: 'limit',
   side: 'buy',
   quantity: 1,
   limitPrice: 0
@@ -486,7 +483,8 @@ const orderForm = ref({
 
 const orderTypes = [
   { label: 'Market', value: 'market' },
-  { label: 'Limit', value: 'limit' }
+  { label: 'Limit', value: 'limit' },
+  // { label: 'Stop Loss', value: 'stopLoss' }
 ]
 
 // Computed Properties
@@ -1770,14 +1768,81 @@ watch(() => historicalData.value.length, (newLength, oldLength) => {
 
   .side-panel {
     width: 25%;
-    min-width: 320px;
+    min-width: 300px;
   }
-}
 
-.fullscreen-chart-overlay {backdrop-filter: blur(10px);}
+  .order-panel {
+    border: 2px solid transparent;
 
-.fullscreen-chart {
-  height: 98vh;
+    &--buy {
+      border-color: var(--w-success-color);
+      background-image: linear-gradient(135deg, color-mix(in srgb, var(--w-success-color) 8%, transparent), transparent 80%);
+    }
+    &--sell {
+      border-color: var(--w-error-color);
+      background-image: linear-gradient(135deg, color-mix(in srgb, var(--w-error-color) 8%, transparent), transparent 80%);
+    }
+  }
+
+  .quick-actions {
+    span {
+      font-size: 11px;
+      letter-spacing: -0.3px;
+      opacity: 0.6;
+      text-transform: uppercase;
+    }
+  }
+
+  .buy, .sell {
+    position: relative;
+    background-image: linear-gradient(135deg, #fff -100%, transparent 80%);
+    border: none;
+    color: #fff;
+    height: 36px;
+    transition: filter 0.25s;
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+    &:not(:disabled) {cursor: pointer;}
+
+    &:not(:disabled):hover {filter: contrast(1.1) brightness(1.1);}
+    &:not(:disabled):active {filter: contrast(1.2) brightness(1.2) saturate(0.9);}
+
+    &:before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      height: 100%;
+      left: 100%;
+      border: 18px solid transparent;
+      aspect-ratio: 1;
+    }
+  }
+  .buy {
+    border-radius: 99em 0 0 99em;
+    background-color: var(--w-success-color);
+    padding-left: 12px;
+
+    &:before {
+      border-left-color: var(--w-success-color);
+      border-top-color: var(--w-success-color);
+    }
+  }
+  .sell {
+    border-radius: 0 99em 99em 0;
+    background-color: var(--w-error-color);
+    background-image: linear-gradient(-135deg, #fff -100%, transparent 80%);
+    padding-right: 12px;
+
+    &:before {
+      border-right-color: var(--w-error-color);
+      border-bottom-color: var(--w-error-color);
+      right: 100%;
+      left: auto;
+    }
+  }
 }
 </style>
 

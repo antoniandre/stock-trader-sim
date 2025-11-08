@@ -393,8 +393,8 @@ const financialMetrics = computed(() => [
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 6px 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 5%, transparent);
 
       &:last-child {border-bottom: none;}
 
