@@ -34,6 +34,16 @@
           :tooltip-props="{ xs: true }"
           round)
           icon.size--lg(icon="material-symbols-light:fit-screen-outline")
+        //- Trading Interface Toggle Button (only in fullscreen)
+        w-button.pa0(
+          v-if="showTradingToggle"
+          width="26"
+          height="26"
+          @click="$emit('toggle-trading')"
+          tooltip="Toggle Trading Panel"
+          :tooltip-props="{ xs: true }"
+          round)
+          icon.size--lg(icon="material-symbols-light:account-balance-wallet-outline")
 
       //- Period Selector
       .period-selector.w-flex.gap1.no-grow.mla
@@ -182,14 +192,17 @@ const props = defineProps({
   candlestickChartOptions: { type: Object, required: true },
   // Smart timeframe selection props.
   effectiveTimeframe: { type: String, default: null },
-  isUsingFallbackTimeframe: { type: Boolean, default: false }
+  isUsingFallbackTimeframe: { type: Boolean, default: false },
+  // Show trading interface toggle button (for fullscreen mode).
+  showTradingToggle: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
   'change-chart-type',
   'change-period',
   'change-timeframe',
-  'reset-zoom-complete'
+  'reset-zoom-complete',
+  'toggle-trading'
 ])
 // --------------------------------------------------------
 

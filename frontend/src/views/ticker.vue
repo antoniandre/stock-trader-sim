@@ -65,7 +65,8 @@
     v-model="showDialog"
     fullscreen
     dialog-class="fullscreen-chart"
-    content-class="pa6 pt3")
+    content-class="pa6 pt3"
+    @update:model-value="(val) => { showDialog = val; if (!val) showTradingInterface = false }")
     w-button.pa0.ml2(
       absolute
       right
@@ -103,14 +104,19 @@
       :candlestick-chart-options="candlestickChartOptions"
       :effective-timeframe="effectiveTimeframe"
       :is-using-fallback-timeframe="isUsingFallbackTimeframe"
+      show-trading-toggle
       @change-chart-type="changeChartType"
       @change-period="changePeriod"
       @change-timeframe="changeTimeframe"
-      @reset-zoom-complete="handleResetZoomComplete")
-    TradingInterface.floating(
+      @reset-zoom-complete="handleResetZoomComplete"
+      @toggle-trading="showTradingInterface = !showTradingInterface")
+    DraggableTradingInterface(
+      v-if="showTradingInterface"
+      :visible="showTradingInterface"
       :symbol="props.symbol"
       :stock="stock"
-      :recent-trades="recentTrades")
+      :recent-trades="recentTrades"
+      @close="showTradingInterface = false")
 </template>
 
 <script setup>
@@ -122,6 +128,7 @@ import StockStatsPanel from '@/components/stock-stats-panel.vue'
 import TradingInterface from '@/components/trading-interface.vue'
 import TickerHeader from '@/components/ticker-header.vue'
 import TickerPrice from '@/components/ticker-price.vue'
+import DraggableTradingInterface from '@/components/draggable-trading-interface.vue'
 
 const props = defineProps({
   symbol: { type: String, required: true }
@@ -159,6 +166,7 @@ const chartType = ref('candlestick')
 const recentTrades = ref([])
 const isRefreshing = ref(false)
 const showDialog = ref(false)
+const showTradingInterface = ref(false)
 const isLoadingHistoricalData = ref(false)
 let marketStatusInterval = null
 
