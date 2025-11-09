@@ -9,10 +9,10 @@
       | {{ wsConnected ? 'Live' : 'Polling fallback' }}
 
 //- Top Movers Strip.
-.my4.w-flex.wrap.gap2
+.my4.w-flex.wrap.gap3
   //- Gainers
   .w-flex.column.gap1
-    .w-flex.align-center.gap2.mb2
+    .w-flex.align-center.gap2
       .title3.size--sm.op4 TOP GAINERS
       w-button.ml2(
         @click="$router.push('/trading/top-gainers')"
@@ -38,7 +38,7 @@
         span.mb2.mt-1.size--xl ...
   //- Losers
   .w-flex.column.gap1
-    .w-flex.align-center.gap2.mb2
+    .w-flex.align-center.gap2
       .title3.size--sm.op4 TOP LOSERS
       w-button.ml2(
         @click="$router.push('/trading/top-losers')"
@@ -69,6 +69,8 @@ w-input.w-input.light.my4.h-auto(
   round
   placeholder="Search for a stock..."
   input-class="py4 px6")
+  template(#icon-left)
+    w-icon.ml4.mr-4(size="1.5rem") wi-search
 
 //- Ticker Cards
 w-grid.gap4(:columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }" )

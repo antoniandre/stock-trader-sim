@@ -56,7 +56,7 @@
           icon.size--lg(icon="material-symbols-light:account-balance-wallet-outline")
 
         //- Buy/Sell Buttons
-        .w-flex.gap4.mt4.gap12
+        .w-flex.gap7
           button.grow.buy(@click="placeOrder('buy')")
             strong BUY
 
@@ -1654,20 +1654,19 @@ defineExpose({
         inset: 0;
         height: 100%;
         left: 100%;
-        border: 18px solid transparent;
+        border: 13px solid transparent;
         aspect-ratio: 1;
       }
     }
     .buy {
       border-radius: 99em 0 0 99em;
       background-color: var(--w-success-color);
-      padding-left: 12px;
-
+      
       &:before {
         border-left-color: var(--w-success-color);
         border-top-color: var(--w-success-color);
       }
-      span {position: relative;left: -8px;}
+      strong {position: relative;left: 6px;}
     }
     .sell {
       border-radius: 0 99em 99em 0;
@@ -1680,7 +1679,7 @@ defineExpose({
         right: 100%;
         left: auto;
       }
-      span {position: relative;left: -8px;}
+      strong {position: relative;left: -6px;}
     }
   }
   &.small .chart-controls {margin-top: 0.2rem;}
