@@ -1,7 +1,7 @@
 <template lang="pug">
 .trading-interface
   //- Trading Form
-  .glass-box.pa6.order-panel(:class="'order-panel--' + orderForm.side")
+  .glass-box.pa6.order-panel(:class="`order-panel--${orderForm.side}`")
     .title2.mb4.w-flex.gap2
       a#buy
       | Place
@@ -121,7 +121,7 @@
 </template>
 
 <script setup>
-import { ref, computed, inject } from 'vue'
+import { ref, computed, inject, watch } from 'vue'
 
 const props = defineProps({
   symbol: { type: String, required: true },
@@ -133,10 +133,8 @@ const props = defineProps({
       currencySymbol: '$'
     })
   },
-  recentTrades: {
-    type: Array,
-    default: () => []
-  }
+  recentTrades: { type: Array, default: () => [] },
+  initialSide: { type: String, default: 'buy', validator: v => ['buy', 'sell'].includes(v) }
 })
 
 const $waveui = inject('$waveui')
@@ -145,9 +143,14 @@ const $waveui = inject('$waveui')
 // --------------------------------------------------------
 const orderForm = ref({
   type: 'limit',
-  side: 'buy',
+  side: props.initialSide,
   quantity: 1,
   limitPrice: undefined
+})
+
+// Watch for initialSide changes to update the order form side.
+watch(() => props.initialSide, (newSide) => {
+  if (newSide && ['buy', 'sell'].includes(newSide)) orderForm.value.side = newSide
 })
 
 const orderTypes = [
@@ -291,56 +294,5 @@ function setQuickQuantity(quantity) {
     }
   }
 }
-.buy, .sell {
-    position: relative;
-    background-image: linear-gradient(135deg, #fff -100%, transparent 80%);
-    border: none;
-    color: #fff;
-    height: 36px;
-    transition: filter 0.25s;
-
-    &:disabled {
-      cursor: not-allowed;
-      opacity: 0.6;
-    }
-    &:not(:disabled) {cursor: pointer;}
-
-    &:not(:disabled):hover {filter: contrast(1.1) brightness(1.1);}
-    &:not(:disabled):active {filter: contrast(1.2) brightness(1.2) saturate(0.9);}
-
-    &:before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      height: 100%;
-      left: 100%;
-      border: 18px solid transparent;
-      aspect-ratio: 1;
-    }
-  }
-  .buy {
-    border-radius: 99em 0 0 99em;
-    background-color: var(--w-success-color);
-    padding-left: 12px;
-
-    &:before {
-      border-left-color: var(--w-success-color);
-      border-top-color: var(--w-success-color);
-    }
-  }
-  .sell {
-    border-radius: 0 99em 99em 0;
-    background-color: var(--w-error-color);
-    background-image: linear-gradient(-135deg, #fff -100%, transparent 80%);
-    padding-right: 12px;
-
-    &:before {
-      border-right-color: var(--w-error-color);
-      border-bottom-color: var(--w-error-color);
-      right: 100%;
-      left: auto;
-    }
-  }
-
 </style>
 

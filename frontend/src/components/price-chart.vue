@@ -42,25 +42,16 @@
           @click="resetView"
           tooltip="Reset Zoom"
           :tooltip-props="{ xs: true }"
+          outline
           round)
           icon.size--lg(icon="material-symbols-light:fit-screen-outline")
-        //- Trading Interface Toggle Button (only in fullscreen)
-        w-button.pa0(
-          v-if="showTradingToggle"
-          width="26"
-          height="26"
-          @click="$emit('toggle-trading')"
-          tooltip="Toggle Trading Panel"
-          :tooltip-props="{ xs: true }"
-          round)
-          icon.size--lg(icon="material-symbols-light:account-balance-wallet-outline")
 
         //- Buy/Sell Buttons
-        .w-flex.gap7
-          button.grow.buy(@click="placeOrder('buy')")
+        .w-flex.gap7(v-if="showTradingToggle")
+          button.buy(@click="$emit('toggle-trading', 'buy')")
             strong BUY
 
-          button.grow.sell(@click="placeOrder('sell')")
+          button.sell(@click="$emit('toggle-trading', 'sell')")
             strong SELL
 
       //- Period Selector
@@ -1661,12 +1652,12 @@ defineExpose({
     .buy {
       border-radius: 99em 0 0 99em;
       background-color: var(--w-success-color);
-      
+
       &:before {
         border-left-color: var(--w-success-color);
         border-top-color: var(--w-success-color);
       }
-      strong {position: relative;left: 6px;}
+      strong {position: relative;left: 7px;}
     }
     .sell {
       border-radius: 0 99em 99em 0;

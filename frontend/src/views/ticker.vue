@@ -109,13 +109,14 @@
       @change-period="changePeriod"
       @change-timeframe="changeTimeframe"
       @reset-zoom-complete="handleResetZoomComplete"
-      @toggle-trading="showTradingInterface = !showTradingInterface")
+      @toggle-trading="onToggleTrading")
     DraggableTradingInterface(
       v-if="showTradingInterface"
       :visible="showTradingInterface"
       :symbol="props.symbol"
       :stock="stock"
       :recent-trades="recentTrades"
+      :initial-side="tradingInterfaceSide"
       @close="showTradingInterface = false")
 </template>
 
@@ -167,6 +168,7 @@ const recentTrades = ref([])
 const isRefreshing = ref(false)
 const showDialog = ref(false)
 const showTradingInterface = ref(false)
+const tradingInterfaceSide = ref('buy')
 const isLoadingHistoricalData = ref(false)
 let marketStatusInterval = null
 
@@ -1473,6 +1475,10 @@ async function refreshMarketStatus() {
   }
 }
 
+function onToggleTrading(side) {
+  tradingInterfaceSide.value = side
+  showTradingInterface.value = !showTradingInterface.value
+}
 
 // Lifecycle
 // --------------------------------------------------------

@@ -20,6 +20,7 @@
     :symbol="symbol"
     :stock="stock"
     :recent-trades="recentTrades"
+    :initial-side="initialSide"
     @mousedown="startDrag"
     @touchstart="startDrag")
 </template>
@@ -32,12 +33,13 @@ const props = defineProps({
   visible: { type: Boolean, default: false },
   symbol: { type: String, required: true },
   stock: { type: Object, required: true },
-  recentTrades: { type: Array, default: () => [] }
+  recentTrades: { type: Array, default: () => [] },
+  initialSide: { type: String, default: 'buy' }
 })
 
 defineEmits(['close'])
 
-const position = ref({ x: 50, y: 50 })
+const position = ref({ x: 25, y: 130 })
 let isDragging = false
 let dragStart = { x: 0, y: 0 }
 
