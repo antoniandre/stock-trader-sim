@@ -41,10 +41,21 @@
           height="26"
           @click="resetView"
           tooltip="Reset Zoom"
-          :tooltip-props="{ xs: true }"
+          :tooltip-props="{ sm: true }"
           outline
           round)
-          icon.size--lg(icon="material-symbols-light:fit-screen-outline")
+          icon(icon="mdi:crosshairs")
+        //- Fullscreen Button
+        w-button.pa0(
+          v-if="showFullscreenButton"
+          width="26"
+          height="26"
+          @click="$emit('toggle-fullscreen')"
+          tooltip="Toggle Fullscreen"
+          :tooltip-props="{ sm: true }"
+          outline
+          round)
+          icon(icon="material-symbols-light:fullscreen")
 
         //- Buy/Sell Buttons
         .w-flex.gap7(v-if="showTradingToggle")
@@ -204,7 +215,9 @@ const props = defineProps({
   effectiveTimeframe: { type: String, default: null },
   isUsingFallbackTimeframe: { type: Boolean, default: false },
   // Show trading interface toggle button (for fullscreen mode).
-  showTradingToggle: { type: Boolean, default: false }
+  showTradingToggle: { type: Boolean, default: false },
+  // Show fullscreen button.
+  showFullscreenButton: { type: Boolean, default: true }
 })
 
 const emit = defineEmits([
@@ -212,7 +225,8 @@ const emit = defineEmits([
   'change-period',
   'change-timeframe',
   'reset-zoom-complete',
-  'toggle-trading'
+  'toggle-trading',
+  'toggle-fullscreen'
 ])
 // --------------------------------------------------------
 

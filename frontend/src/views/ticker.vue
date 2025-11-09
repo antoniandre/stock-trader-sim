@@ -18,9 +18,7 @@
           :last-update="lastUpdate"
           :is-refreshing="isRefreshing"
           :is-transitioning-timeframe="isTransitioningTimeframe"
-          :show-fullscreen-button="true"
-          @refresh-price="refreshPrice"
-          @toggle-fullscreen="showDialog = true")
+          @refresh-price="refreshPrice")
 
         //- Price Chart Component
         PriceChart(
@@ -38,10 +36,12 @@
           :candlestick-chart-options="candlestickChartOptions"
           :effective-timeframe="effectiveTimeframe"
           :is-using-fallback-timeframe="isUsingFallbackTimeframe"
+          :show-fullscreen-button="true"
           @change-chart-type="changeChartType"
           @change-period="changePeriod"
           @change-timeframe="changeTimeframe"
-          @reset-zoom-complete="handleResetZoomComplete")
+          @reset-zoom-complete="handleResetZoomComplete"
+          @toggle-fullscreen="showDialog = true")
 
     //- Right Column: Trading Interface & Stats
     .spacer.ma3.no-grow
@@ -87,7 +87,6 @@
       :last-update="lastUpdate"
       :is-refreshing="isRefreshing"
       :is-transitioning-timeframe="isTransitioningTimeframe"
-      :show-fullscreen-button="false"
       @refresh-price="refreshPrice")
     PriceChart.small(
       :symbol="props.symbol"
@@ -104,6 +103,7 @@
       :candlestick-chart-options="candlestickChartOptions"
       :effective-timeframe="effectiveTimeframe"
       :is-using-fallback-timeframe="isUsingFallbackTimeframe"
+      :show-fullscreen-button="false"
       show-trading-toggle
       @change-chart-type="changeChartType"
       @change-period="changePeriod"
