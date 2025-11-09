@@ -55,6 +55,14 @@
           round)
           icon.size--lg(icon="material-symbols-light:account-balance-wallet-outline")
 
+        //- Buy/Sell Buttons
+        .w-flex.gap4.mt4.gap12
+          button.grow.buy(@click="placeOrder('buy')")
+            strong BUY
+
+          button.grow.sell(@click="placeOrder('sell')")
+            strong SELL
+
       //- Period Selector
       .period-selector.w-flex.gap1.no-grow.mla
         w-button.period-btn(
@@ -1622,6 +1630,58 @@ defineExpose({
     flex-wrap: wrap;
     gap: 1rem;
     margin-top: 1rem;
+
+    .buy, .sell {
+      position: relative;
+      background-image: linear-gradient(135deg, #fff -100%, transparent 80%);
+      border: none;
+      color: #fff;
+      height: 26px;
+      transition: filter 0.25s;
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+      }
+      &:not(:disabled) {cursor: pointer;}
+
+      &:not(:disabled):hover {filter: contrast(1.1) brightness(1.1);}
+      &:not(:disabled):active {filter: contrast(1.2) brightness(1.2) saturate(0.9);}
+
+      &:before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        height: 100%;
+        left: 100%;
+        border: 18px solid transparent;
+        aspect-ratio: 1;
+      }
+    }
+    .buy {
+      border-radius: 99em 0 0 99em;
+      background-color: var(--w-success-color);
+      padding-left: 12px;
+
+      &:before {
+        border-left-color: var(--w-success-color);
+        border-top-color: var(--w-success-color);
+      }
+      span {position: relative;left: -8px;}
+    }
+    .sell {
+      border-radius: 0 99em 99em 0;
+      background-color: var(--w-error-color);
+      background-image: linear-gradient(-135deg, #fff -100%, transparent 80%);
+
+      &:before {
+        border-right-color: var(--w-error-color);
+        border-bottom-color: var(--w-error-color);
+        right: 100%;
+        left: auto;
+      }
+      span {position: relative;left: -8px;}
+    }
   }
   &.small .chart-controls {margin-top: 0.2rem;}
 
