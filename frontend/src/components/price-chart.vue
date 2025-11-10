@@ -131,7 +131,7 @@
   //- Main Chart Display
   .charts-wrap.w-flex.column.bdrs2.w-card(v-if="!isLoadingHistoricalData")
     //- Main Price Chart Pane
-    .charts(ref="chartContainer")
+    .charts.ml6(ref="chartContainer")
       Line.chart.chart--price.chart--line(
         v-if="chartType === 'line'"
         ref="lineChartRef"
@@ -147,8 +147,8 @@
     DrawingTools(:chart-container="chartContainer")
 
     //- RSI Pane (if enabled)
-    .chart.chart--rsi.mt-1(v-show="showRSI && chartType === 'candlestick'")
-      .w-flex.align-center.pa1.op4.ml7.absolute
+    .chart.chart--rsi.mt-1.ml6(v-show="showRSI && chartType === 'candlestick'")
+      .w-flex.align-center.pa1.op4.ml3.absolute
         strong.size--sm.op7 RSI (14)
         code.size--sm.ml2 {{ currentRSI }}
 
@@ -160,8 +160,8 @@
           :options="synchronizedRsiChartOptions")
 
     //- MACD Pane (if enabled)
-    .chart.chart--macd.mt-1(v-show="showMACD && chartType === 'candlestick'")
-      .w-flex.align-center.pa1.op4.ml7.absolute
+    .chart.chart--macd.mt-1.ml6(v-show="showMACD && chartType === 'candlestick'")
+      .w-flex.align-center.pa1.op4.ml3.absolute
         strong.size--sm.op7 MACD (12,26,9)
         code.size--sm.ml2 {{ currentMACD }}/{{ currentSignal }}/{{ currentHistogram }}
 
