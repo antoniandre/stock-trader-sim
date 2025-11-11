@@ -1491,33 +1491,33 @@ export async function getTopMovers(market = 'stocks', direction = 'both', top = 
 
     // Process the data to include volume analysis from screener data.
     if (data && (data.gainers || data.losers)) {
+      // Get exchange information for all stocks (cached, so fast).
+      const allTradableStocks = await getAllTradableStocks()
+      const exchangeMap = new Map(allTradableStocks.map(stock => [stock.symbol, stock.exchange]))
+
       const allMovers = []
 
       // Get current market status once for all stocks.
       const marketStatus = await getMarketStatus()
 
+      // Helper to enrich stock data with exchange and market status.
+      const enrichStock = (stock) => ({
+        ...stock,
+        pct: stock.percent_change,
+        exchange: exchangeMap.get(stock.symbol) || null, // Add exchange info.
+        volumeStatus: 'high', // Screener stocks are typically high volume by definition.
+        marketState: marketStatus.status,
+        marketMessage: marketStatus.message,
+        nextOpen: marketStatus.nextOpen,
+        nextClose: marketStatus.nextClose
+      })
+
       if (direction === 'gainers' || direction === 'both') {
-        allMovers.push(...(data.gainers || []).map(stock => ({
-          ...stock,
-          pct: stock.percent_change,
-          volumeStatus: 'high', // Screener stocks are typically high volume by definition.
-          marketState: marketStatus.status,
-          marketMessage: marketStatus.message,
-          nextOpen: marketStatus.nextOpen,
-          nextClose: marketStatus.nextClose
-        })))
+        allMovers.push(...(data.gainers || []).map(enrichStock))
       }
 
       if (direction === 'losers' || direction === 'both') {
-        allMovers.push(...(data.losers || []).map(stock => ({
-          ...stock,
-          pct: stock.percent_change,
-          volumeStatus: 'high', // Screener stocks are typically high volume by definition.
-          marketState: marketStatus.status,
-          marketMessage: marketStatus.message,
-          nextOpen: marketStatus.nextOpen,
-          nextClose: marketStatus.nextClose
-        })))
+        allMovers.push(...(data.losers || []).map(enrichStock))
       }
 
       return { success: true, data: { gainers: allMovers.filter(m => m.pct > 0), losers: allMovers.filter(m => m.pct < 0) } }

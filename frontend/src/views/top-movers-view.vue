@@ -7,6 +7,14 @@
   .w-flex.align-center.justify-between.gap3.mb4
     .title1 {{ title }}
     span.op5.size--sm.mt1 Last Update: {{ lastUpdate }}
+    w-button(
+      @click="refreshData"
+      :loading="loading"
+      color="primary"
+      outline
+      round)
+      icon.w-icon.mr2(icon="mdi:refresh")
+      | Refresh
     //- Connection Status.
     .w-flex.align-center.gap2.mla.no-grow
       .w-icon.size--xs.success--bg(v-if="wsConnected")
@@ -22,22 +30,20 @@
       outline
       round
       label="Show top")
-    w-select(
-      v-model="selectedMarket"
-      :items="marketOptions"
-      outline
-      round
-      label="Market")
-    w-button(
-      @click="refreshData"
-      :loading="loading"
-      color="primary"
-      outline
-      round)
-      icon.w-icon.mr2(icon="mdi:refresh")
-      | Refresh
 
-  //- Volume Filter
+  //- Exchange filter tags.
+  .w-flex.align-center.gap2.mb4.wrap(v-if="availableExchanges.length")
+    span.size--sm.op6.no-shrink Filter by exchange:
+    w-tag(
+      v-for="exchange in availableExchanges"
+      :key="exchange"
+      :model-value="selectedExchanges[exchange]"
+      @update:model-value="selectedExchanges[exchange] = $event"
+      :bg-color="selectedExchanges[exchange] ? 'primary' : 'base'"
+      round)
+      | {{ exchange }}
+
+  //- Volume filter.
   volume-filter.mb4(
     v-model="volumeFilter"
     :stats="volumeStats"
@@ -120,8 +126,8 @@ const loading = ref(true)
 const error = ref(null)
 const lastUpdate = ref('Never')
 const selectedCount = ref(20)
-const selectedMarket = ref('all')
 const volumeFilter = ref('all')
+const selectedExchanges = ref({}) // Object to track which exchanges are selected.
 
 // WebSocket
 const { wsConnected, connect } = useWebSocket()
@@ -134,16 +140,43 @@ const countOptions = [
   { label: 'Top 100', value: 100 }
 ]
 
-const marketOptions = [
-  { label: 'All Markets', value: 'all' },
-  { label: 'NYSE', value: 'NYSE' },
-  { label: 'NASDAQ', value: 'NASDAQ' },
-  { label: 'AMEX', value: 'AMEX' }
-]
+// Computed.
+// --------------------------------------------------------
+// Get all unique exchanges from stocks.
+const availableExchanges = computed(() => {
+  const exchanges = new Set()
+  stocks.value.forEach(stock => {
+    if (stock.exchange) exchanges.add(stock.exchange)
+  })
+  return Array.from(exchanges).sort()
+})
 
-// Computed
+// Initialize selected exchanges when stocks change.
+watch(availableExchanges, (exchanges) => {
+  if (exchanges.length > 0 && Object.keys(selectedExchanges.value).length === 0) {
+    // By default, select all exchanges.
+    exchanges.forEach(exchange => {
+      selectedExchanges.value[exchange] = true
+    })
+  }
+}, { immediate: true })
+
+// Filter stocks by selected exchanges and volume.
 const filteredStocks = computed(() => {
-  return filterStocksByVolume(stocks.value, volumeFilter.value)
+  let result = stocks.value
+
+  // Filter by selected exchanges.
+  const activeExchanges = Object.keys(selectedExchanges.value).filter(
+    exchange => selectedExchanges.value[exchange]
+  )
+  if (activeExchanges.length > 0) {
+    result = result.filter(stock =>
+      stock.exchange && activeExchanges.includes(stock.exchange)
+    )
+  }
+
+  // Apply volume filter.
+  return filterStocksByVolume(result, volumeFilter.value)
 })
 
 const volumeStats = computed(() => {
@@ -171,15 +204,16 @@ const averageChange = computed(() => {
   return validChanges.reduce((sum, pct) => sum + pct, 0) / validChanges.length
 })
 
-// Methods
+// Methods.
+// --------------------------------------------------------
 async function loadMovers() {
   try {
-    console.log(`🔄 Loading ${props.type} with count: ${selectedCount.value}, market: ${selectedMarket.value}`)
+    console.log(`🔄 Loading ${props.type} with count: ${selectedCount.value}`)
     loading.value = true
     error.value = null
 
     console.log('📡 Making API call to fetchTopMovers...')
-    const response = await fetchTopMovers(selectedCount.value, selectedMarket.value)
+    const response = await fetchTopMovers(selectedCount.value, 'stocks')
     console.log('✅ API response received:', response)
 
     // The API returns { gainers: [...], losers: [...], timestamp: "..." }
@@ -227,13 +261,11 @@ async function loadMovers() {
                 trendDataLength: stock.trendData?.length,
                 isArray: Array.isArray(stock.trendData)
               })
-            } else {
-              console.warn(`⚠️ No trend data found for ${stock.symbol} in batch response`)
             }
+            else console.warn(`⚠️ No trend data found for ${stock.symbol} in batch response`)
           })
-        } else {
-          console.warn('⚠️ Batch trends failed:', trendsResponse)
         }
+        else console.warn('⚠️ Batch trends failed:', trendsResponse)
       }
 
       // Only set stocks.value AFTER all trend data is loaded
@@ -248,15 +280,18 @@ async function loadMovers() {
 
       lastUpdate.value = new Date().toLocaleTimeString()
       console.log('✅ Data loading completed successfully')
-    } else {
+    }
+    else {
       console.error('❌ API returned error:', response)
       error.value = response.error || 'Failed to fetch data'
     }
-  } catch (err) {
+  }
+  catch (err) {
     console.error(`❌ Error loading ${props.type}:`, err)
     console.error('❌ Error stack:', err.stack)
     error.value = `Failed to load ${props.type}: ${err.message}`
-  } finally {
+  }
+  finally {
     loading.value = false
   }
 }
@@ -271,10 +306,9 @@ onMounted(() => {
   loadMovers()
 })
 
-// Watchers
-watch([selectedCount, selectedMarket], () => {
-  loadMovers()
-})
+// Watchers.
+// --------------------------------------------------------
+watch(selectedCount, loadMovers)
 </script>
 
 <style lang="scss" scoped>
@@ -293,13 +327,5 @@ watch([selectedCount, selectedMarket], () => {
 .stat-item {
   text-align: center;
   min-width: 120px;
-}
-
-.currency-positive {
-  color: var(--w-success-color);
-}
-
-.currency-negative {
-  color: var(--w-error-color);
 }
 </style>
