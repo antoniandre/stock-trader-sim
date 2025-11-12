@@ -95,11 +95,17 @@ w-grid.gap4(:columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }" )
 //- Content
 div(v-else)
   //- Stocks Table
-  .glass-box.ova.pa4
+  .glass-box.ova.mt6
     w-table.bd0(:headers="tableHeaders" :items="paginatedStocks")
+      template(#no-data)
+        .w-flex.column.align-center.justify-center.py12
+          w-icon(color="info" size="4rem") wi-info-circle
+          h2.title2.info.mt4.mb2 No stocks found
+          p.mb4 No stocks found matching your search.
+          w-button(@click="connectWebSocket" text bg-color="info" round) Try again
       template(#item="{ item: stock }")
-        tr.clickable-row(@click="$router.push(`/trading/${stock.symbol}`)")
-          td.px2.py2
+        tr.w-table__row.clickable-row(@click="$router.push(`/trading/${stock.symbol}`)")
+          td.w-table__cell.pl4.pr2.py2
             .w-flex.align-center
               w-badge.mr3(overlap bottom bg-color="" xs :badge-class="`market-status-indicator market-${stock.marketState}`")
                 template(#badge)
@@ -111,14 +117,14 @@ div(v-else)
                 span.text-bold {{ stock.symbol }}
                 w-tag(sm round :style="`background-color: var(--${['NYSE', 'NASDAQ'].includes(stock.exchange) ? stock.exchange.toLowerCase() : 'other-se'}-color)`")
                   small {{ stock.exchange }}
-          td.px2.py2
+          td.w-table__cell.px2.py2
             span {{ stock.name }}
-          td.px2.py2.text-right
+          td.w-table__cell.px2.py2.text-right
             .w-flex.align-center.justify-end.gap1(v-if="stock.price > 0")
               span.text-bold {{ stock.currencySymbol || '$' }}{{ stock.price.toFixed(2) }}
             .w-flex.align-center.justify-end.gap1(v-else)
               span.op5 Fetching...
-          td.px2.py2.text-center
+          td.w-table__cell.pl2.pr4.py2.text-center
             .w-flex.align-center.justify-center.gap2(@click.stop)
               w-button.px2(
                 @click="placeOrder(stock.symbol, 1, 'buy')"
@@ -485,4 +491,10 @@ onBeforeUnmount(() => {
 
   &:hover {background-color: rgba(255, 255, 255, 0.08) !important;}
 }
+
+:deep(.no-data .w-table__cell) {background: none;}
+:deep(.w-table__header) {padding: 12px 8px; background: none;}
+:deep(.w-table__header:first-child, .w-table__cell:first-child) {padding-left: 16px;}
+:deep(.w-table__header:last-child, .w-table__cell:last-child) {padding-right: 16px;}
+
 </style>

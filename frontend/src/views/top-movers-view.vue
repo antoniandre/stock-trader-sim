@@ -22,25 +22,34 @@
         | {{ wsConnected ? 'Live' : 'Polling fallback' }}
 
   //- Filter Controls
-  .w-flex.align-center.gap4.mb4
-    w-select(
-      v-model="selectedCount"
-      :items="countOptions"
-      outline
+  .w-flex.align-center.gap2.mb4
+    .title5.op6 Show top:
+    w-button(
+      v-for="option in countOptions"
+      :key="option.value"
+      width="28"
+      height="28"
+      @click="selectedCount = option.value"
+      :outline="selectedCount !== option.value"
       round
-      label="Show top")
+      sm)
+      | {{ option.value }}
 
   //- Exchange filter tags.
   .w-flex.align-center.gap2.mb4.wrap(v-if="availableExchanges.length")
-    span.size--sm.op6.no-shrink Filter by exchange:
-    w-tag(
+    .title5.op6 Filter by exchange:
+    w-tag.justify-start(
       v-for="exchange in availableExchanges"
       :key="exchange"
       :model-value="selectedExchanges[exchange]"
       @update:model-value="selectedExchanges[exchange] = $event"
-      :bg-color="selectedExchanges[exchange] ? 'primary' : 'base'"
+      :bg-color="selectedExchanges[exchange] ? 'primary' : 'transparent'"
+      :class="selectedExchanges[exchange] ? 'pl5 pr3' : 'px4 primary'"
+      :outline="!selectedExchanges[exchange]"
       round)
-      | {{ exchange }}
+      | &nbsp;
+      w-icon.ml-4.absolute(v-if="selectedExchanges[exchange]") wi-check
+      span {{ exchange }}
 
   //- Volume filter.
   volume-filter.mb4(

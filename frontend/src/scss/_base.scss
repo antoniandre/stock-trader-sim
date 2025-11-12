@@ -34,6 +34,7 @@
 .w-app {
   background-image: radial-gradient(circle at top, var(--bg-gradient-stop1), var(--bg-gradient-stop2));
   min-height: 100vh;
+  user-select: none;
 
   a {color: inherit;}
 }
