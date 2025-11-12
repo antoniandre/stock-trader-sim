@@ -1,7 +1,7 @@
 <template lang="pug">
 .volume-filter.w-flex.align-center.gap2
-  w-icon(color="primary" size="1.2rem") wi-bar-chart
-  .title4.mr2 Volume Activity:
+  icon.w-icon.size--lg(icon="material-symbols-light:bar-chart")
+  .title4.mr2 Volume
 
   w-select(
     v-model="selectedFilter"
@@ -19,34 +19,20 @@
   //- Volume stats display
   .volume-stats.ml3(v-if="showStats")
     .w-flex.align-center.gap3
-      .stat-item(v-if="stats.total > 0")
-        .size--sm.op6 Total:
-        .text-bold {{ stats.total }}
-      .stat-item(v-if="stats.highVolume > 0")
-        .size--sm.op6 High Volume:
-        .text-bold.warning {{ stats.highVolume }}
-      .stat-item(v-if="stats.unusualVolume > 0")
-        .size--sm.op6 Unusual:
-        .text-bold.error {{ stats.unusualVolume }}
+      .stat-item(v-if="stats.highVolume")
+        .size--sm.op6 High Volume
+        strong.warning {{ stats.highVolume }}
+      .stat-item(v-if="stats.unusualVolume")
+        .size--sm.op6 Unusual
+        strong.error {{ stats.unusualVolume }}
 </template>
 
 <script setup>
 import { computed } from 'vue'
 
 const props = defineProps({
-  // Current filter value
-  modelValue: {
-    type: String,
-    default: 'all'
-  },
-
-  // Show statistics about volume distribution
-  showStats: {
-    type: Boolean,
-    default: true
-  },
-
-  // Statistics data for display
+  modelValue: { type: String, default: 'all' },
+  showStats: { type: Boolean, default: true },
   stats: {
     type: Object,
     default: () => ({
@@ -59,7 +45,7 @@ const props = defineProps({
 
 const emit = defineEmits(['filter-change'])
 
-// Filter options for volume activity
+// Filter options for volume activity.
 const filterOptions = [
   { label: 'All Stocks', value: 'all', description: 'Show all stocks regardless of volume' },
   { label: 'High Volume Only', value: 'high', description: 'Show stocks with volume ≥1.5x average' },
@@ -69,7 +55,7 @@ const filterOptions = [
   { label: 'Normal Volume', value: 'normal', description: 'Show stocks with normal volume activity' }
 ]
 
-// Computed property for selected filter
+// Computed property for selected filter.
 const selectedFilter = computed({
   get: () => props.modelValue,
   set: (value) => emit('filter-change', value)
@@ -165,12 +151,8 @@ export function calculateVolumeStats(stocks) {
     gap: 0.5rem;
 
     .volume-stats {
-      margin-left: 0 !important;
+      margin-left: 0;
       margin-top: 0.5rem;
-
-      .w-flex {
-        gap: 1rem;
-      }
     }
   }
 }

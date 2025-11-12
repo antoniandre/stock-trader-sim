@@ -5,7 +5,7 @@
     | Back to Trading
 
   .w-flex.align-center.justify-between.gap3.mb4
-    .title1.pb1 {{ title }}
+    .title1.lh0.pb1 {{ title }}
     span.op5.size--sm Last Update: {{ lastUpdate }}
     w-button(
       @click="refreshData"
@@ -22,34 +22,37 @@
         | {{ wsConnected ? 'Live' : 'Polling fallback' }}
 
   //- Filter Controls
-  .w-flex.align-center.gap2.mb4
-    .title5.op6 Show top:
-    w-button(
-      v-for="option in countOptions"
-      :key="option.value"
-      width="28"
-      height="28"
-      @click="selectedCount = option.value"
-      :outline="selectedCount !== option.value"
-      round
-      sm)
-      | {{ option.value }}
+  .w-flex.wrap.align-center.gap6.mb4
+    .w-flex.align-center.gap2.no-grow
+      icon.w-icon.size--xs(icon="mdi:apps")
+      span.text-upper.size--sm.op6 Show
+      w-button(
+        v-for="option in countOptions"
+        :key="option.value"
+        width="28"
+        height="28"
+        @click="selectedCount = option.value"
+        :outline="selectedCount !== option.value"
+        round
+        sm) {{ option.value }}
 
-  //- Exchange filter tags.
-  .w-flex.align-center.gap2.mb4.wrap(v-if="availableExchanges.length")
-    .title5.op6 Filter by exchange:
-    w-tag.justify-start(
-      v-for="exchange in availableExchanges"
-      :key="exchange"
-      :model-value="selectedExchanges[exchange]"
-      @update:model-value="selectedExchanges[exchange] = $event"
-      :bg-color="selectedExchanges[exchange] ? 'primary' : 'transparent'"
-      :class="selectedExchanges[exchange] ? 'pl5 pr3' : 'px4 primary'"
-      :outline="!selectedExchanges[exchange]"
-      round)
-      | &nbsp;
-      w-icon.ml-4.absolute(v-if="selectedExchanges[exchange]") wi-check
-      span {{ exchange }}
+    //- Exchange filter tags.
+    .w-flex.align-center.gap2.wrap(v-if="availableExchanges.length")
+      .w-flex.align-center.gap2.no-grow
+        icon.w-icon.size--xs(icon="mdi:filter-variant")
+        span.text-upper.size--sm.op6 Exchange
+      w-tag.justify-start(
+        v-for="exchange in availableExchanges"
+        :key="exchange"
+        :model-value="selectedExchanges[exchange]"
+        @update:model-value="selectedExchanges[exchange] = $event"
+        :bg-color="selectedExchanges[exchange] ? 'primary' : 'transparent'"
+        :class="selectedExchanges[exchange] ? 'pl5 pr3' : 'px4 primary'"
+        :outline="!selectedExchanges[exchange]"
+        round)
+        | &nbsp;
+        w-icon.ml-4.absolute(v-if="selectedExchanges[exchange]") wi-check
+        span {{ exchange }}
 
   //- Volume filter.
   volume-filter.mb4(
