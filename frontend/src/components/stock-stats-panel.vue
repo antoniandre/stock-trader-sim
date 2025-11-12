@@ -38,10 +38,19 @@
               .value.lh0(v-html="formatPrice(weekLow)")
 
   //- Financial Metrics
-  .metrics-list.mt4
+  .metrics-list.mt4.text-upper
+    .metric-row
+      .op5.size--sm Exchange
+      w-tag.size--md.bd0.px2.py1(
+        v-if="stock.exchange"
+        :bg-color="$waveui.theme === 'dark' ? 'info-dark5' : 'info-light5'"
+        round
+        xs)
+        .w-icon.mr1.size--xs(:class="$waveui.theme === 'dark' ? 'primary-dark2--bg' : 'primary--bg'")
+        | {{ stock.exchange }}
     .metric-row(v-for="metric in financialMetrics" :key="metric.label")
-      .metric-label.op5 {{ metric.label }}
-      .metric-value(:class="metric.colorClass") {{ metric.value }}
+      .op5.size--sm {{ metric.label }}
+      strong.size--md(:class="metric.colorClass") {{ metric.value }}
 </template>
 
 <script setup>
@@ -397,18 +406,6 @@ const financialMetrics = computed(() => [
       border-bottom: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 5%, transparent);
 
       &:last-child {border-bottom: none;}
-
-      .metric-label {
-        font-size: 12px;
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-      }
-
-      .metric-value {
-        font-size: 14px;
-        font-weight: 600;
-      }
     }
   }
 }
