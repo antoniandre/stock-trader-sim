@@ -5,13 +5,12 @@
     | Back to Trading
 
   .w-flex.align-center.justify-between.gap3.mb4
-    .title1 {{ title }}
-    span.op5.size--sm.mt1 Last Update: {{ lastUpdate }}
+    .title1.pb1 {{ title }}
+    span.op5.size--sm Last Update: {{ lastUpdate }}
     w-button(
       @click="refreshData"
       :loading="loading"
-      color="primary"
-      outline
+      text
       round)
       icon.w-icon.mr2(icon="mdi:refresh")
       | Refresh
