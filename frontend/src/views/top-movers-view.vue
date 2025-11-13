@@ -6,8 +6,10 @@
 
   .w-flex.align-center.justify-between.gap2.mb4
     .title1.lh0.pb1 {{ title }}
-    span.op5.size--sm Last Update: {{ lastUpdate }}
-    w-badge(bottom overlap bg-color="" color="info")
+    span.w-flex.align-center.gap1.op5.size--sm.no-grow.mt1
+      icon(icon="mdi:clock-outline")
+      | Updated {{ lastUpdate }}
+    w-badge.mt1(bottom overlap bg-color="" color="info")
       template(#badge)
         .size--xs(v-if="countdown > 0 && !loading") {{ countdown }}s
       w-button.w-button--icon(
@@ -74,15 +76,6 @@
       | &nbsp;
       w-icon.ml-4.absolute(v-if="volumeFilter[option.value]") wi-check
       span {{ option.label }}
-    //- Volume stats display
-    .volume-stats.ml3
-      .w-flex.align-center.gap3
-        .stat-item(v-if="volumeStats.highVolume")
-          .size--sm.op6 High Volume
-          strong.warning {{ volumeStats.highVolume }}
-        .stat-item(v-if="volumeStats.unusualVolume")
-          .size--sm.op6 Unusual
-          strong.error {{ volumeStats.unusualVolume }}
 
   //- Loading State
   .w-flex.column.py12.align-center.justify-center(v-if="loading")
@@ -105,10 +98,13 @@
           .title3(:class="isPositive ? 'currency-positive' : 'currency-negative'")
             | {{ isPositive ? '+' : '' }}{{ formatPercentage(topStock.pct) }}
           .size--sm.op6 {{ isPositive ? 'Top Performer' : 'Biggest Drop' }}: {{ topStock.symbol }}
-        .stat-item
-          .title3 {{ formatPercentage(averageChange) }}
-          .size--sm.op6 Average {{ isPositive ? 'Gain' : 'Loss' }}
-        .stat-item
+        .stat-item(v-if="volumeStats.highVolume")
+          strong.warning {{ volumeStats.highVolume }}
+          .size--sm.op6 High Volume
+        .stat-item(v-if="volumeStats.unusualVolume")
+          strong.error {{ volumeStats.unusualVolume }}
+          .size--sm.op6 Unusual Volume
+        .stat-item.mla
           .title3 {{ filteredStocks.length }}
           .size--sm.op6 Showing {{ filteredStocks.length }} of {{ stocks.length }}
 
@@ -201,7 +197,7 @@ const availableExchanges = computed(() => {
 
 // Initialize selected exchanges when stocks change.
 watch(availableExchanges, (exchanges) => {
-  if (exchanges.length > 0 && Object.keys(selectedExchanges.value).length === 0) {
+  if (exchanges.length && Object.keys(selectedExchanges.value).length === 0) {
     // By default, select all exchanges.
     exchanges.forEach(exchange => {
       selectedExchanges.value[exchange] = true
@@ -233,9 +229,7 @@ const filteredStocks = computed(() => {
 
   return result.filter(stock => {
     const volumeAnalysis = stock.volumeAnalysis
-    if (!volumeAnalysis) {
-      return filterValues.normal === true
-    }
+    if (!volumeAnalysis) return filterValues.normal === true
 
     const status = volumeAnalysis.volumeStatus
 
@@ -256,10 +250,8 @@ const volumeStats = computed(() => {
   const stats = { total: 0, highVolume: 0, unusualVolume: 0 }
   filteredStocks.value.forEach(stock => {
     if (stock.volumeAnalysis) {
-      if (stock.volumeAnalysis.isUnusualVolume) {
-        stats.highVolume++
-      }
-      if (stock.volumeAnalysis.volumeStatus === 'very-high' || stock.volumeAnalysis.volumeStatus === 'extremely-high') {
+      if (stock.volumeAnalysis.isUnusualVolume) stats.highVolume++
+      if (['very-high', 'extremely-high'].includes(stock.volumeAnalysis.volumeStatus)) {
         stats.unusualVolume++
       }
     }
@@ -288,21 +280,6 @@ const topStock = computed(() => {
       ? (stockPct > topPct ? stock : top)
       : (stockPct < topPct ? stock : top)
   }, null)
-})
-
-// Calculate average change from filtered stocks.
-const averageChange = computed(() => {
-  if (filteredStocks.value.length === 0) return null
-  const validChanges = filteredStocks.value
-    .map(stock => {
-      let pct = stock.pct
-      if (pct != null && !isNaN(pct) && Math.abs(pct) > 1000) pct = pct / 100
-      return pct
-    })
-    .filter(pct => pct != null && !isNaN(pct))
-
-  if (validChanges.length === 0) return null
-  return validChanges.reduce((sum, pct) => sum + pct, 0) / validChanges.length
 })
 
 // Methods.

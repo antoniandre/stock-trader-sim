@@ -1,5 +1,5 @@
 <template lang="pug">
-.ticker-view
+.ticker-view.mt6
   w-button.mt2.ml8.pl2(@click="$router.push('/trading')" text round absolute left)
     icon.w-icon.mr2(icon="mdi:arrow-left")
     | Back to Trading
@@ -1558,9 +1558,6 @@ watch(() => historicalData.value.length, (newLength, oldLength) => {
 
 <style lang="scss">
 .ticker-view {
-  padding: 2rem;
-  margin: 0 auto;
-
   .price-display .title2 {
     font-size: 2.2rem;
     line-height: 1;
