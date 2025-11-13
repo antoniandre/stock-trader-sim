@@ -763,6 +763,43 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
       if (filteredData.length > 0) {
         console.log(`📊 Filtered to continuous trading data: ${historicalData.length} → ${filteredData.length} points`)
 
+        // Add previous day's close to show full percentage change (from top movers).
+        try {
+          const firstDataPoint = filteredData[0]
+          if (firstDataPoint) {
+            const firstDataDate = new Date(firstDataPoint.timestamp)
+            const previousDay = new Date(firstDataDate)
+            previousDay.setDate(previousDay.getDate() - 1)
+
+            // Get previous trading day's close.
+            const prevDayBars = await fetchHistoricalDataWithPagination(symbol, '1Day', previousDay, firstDataDate, 5, 'iex')
+            if (prevDayBars && prevDayBars.length > 0) {
+              const prevDayBar = prevDayBars[prevDayBars.length - 1]
+              const prevDayClose = prevDayBar.c
+              const prevDayTimestamp = new Date(prevDayBar.t).getTime()
+
+              // Add previous day's close as first point (before market open).
+              const marketOpenTime = firstDataPoint.timestamp
+              const prevClosePoint = {
+                timestamp: prevDayTimestamp,
+                open: prevDayClose,
+                high: prevDayClose,
+                low: prevDayClose,
+                close: prevDayClose,
+                volume: 0,
+                price: prevDayClose
+              }
+
+              // Insert previous close before today's data.
+              filteredData.unshift(prevClosePoint)
+              console.log(`📊 Added previous day's close: $${prevDayClose.toFixed(2)} at ${new Date(prevDayTimestamp).toLocaleString()}`)
+            }
+          }
+        }
+        catch (error) {
+          console.warn(`⚠️ Could not fetch previous day's close for ${symbol}:`, error.message)
+        }
+
         // FIRST: Check if the historical data is from a different trading day
         // This must happen BEFORE bridging to avoid masking the real issue
         const lastHistoricalTime = filteredData[filteredData.length - 1]?.timestamp

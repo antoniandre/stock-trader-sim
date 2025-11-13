@@ -680,7 +680,11 @@ function updateOHLCData(price, timestamp) {
     lastCandle.low = Math.min(lastCandle.low, price)
     lastCandle.close = price
   }
-  else realtimeOHLC.value.push({ timestamp: bucketTime, open: price, high: price, low: price, close: price, volume: 0 })
+  else {
+    // Real-time data doesn't include volume - volume is only available from historical bars.
+    // During market hours, volume will be updated when historical data refreshes.
+    realtimeOHLC.value.push({ timestamp: bucketTime, open: price, high: price, low: price, close: price, volume: 0 })
+  }
 }
 
 // Message Handlers

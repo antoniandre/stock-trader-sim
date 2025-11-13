@@ -124,7 +124,15 @@ watch(() => props.stock.trendData, (newTrendData) => {
     trendLoading.value = false
     hasBatchData.value = true
   }
-}, { immediate: true })
+}, { immediate: true, deep: true })
+
+// Watch for price updates to update chart in real-time.
+watch(() => props.stock.price, (newPrice, oldPrice) => {
+  if (newPrice && newPrice !== oldPrice && trendChart.value) {
+    // Update trend chart with new price.
+    trendChart.value.updateTrendData(newPrice)
+  }
+})
 
 // WebSocket integration for real-time trend updates
 const { subscribeToStock, unsubscribeFromStock } = useWebSocket()

@@ -4,16 +4,18 @@
     icon.w-icon.mr2(icon="mdi:arrow-left")
     | Back to Trading
 
-  .w-flex.align-center.justify-between.gap3.mb4
+  .w-flex.align-center.justify-between.gap2.mb4
     .title1.lh0.pb1 {{ title }}
     span.op5.size--sm Last Update: {{ lastUpdate }}
-    w-button(
-      @click="refreshData"
-      :loading="loading"
-      text
-      round)
-      icon.w-icon.mr2(icon="mdi:refresh")
-      | Refresh
+    w-badge(bottom overlap bg-color="" color="info")
+      template(#badge)
+        .size--xs(v-if="countdown > 0 && !loading") {{ countdown }}s
+      w-button.w-button--icon(
+        @click="refreshData"
+        :loading="loading"
+        text
+        round)
+        icon.w-icon(icon="mdi:refresh")
     //- Connection Status.
     .w-flex.align-center.gap2.mla.no-grow
       .w-icon.size--xs.success--bg(v-if="wsConnected")
@@ -55,10 +57,32 @@
         span {{ exchange }}
 
   //- Volume filter.
-  volume-filter.mb4(
-    v-model="volumeFilter"
-    :stats="volumeStats"
-    @filter-change="volumeFilter = $event")
+  .volume-filter.w-flex.align-center.gap2.wrap.mb4
+    .w-flex.align-center.gap2.no-grow
+      icon.w-icon.size--xs(icon="material-symbols-light:bar-chart")
+      span.text-upper.size--sm.op6 Volume
+    w-tag.justify-start(
+      v-for="option in volumeOptions"
+      :key="option.value"
+      :model-value="volumeFilter[option.value]"
+      @update:model-value="volumeFilter[option.value] = $event"
+      :bg-color="volumeFilter[option.value] ? option.color : 'transparent'"
+      :color="volumeFilter[option.value] ? 'white' : option.color"
+      :class="[volumeFilter[option.value] ? 'pl5 pr3' : 'px4']"
+      :outline="!volumeFilter[option.value]"
+      round)
+      | &nbsp;
+      w-icon.ml-4.absolute(v-if="volumeFilter[option.value]") wi-check
+      span {{ option.label }}
+    //- Volume stats display
+    .volume-stats.ml3
+      .w-flex.align-center.gap3
+        .stat-item(v-if="volumeStats.highVolume")
+          .size--sm.op6 High Volume
+          strong.warning {{ volumeStats.highVolume }}
+        .stat-item(v-if="volumeStats.unusualVolume")
+          .size--sm.op6 Unusual
+          strong.error {{ volumeStats.unusualVolume }}
 
   //- Loading State
   .w-flex.column.py12.align-center.justify-center(v-if="loading")
@@ -77,16 +101,16 @@
     //- Summary Stats
     .glass-box.pa4.mb4(v-if="stocks.length > 0")
       .w-flex.align-center.justify-between.gap4.wrap
-        .stat-item
-          .title3(:class="isPositive ? 'currency-positive' : 'currency-negative'") {{ stocks.length }}
-          .size--sm.op6 Total {{ isPositive ? 'Gainers' : 'Losers' }}
         .stat-item(v-if="topStock")
           .title3(:class="isPositive ? 'currency-positive' : 'currency-negative'")
-            | {{ isPositive ? '+' : '' }}{{ topStock.pct?.toFixed(2) || 'N/A' }}%
+            | {{ isPositive ? '+' : '' }}{{ formatPercentage(topStock.pct) }}
           .size--sm.op6 {{ isPositive ? 'Top Performer' : 'Biggest Drop' }}: {{ topStock.symbol }}
         .stat-item
-          .title3 {{ averageChange?.toFixed(2) || 'N/A' }}%
+          .title3 {{ formatPercentage(averageChange) }}
           .size--sm.op6 Average {{ isPositive ? 'Gain' : 'Loss' }}
+        .stat-item
+          .title3 {{ filteredStocks.length }}
+          .size--sm.op6 Showing {{ filteredStocks.length }} of {{ stocks.length }}
 
     //- Stocks Grid
     w-grid.gap4(:columns="{ xs: 1, sm: 2, md: 3, lg: 4, xl: 5 }")
@@ -110,7 +134,6 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { fetchTopMovers, fetchBatchTrends } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import TickerCard from '@/components/ticker-card.vue'
-import VolumeFilter, { filterStocksByVolume, calculateVolumeStats } from '@/components/volume-filter.vue'
 
 // Props
 const props = defineProps({
@@ -137,11 +160,17 @@ const loading = ref(true)
 const error = ref(null)
 const lastUpdate = ref('Never')
 const selectedCount = ref(20)
-const volumeFilter = ref('all')
+const volumeFilter = ref({
+  normal: true,
+  high: true,
+  'very-high': true,
+  extreme: true
+})
 const selectedExchanges = ref({}) // Object to track which exchanges are selected.
+const countdown = ref(0) // Countdown timer for next auto-refresh.
 
 // WebSocket
-const { wsConnected, connect } = useWebSocket()
+const { wsConnected, connect, addMessageHandler } = useWebSocket()
 
 // Options
 const countOptions = [
@@ -149,6 +178,14 @@ const countOptions = [
   { label: 'Top 20', value: 20 },
   { label: 'Top 50', value: 50 },
   { label: 'Top 100', value: 100 }
+]
+
+// Volume filter options with colors.
+const volumeOptions = [
+  { label: 'Normal', value: 'normal', color: 'base' },
+  { label: 'High', value: 'high', color: 'amber' },
+  { label: 'Very High', value: 'very-high', color: 'warning' },
+  { label: 'Extreme', value: 'extreme', color: 'error' }
 ]
 
 // Computed.
@@ -180,35 +217,88 @@ const filteredStocks = computed(() => {
   const activeExchanges = Object.keys(selectedExchanges.value).filter(
     exchange => selectedExchanges.value[exchange]
   )
-  if (activeExchanges.length > 0) {
+  if (activeExchanges.length) {
     result = result.filter(stock =>
       stock.exchange && activeExchanges.includes(stock.exchange)
     )
   }
 
   // Apply volume filter.
-  return filterStocksByVolume(result, volumeFilter.value)
+  const filterValues = volumeFilter.value
+  const hasActiveFilter = Object.values(filterValues).some(v => v === true)
+  if (!hasActiveFilter) return []
+
+  const allFiltersActive = Object.values(filterValues).every(v => v === true)
+  if (allFiltersActive) return result
+
+  return result.filter(stock => {
+    const volumeAnalysis = stock.volumeAnalysis
+    if (!volumeAnalysis) {
+      return filterValues.normal === true
+    }
+
+    const status = volumeAnalysis.volumeStatus
+
+    if (status === 'normal' && filterValues.normal) return true
+    if (filterValues.high) {
+      if (status === 'high') return true
+      if (volumeAnalysis.isUnusualVolume && !status) return true
+    }
+    if (status === 'very-high' && filterValues['very-high']) return true
+    if (status === 'extremely-high' && filterValues.extreme) return true
+
+    return false
+  })
 })
 
+// Calculate volume stats from filtered stocks.
 const volumeStats = computed(() => {
-  return calculateVolumeStats(stocks.value)
+  const stats = { total: 0, highVolume: 0, unusualVolume: 0 }
+  filteredStocks.value.forEach(stock => {
+    if (stock.volumeAnalysis) {
+      if (stock.volumeAnalysis.isUnusualVolume) {
+        stats.highVolume++
+      }
+      if (stock.volumeAnalysis.volumeStatus === 'very-high' || stock.volumeAnalysis.volumeStatus === 'extremely-high') {
+        stats.unusualVolume++
+      }
+    }
+  })
+  stats.total = filteredStocks.value.length
+  return stats
 })
 
+// Format percentage - handle potential decimal conversion issues.
+function formatPercentage(pct) {
+  if (pct == null || isNaN(pct)) return 'N/A'
+  // If percentage seems way too high (likely a decimal that wasn't converted), divide by 100.
+  if (Math.abs(pct) > 1000) pct = pct / 100
+  return pct.toFixed(2)
+}
+
+// Get top stock from filtered stocks.
 const topStock = computed(() => {
-  if (stocks.value.length === 0) return null
-  return stocks.value.reduce((top, stock) => {
+  if (filteredStocks.value.length === 0) return null
+  return filteredStocks.value.reduce((top, stock) => {
     if (!top || !top.pct) return stock
     if (!stock.pct) return top
+    const topPct = Math.abs(top.pct) > 1000 ? top.pct / 100 : top.pct
+    const stockPct = Math.abs(stock.pct) > 1000 ? stock.pct / 100 : stock.pct
     return isPositive.value
-      ? (stock.pct > top.pct ? stock : top)
-      : (stock.pct < top.pct ? stock : top)
+      ? (stockPct > topPct ? stock : top)
+      : (stockPct < topPct ? stock : top)
   }, null)
 })
 
+// Calculate average change from filtered stocks.
 const averageChange = computed(() => {
-  if (stocks.value.length === 0) return null
-  const validChanges = stocks.value
-    .map(stock => stock.pct)
+  if (filteredStocks.value.length === 0) return null
+  const validChanges = filteredStocks.value
+    .map(stock => {
+      let pct = stock.pct
+      if (pct != null && !isNaN(pct) && Math.abs(pct) > 1000) pct = pct / 100
+      return pct
+    })
     .filter(pct => pct != null && !isNaN(pct))
 
   if (validChanges.length === 0) return null
@@ -217,11 +307,99 @@ const averageChange = computed(() => {
 
 // Methods.
 // --------------------------------------------------------
-async function loadMovers() {
+// Incremental update: merge new data into existing stocks without full reload.
+async function updateMoversIncremental() {
   try {
-    console.log(`🔄 Loading ${props.type} with count: ${selectedCount.value}`)
-    loading.value = true
-    error.value = null
+    console.log(`🔄 Incremental update for ${props.type}...`)
+    const response = await fetchTopMovers(selectedCount.value, 'stocks')
+
+    if (response && (response.gainers || response.losers)) {
+      const allMovers = [...(response.gainers || []), ...(response.losers || [])]
+
+      const newStocks = allMovers.filter(stock => {
+        if (!stock.pct || isNaN(stock.pct)) return false
+        let pct = stock.pct
+        if (Math.abs(pct) > 1000) pct = pct / 100
+        stock.pct = pct
+        return isPositive.value ? stock.pct > 0 : stock.pct < 0
+      })
+
+      // Create a map of existing stocks by symbol for efficient lookup.
+      const existingStocksMap = new Map(stocks.value.map(s => [s.symbol, s]))
+      const newStocksMap = new Map(newStocks.map(s => [s.symbol, s]))
+
+      // Update existing stocks in place.
+      stocks.value.forEach(existingStock => {
+        const newStock = newStocksMap.get(existingStock.symbol)
+        if (newStock) {
+          // Update price, percentage, and other fields without replacing the object.
+          Object.assign(existingStock, {
+            price: newStock.price || existingStock.price,
+            pct: newStock.pct,
+            change: newStock.change,
+            exchange: newStock.exchange || existingStock.exchange,
+            marketState: newStock.marketState || existingStock.marketState,
+            marketMessage: newStock.marketMessage || existingStock.marketMessage
+          })
+        }
+      })
+
+      // Find new stocks that need to be added.
+      const stocksToAdd = newStocks.filter(s => !existingStocksMap.has(s.symbol))
+
+      // Find stocks that should be removed (no longer in top movers).
+      const symbolsToKeep = new Set(newStocks.map(s => s.symbol))
+      const stocksToRemove = stocks.value.filter(s => !symbolsToKeep.has(s.symbol))
+
+      // Load trend data for new stocks only.
+      if (stocksToAdd.length) {
+        const newSymbols = stocksToAdd.map(s => s.symbol)
+        const trendsResponse = await fetchBatchTrends(newSymbols, 20)
+
+        if (trendsResponse) {
+          stocksToAdd.forEach(stock => {
+            const trendData = trendsResponse[stock.symbol]
+            if (trendData) {
+              stock.trendData = trendData.data
+              stock.trendFallback = trendData.fallback
+              stock.volumeAnalysis = trendData.volumeAnalysis
+            }
+          })
+        }
+      }
+
+      // Remove stocks that are no longer in the list.
+      if (stocksToRemove.length) {
+        stocks.value = stocks.value.filter(s => !symbolsToKeep.has(s.symbol))
+      }
+
+      // Add new stocks.
+      if (stocksToAdd.length) {
+        stocks.value.push(...stocksToAdd)
+        // Sort by percentage to maintain order.
+        stocks.value.sort((a, b) => {
+          const aPct = Math.abs(a.pct) > 1000 ? a.pct / 100 : a.pct
+          const bPct = Math.abs(b.pct) > 1000 ? b.pct / 100 : b.pct
+          return isPositive.value ? bPct - aPct : aPct - bPct
+        })
+      }
+
+      lastUpdate.value = new Date().toLocaleTimeString()
+      console.log(`✅ Incremental update complete: ${stocksToAdd.length} added, ${stocksToRemove.length} removed, ${stocks.value.length} updated`)
+    }
+  }
+  catch (err) {
+    console.error(`❌ Error in incremental update:`, err)
+  }
+}
+
+async function loadMovers(initialLoad = false) {
+  try {
+    if (initialLoad) {
+      console.log(`🔄 Initial loading ${props.type} with count: ${selectedCount.value}`)
+      loading.value = true
+      error.value = null
+    }
 
     console.log('📡 Making API call to fetchTopMovers...')
     const response = await fetchTopMovers(selectedCount.value, 'stocks')
@@ -236,27 +414,23 @@ async function loadMovers() {
 
       const filteredStocks = allMovers.filter(stock => {
         if (!stock.pct || isNaN(stock.pct)) return false
+        // Normalize percentage if it seems to be in decimal form (e.g., 161.59 instead of 16159).
+        let pct = stock.pct
+        if (Math.abs(pct) > 1000) pct = pct / 100
+        stock.pct = pct
         return isPositive.value ? stock.pct > 0 : stock.pct < 0
       })
 
       console.log(`📈 Filtered to ${filteredStocks.length} ${props.type}`)
 
       // Load trend data for all stocks in batch BEFORE setting stocks.value
-      if (filteredStocks.length > 0) {
+      if (filteredStocks.length) {
         console.log('📡 Loading batch trends...')
         const symbols = filteredStocks.map(stock => stock.symbol)
         const trendsResponse = await fetchBatchTrends(symbols, 20)
 
-        // Batch trends API returns { symbol: {...}, timestamp: "..." } directly
-        console.log('🔍 Batch trends response structure:', {
-          hasResponse: !!trendsResponse,
-          responseKeys: trendsResponse ? Object.keys(trendsResponse) : [],
-          hasSymbols: trendsResponse ? Object.keys(trendsResponse).filter(key => key !== 'timestamp').length > 0 : false
-        })
-
-        if (trendsResponse && Object.keys(trendsResponse).filter(key => key !== 'timestamp').length > 0) {
+        if (trendsResponse && Object.keys(trendsResponse).filter(key => key !== 'timestamp').length) {
           console.log('✅ Batch trends loaded successfully')
-          console.log('📊 Batch trends response keys:', Object.keys(trendsResponse).filter(key => key !== 'timestamp'))
 
           // Attach trend data and volume analysis to each stock BEFORE setting stocks.value
           filteredStocks.forEach(stock => {
@@ -281,40 +455,96 @@ async function loadMovers() {
 
       // Only set stocks.value AFTER all trend data is loaded
       stocks.value = filteredStocks
-
-      console.log('🔍 Final stocks array:', stocks.value.map(stock => ({
-        symbol: stock.symbol,
-        hasTrendData: !!stock.trendData,
-        trendDataLength: stock.trendData?.length,
-        isArray: Array.isArray(stock.trendData)
-      })))
-
       lastUpdate.value = new Date().toLocaleTimeString()
       console.log('✅ Data loading completed successfully')
     }
     else {
       console.error('❌ API returned error:', response)
-      error.value = response.error || 'Failed to fetch data'
+      if (initialLoad) error.value = response.error || 'Failed to fetch data'
     }
   }
   catch (err) {
     console.error(`❌ Error loading ${props.type}:`, err)
-    console.error('❌ Error stack:', err.stack)
-    error.value = `Failed to load ${props.type}: ${err.message}`
+    if (initialLoad) error.value = `Failed to load ${props.type}: ${err.message}`
   }
   finally {
-    loading.value = false
+    if (initialLoad) loading.value = false
   }
 }
 
 async function refreshData() {
-  await loadMovers()
+  await loadMovers(true)
+  countdown.value = AUTO_REFRESH_INTERVAL / 1000 // Reset countdown after manual refresh.
+}
+
+// WebSocket price update handler for real-time price updates.
+function handlePriceUpdate(priceData) {
+  const stock = stocks.value.find(s => s.symbol === priceData.symbol)
+  if (stock) {
+    // Update price in place without triggering full re-render.
+    stock.price = priceData.price
+    // Recalculate percentage if we have previous close.
+    // Note: percentage from API is day-to-day, so we keep it as is.
+  }
+}
+
+// Auto-refresh for real-time updates - incremental updates only.
+let autoRefreshInterval = null
+let countdownInterval = null
+const AUTO_REFRESH_INTERVAL = 30000 // 30 seconds.
+
+function startCountdown() {
+  if (countdownInterval) clearInterval(countdownInterval)
+  countdown.value = AUTO_REFRESH_INTERVAL / 1000 // Start at 30 seconds.
+
+  countdownInterval = setInterval(() => {
+    if (countdown.value > 0) countdown.value--
+    else countdown.value = AUTO_REFRESH_INTERVAL / 1000 // Reset to 30 seconds.
+  }, 1000) // Update every second.
+}
+
+function stopCountdown() {
+  if (countdownInterval) {
+    clearInterval(countdownInterval)
+    countdownInterval = null
+    countdown.value = 0
+  }
+}
+
+function startAutoRefresh() {
+  if (autoRefreshInterval) return
+  startCountdown() // Start countdown timer.
+
+  autoRefreshInterval = setInterval(() => {
+    if (!loading.value && stocks.value.length) {
+      console.log(`🔄 Incremental update for ${props.type}...`)
+      updateMoversIncremental()
+      countdown.value = AUTO_REFRESH_INTERVAL / 1000 // Reset countdown after refresh.
+    }
+  }, AUTO_REFRESH_INTERVAL)
+  console.log(`✅ Auto-refresh started for ${props.type} (every ${AUTO_REFRESH_INTERVAL / 1000}s)`)
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval)
+    autoRefreshInterval = null
+    console.log(`🛑 Auto-refresh stopped for ${props.type}`)
+  }
+  stopCountdown()
 }
 
 // Lifecycle
 onMounted(() => {
   connect() // Connect to WebSocket
-  loadMovers()
+  addMessageHandler('price', handlePriceUpdate) // Listen for real-time price updates.
+  loadMovers(true) // Initial load with loading state.
+  startAutoRefresh() // Start incremental auto-refresh.
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  stopCountdown()
 })
 
 // Watchers.
@@ -323,20 +553,38 @@ watch(selectedCount, loadMovers)
 </script>
 
 <style lang="scss" scoped>
-.top-movers-view {
-  padding: var(--w-spacing);
-  max-width: 1400px;
-  margin: 0 auto;
-}
-
-.glass-box {
-  background: var(--w-base-bg-color);
-  border-radius: var(--w-border-radius);
-  box-shadow: var(--w-shadow);
-}
-
 .stat-item {
   text-align: center;
   min-width: 120px;
+}
+
+.volume-filter {
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  .volume-stats {
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 60px;
+    }
+  }
+}
+
+// Responsive adjustments
+@media (max-width: 768px) {
+  .volume-filter {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+
+    .volume-stats {
+      margin-left: 0;
+      margin-top: 0.5rem;
+    }
+  }
 }
 </style>
