@@ -1,5 +1,5 @@
 <template lang="pug">
-.stats-panel.pt4.pa6
+.stats-panel
   .title2.mb4 Stats
 
   .stats-content.w-flex.gap4
@@ -339,74 +339,70 @@ const financialMetrics = computed(() => [
 </script>
 
 <style lang="scss" scoped>
-.stats-panel {
-  overflow: hidden;
+.stats-content {
+  .range-card .gradient-card__wrap {
+    border-radius: 12px;
+    padding: 20px 24px 24px;
 
-  .stats-content {
-    .range-card .gradient-card__wrap {
-      border-radius: 12px;
-      padding: 20px 24px 24px;
+    .period-label {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
 
-      .period-label {
+    .range-visualization {
+      position: relative;
+      width: 24px;
+
+      .range-track {
+        position: relative;
+        width: 6px;
+        height: 100%;
+        background: color-mix(in srgb, var(--w-contrast-bg-color) 12%, transparent);
+        border-radius: 3px;
+        left: 2px;
+      }
+
+      .range-bar {
+        width: 6px;
+        border-radius: 3px;
+        transition: all 0.3s ease;
+      }
+
+      .current-position {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 100%;
+        transform: translateY(-50%);
+        width: 0;
+        height: 0;
+        border-top: 5px solid transparent;
+        border-bottom: 5px solid transparent;
+        border-left: 7px solid var(--w-contrast-bg-color);
+        border-radius: 2px;
+      }
+    }
+
+    .range-values {
+      .range-high .value,
+      .range-low .value {
         font-size: 14px;
         font-weight: 700;
-        letter-spacing: 0.5px;
-      }
-
-      .range-visualization {
-        position: relative;
-        width: 24px;
-
-        .range-track {
-          position: relative;
-          width: 6px;
-          height: 100%;
-          background: color-mix(in srgb, var(--w-contrast-bg-color) 12%, transparent);
-          border-radius: 3px;
-          left: 2px;
-        }
-
-        .range-bar {
-          width: 6px;
-          border-radius: 3px;
-          transition: all 0.3s ease;
-        }
-
-        .current-position {
-          content: '';
-          position: absolute;
-          top: 0;
-          right: 100%;
-          transform: translateY(-50%);
-          width: 0;
-          height: 0;
-          border-top: 5px solid transparent;
-          border-bottom: 5px solid transparent;
-          border-left: 7px solid var(--w-contrast-bg-color);
-          border-radius: 2px;
-        }
-      }
-
-      .range-values {
-        .range-high .value,
-        .range-low .value {
-          font-size: 14px;
-          font-weight: 700;
-        }
       }
     }
   }
+}
 
-  .metrics-list {
-    .metric-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 6px 0;
-      border-bottom: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 5%, transparent);
+.metrics-list {
+  .metric-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 5%, transparent);
 
-      &:last-child {border-bottom: none;}
-    }
+    &:last-child {border-bottom: none;}
   }
 }
 </style>
