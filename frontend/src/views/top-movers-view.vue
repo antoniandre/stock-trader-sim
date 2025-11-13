@@ -59,7 +59,7 @@
   //- Volume filter.
   .volume-filter.w-flex.align-center.gap2.wrap.mb4
     .w-flex.align-center.gap2.no-grow
-      icon.w-icon.size--xs(icon="material-symbols-light:bar-chart")
+      icon.w-icon.size--sm(icon="material-symbols-light:bar-chart")
       span.text-upper.size--sm.op6 Volume
     w-tag.justify-start(
       v-for="option in volumeOptions"
@@ -135,16 +135,16 @@ import { fetchTopMovers, fetchBatchTrends } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import TickerCard from '@/components/ticker-card.vue'
 
-// Props
+// Props.
 const props = defineProps({
   type: {
     type: String,
     required: true,
-    validator: (value) => ['gainers', 'losers'].includes(value)
+    validator: value => ['gainers', 'losers'].includes(value)
   }
 })
 
-// Computed properties based on type
+// Computed properties based on type.
 const isPositive = computed(() => props.type === 'gainers')
 const title = computed(() => `Top ${props.type === 'gainers' ? 'Gainers' : 'Losers'}`)
 const loadingText = computed(() => `top ${props.type}`)
@@ -154,7 +154,7 @@ const emptyStateMessage = computed(() =>
   `No stocks are showing ${isPositive.value ? 'gains' : 'losses'} at the moment.`
 )
 
-// State
+// State.
 const stocks = ref([])
 const loading = ref(true)
 const error = ref(null)
@@ -169,10 +169,10 @@ const volumeFilter = ref({
 const selectedExchanges = ref({}) // Object to track which exchanges are selected.
 const countdown = ref(0) // Countdown timer for next auto-refresh.
 
-// WebSocket
+// WebSocket.
 const { wsConnected, connect, addMessageHandler } = useWebSocket()
 
-// Options
+// Options.
 const countOptions = [
   { label: 'Top 10', value: 10 },
   { label: 'Top 20', value: 20 },
@@ -182,7 +182,7 @@ const countOptions = [
 
 // Volume filter options with colors.
 const volumeOptions = [
-  { label: 'Normal', value: 'normal', color: 'base' },
+  { label: 'Normal', value: 'normal', color: 'light-green' },
   { label: 'High', value: 'high', color: 'amber' },
   { label: 'Very High', value: 'very-high', color: 'warning' },
   { label: 'Extreme', value: 'extreme', color: 'error' }
@@ -534,9 +534,14 @@ function stopAutoRefresh() {
   stopCountdown()
 }
 
-// Lifecycle
+// Watchers.
+// --------------------------------------------------------
+watch(selectedCount, loadMovers)
+
+// Lifecycle.
+// --------------------------------------------------------
 onMounted(() => {
-  connect() // Connect to WebSocket
+  connect() // Connect to WebSocket.
   addMessageHandler('price', handlePriceUpdate) // Listen for real-time price updates.
   loadMovers(true) // Initial load with loading state.
   startAutoRefresh() // Start incremental auto-refresh.
@@ -546,10 +551,6 @@ onBeforeUnmount(() => {
   stopAutoRefresh()
   stopCountdown()
 })
-
-// Watchers.
-// --------------------------------------------------------
-watch(selectedCount, loadMovers)
 </script>
 
 <style lang="scss" scoped>
@@ -558,23 +559,16 @@ watch(selectedCount, loadMovers)
   min-width: 120px;
 }
 
-.volume-filter {
-  padding: 0.75rem 1rem;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-
-  .volume-stats {
-    .stat-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-width: 60px;
-    }
+.volume-stats {
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 60px;
   }
 }
 
-// Responsive adjustments
+// Responsive adjustments.
 @media (max-width: 768px) {
   .volume-filter {
     flex-direction: column;
