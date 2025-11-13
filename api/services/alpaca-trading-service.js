@@ -109,6 +109,20 @@ export class AlpacaTradingService extends TradingService {
     }
   }
 
+  async getOrders(status = 'open', limit = 100) {
+    if (IS_SIMULATION) return []
+
+    try {
+      const data = await AlpacaClient.getOrders(status, limit)
+      console.log(`✅ Successfully fetched ${data.length} orders (status: ${status})`)
+      return data
+    }
+    catch (error) {
+      console.error('❌ Error fetching orders:', error.message)
+      return []
+    }
+  }
+
   async getTradingHistory(limit = 100) {
     try {
       const activities = await this.getAccountActivities('FILL', limit)

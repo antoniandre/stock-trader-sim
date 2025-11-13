@@ -83,6 +83,33 @@ export async function fetchPositions() {
   }
 }
 
+export async function fetchOrders(status = 'open', limit = 100) {
+  try {
+    const params = new URLSearchParams({ status, limit: limit.toString() })
+    const response = await fetch(`${API_BASE}/orders?${params}`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('API Error:', error)
+    throw error
+  }
+}
+
+export async function cancelOrder(orderId) {
+  try {
+    const response = await fetch(`${API_BASE}/orders/${orderId}`, { method: 'DELETE' })
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('API Error:', error)
+    throw error
+  }
+}
+
 // Market Data.
 // --------------------------------------------------------
 export async function fetchAllStocks(page = 1, limit = 50, search = '') {
@@ -119,9 +146,10 @@ export async function fetchStock(symbol) {
 }
 
 // Get single stock price
-export async function fetchStockPrice(symbol) {
+export async function fetchStockPrice(symbol, fresh = false) {
   try {
-    const response = await fetch(`${API_BASE}/stocks/${symbol}/price`)
+    const params = fresh ? '?fresh=true' : ''
+    const response = await fetch(`${API_BASE}/stocks/${symbol}/price${params}`)
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
     return await response.json()
@@ -179,6 +207,25 @@ export async function fetchStockHistoryProgressive(symbol, period = '1D', timefr
     console.error('Error fetching progressive stock history:', error)
     // Fallback to regular history if progressive fails.
     return fetchStockHistory(symbol, period, timeframe)
+  }
+}
+
+export async function fetchStockHistoryRange(symbol, timeframe, startDate, endDate) {
+  try {
+    const params = new URLSearchParams({
+      timeframe,
+      start: new Date(startDate).toISOString(),
+      end: new Date(endDate).toISOString()
+    })
+
+    const response = await fetch(`${API_BASE}/stocks/${symbol}/history/range?${params}`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    return await response.json()
+  }
+  catch (error) {
+    console.error('API Error:', error)
+    throw error
   }
 }
 

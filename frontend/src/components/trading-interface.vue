@@ -134,6 +134,7 @@ const props = defineProps({
     })
   },
   recentTrades: { type: Array, default: () => [] },
+  hasPosition: { type: Boolean, default: false },
   initialSide: { type: String, default: 'buy', validator: v => ['buy', 'sell'].includes(v) }
 })
 
@@ -141,16 +142,20 @@ const $waveui = inject('$waveui')
 
 // Trading Form
 // --------------------------------------------------------
+// Default to 'sell' if there's a position, otherwise 'buy'.
+const defaultSide = computed(() => props.hasPosition ? 'sell' : props.initialSide)
+
 const orderForm = ref({
   type: 'limit',
-  side: props.initialSide,
+  side: defaultSide.value,
   quantity: 1,
   limitPrice: undefined
 })
 
-// Watch for initialSide changes to update the order form side.
-watch(() => props.initialSide, (newSide) => {
-  if (newSide && ['buy', 'sell'].includes(newSide)) orderForm.value.side = newSide
+// Watch for position or initialSide changes to update the order form side.
+watch([() => props.hasPosition, () => props.initialSide], ([hasPosition, initialSide]) => {
+  const newSide = hasPosition ? 'sell' : (initialSide || 'buy')
+  if (['buy', 'sell'].includes(newSide)) orderForm.value.side = newSide
 })
 
 const orderTypes = [

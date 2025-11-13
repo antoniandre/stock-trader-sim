@@ -43,15 +43,56 @@
           @reset-zoom-complete="handleResetZoomComplete"
           @toggle-fullscreen="showDialog = true")
 
-    //- Right Column: Trading Interface & Stats
+    //- Right Column: Stats, Positions and Trading Interface
     .spacer.ma3.no-grow
     aside.side-panel
       TradingInterface(
         :symbol="props.symbol"
         :stock="stock"
-        :recent-trades="recentTrades")
+        :recent-trades="recentTrades"
+        :has-position="!!currentPosition"
+        :initial-side="currentPosition ? 'sell' : 'buy'")
 
-      .glass-box.mt4
+      //- Open Orders
+      .glass-box.mt4.pa6.pt4(v-if="openOrders.length")
+        .title2.mb4 Open Orders
+        .orders-list
+          .order-item.w-flex.justify-space-between.align-center.gap3.bdrs2.bd1.my1.pa2(v-for="order in openOrders" :key="order.id")
+            .order-info.flex1
+              .w-flex.align-center.gap2.mb1
+                .title3 {{ order.symbol }}
+                w-tag(
+                  :class="order.side === 'buy' ? 'success--bg' : 'error--bg'"
+                  xs) {{ order.side.toUpperCase() }}
+              .size--sm.op6 {{ order.qty }} shares @ {{ order.type === 'limit' ? `$${formatNumber(order.limit_price || 0)}` : 'Market' }}
+            .order-actions
+              w-button(
+                @click="cancelOrderHandler(order.id)"
+                text
+                xs
+                color="error"
+                round)
+                w-icon(size="14") wi-cross
+                | Cancel
+
+      //- Current Position
+      .glass-box.mt4.pa6.pt4(v-if="currentPosition")
+        .title2.mb4 Position
+        .w-flex.justify-space-between.align-center.py2
+          .position-info.w-flex.align-center.gap3
+            div
+              .title3.mb1 {{ parseFloat(currentPosition.qty) || 0 }} share{{ parseFloat(currentPosition.qty) !== 1 ? 's' : '' }}
+              .size--sm.op6 Avg: {{ stock.currencySymbol }}{{ formatNumber(avgEntryPrice) }}
+            div.mla.text-right
+              .title3.mb1(:class="unrealizedPL >= 0 ? 'currency-positive' : 'currency-negative'")
+                | {{ stock.currencySymbol }}{{ formatNumber(unrealizedPL) }}
+              .size--sm.op6(:class="unrealizedPLPercent >= 0 ? 'currency-positive' : 'currency-negative'")
+                | ({{ formatPercentage(unrealizedPLPercent) }}%) P/L
+          .ml4.text-right
+            .title3.mb1 Market Value
+            .size--sm.op6 {{ stock.currencySymbol }}{{ formatNumber(marketValue) }}
+
+      .glass-box.mt4.pa6.pt4
         StockStatsPanel(
           :stock="stock"
           :current-price="stock.price"
@@ -104,6 +145,7 @@
       :effective-timeframe="effectiveTimeframe"
       :is-using-fallback-timeframe="isUsingFallbackTimeframe"
       :show-fullscreen-button="false"
+      :entry-price="avgEntryPrice"
       show-trading-toggle
       @change-chart-type="changeChartType"
       @change-period="changePeriod"
@@ -122,7 +164,8 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
-import { fetchStock, fetchStockHistoryProgressive } from '@/api'
+import { fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange } from '@/api'
+import { formatNumber, formatPercentage } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
 import PriceChart from '@/components/price-chart.vue'
 import StockStatsPanel from '@/components/stock-stats-panel.vue'
@@ -170,6 +213,8 @@ const showDialog = ref(false)
 const showTradingInterface = ref(false)
 const tradingInterfaceSide = ref('buy')
 const isLoadingHistoricalData = ref(false)
+const positions = ref([])
+const orders = ref([])
 let marketStatusInterval = null
 
 // Dynamic Loading State
@@ -334,6 +379,46 @@ const defaultTimeframes = {
 // Computed Properties
 // --------------------------------------------------------
 const availableTimeframes = computed(() => timeframeOptions[selectedPeriod.value] || [])
+
+// Get current position for this symbol (case-insensitive matching).
+const currentPosition = computed(() => {
+  const symbol = props.symbol?.toUpperCase()
+  return positions.value.find(p => p.symbol?.toUpperCase() === symbol) || null
+})
+
+// Get open orders for this symbol.
+const openOrders = computed(() => {
+  const symbol = props.symbol?.toUpperCase()
+  return orders.value.filter(o => {
+    const orderSymbol = o.symbol?.toUpperCase()
+    const orderStatus = o.status?.toLowerCase()
+    // Filter by symbol and ensure status is open (Alpaca returns open orders, but double-check).
+    return orderSymbol === symbol && ['new', 'accepted', 'pending_new', 'pending_replace', 'pending_cancel', 'open'].includes(orderStatus)
+  })
+})
+
+// Position display values.
+const avgEntryPrice = computed(() => {
+  if (!currentPosition.value) return 0
+  const qty = parseFloat(currentPosition.value.qty) || 0
+  const costBasis = parseFloat(currentPosition.value.cost_basis) || 0
+  return qty > 0 ? costBasis / qty : 0
+})
+
+const unrealizedPL = computed(() => {
+  if (!currentPosition.value) return 0
+  return parseFloat(currentPosition.value.unrealized_pl) || 0
+})
+
+const unrealizedPLPercent = computed(() => {
+  if (!currentPosition.value) return 0
+  return parseFloat(currentPosition.value.unrealized_plpc) || 0
+})
+
+const marketValue = computed(() => {
+  if (!currentPosition.value) return 0
+  return parseFloat(currentPosition.value.market_value) || 0
+})
 
 const chartTimeUnit = computed(() => {
   const unitMap = { '1Min': 'minute', '5Min': 'minute', '15Min': 'minute', '30Min': 'minute', '1Hour': 'hour', '4Hour': 'hour', '1Day': 'day' }
@@ -936,16 +1021,12 @@ async function loadAdditionalData(startTime, endTime) {
       rangeMinutes
     })
 
-    const response = await fetch(`http://localhost:3000/api/stocks/${props.symbol}/history/range?` +
-      new URLSearchParams({
-        timeframe: selectedTimeframe.value,
-        start: new Date(startTime).toISOString(),
-        end: new Date(endTime).toISOString()
-      }))
-
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-    const result = await response.json()
+    const result = await fetchStockHistoryRange(
+      props.symbol,
+      selectedTimeframe.value,
+      startTime,
+      endTime
+    )
     const additionalData = result.data || []
 
     console.log(`📊 API returned ${additionalData.length} data points for range`)
@@ -1161,9 +1242,18 @@ function handleChartViewChange(chart, action) {
   if (action === 'pan' || action === 'zoom') checkAndLoadAdditionalData(chart, action)
 }
 
+function handleTrade(data) {
+  if (data.symbol === props.symbol) {
+    // Refresh positions and orders when a trade occurs for this symbol.
+    fetchPositionsData()
+    fetchOrdersData()
+  }
+}
+
 function setupWebSocket() {
   addMessageHandler('price', handlePriceUpdate)
   addMessageHandler('market-status', handleMarketStatusUpdate)
+  addMessageHandler('trade', handleTrade)
 }
 
 // Data Fetching Functions
@@ -1201,6 +1291,49 @@ async function fetchStockData() {
       nextOpen: null,
       nextClose: null
     }
+  }
+}
+
+async function fetchPositionsData() {
+  try {
+    positions.value = await fetchPositions()
+    console.log(`📊 Positions loaded: ${positions.value.length} positions`)
+    console.log(`📊 Position symbols:`, positions.value.map(p => p.symbol))
+    console.log(`📊 Looking for position for symbol: ${props.symbol}`)
+    if (currentPosition.value) {
+      console.log(`✅ Found position for ${props.symbol}:`, currentPosition.value)
+    }
+    else {
+      console.log(`⚠️ No position found for ${props.symbol} in ${positions.value.length} positions`)
+    }
+  }
+  catch (error) {
+    console.error('❌ Error fetching positions:', error)
+    positions.value = []
+  }
+}
+
+async function fetchOrdersData() {
+  try {
+    orders.value = await fetchOrders('open', 100)
+    console.log(`📊 Orders loaded: ${orders.value.length} orders`)
+    console.log(`📊 Order symbols:`, orders.value.map(o => o.symbol))
+  }
+  catch (error) {
+    console.error('❌ Error fetching orders:', error)
+    orders.value = []
+  }
+}
+
+async function cancelOrderHandler(orderId) {
+  try {
+    await cancelOrder(orderId)
+    await fetchOrdersData() // Refresh orders after cancellation.
+    $waveui.notify('Order cancelled', 'success')
+  }
+  catch (error) {
+    console.error('❌ Error cancelling order:', error)
+    $waveui.notify('Failed to cancel order', 'error')
   }
 }
 
@@ -1416,10 +1549,7 @@ async function refreshPrice() {
 
   try {
     isRefreshing.value = true
-    const response = await fetch(`http://localhost:3000/api/stocks/${props.symbol}/price?fresh=true`)
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-    const data = await response.json()
+    const data = await fetchStockPrice(props.symbol, true)
     if (data.price > 0) {
       const oldPrice = stock.value.price
       stock.value.price = data.price
@@ -1452,10 +1582,7 @@ async function refreshPrice() {
 
 async function refreshMarketStatus() {
   try {
-    const response = await fetch('http://localhost:3000/api/market-status')
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-    const data = await response.json()
+    const data = await fetchMarketStatus()
     stock.value = {
       ...stock.value,
       marketState: data.status || 'closed',
@@ -1494,7 +1621,7 @@ onMounted(async () => {
   const availableTimeframe = await selectAvailableTimeframe(selectedPeriod.value, selectedTimeframe.value)
   selectedTimeframe.value = availableTimeframe
 
-  await Promise.all([fetchStockData(), fetchHistoricalData(), refreshMarketStatus()])
+  await Promise.all([fetchStockData(), fetchHistoricalData(), refreshMarketStatus(), fetchPositionsData(), fetchOrdersData()])
   startMarketStatusMonitoring()
 })
 
@@ -1548,7 +1675,7 @@ watch(() => props.symbol, async (newSymbol, oldSymbol) => {
   isLoadingHistoricalData.value = false
 
   // Fetch new data.
-  await Promise.all([fetchStockData(), fetchHistoricalData()])
+  await Promise.all([fetchStockData(), fetchHistoricalData(), fetchPositionsData(), fetchOrdersData()])
 }, { immediate: false })
 
 watch(() => historicalData.value.length, (newLength, oldLength) => {

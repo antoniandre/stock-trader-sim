@@ -42,6 +42,11 @@ export async function getAlpacaPositions() {
   return await service.getPositions()
 }
 
+export async function getAlpacaOrders(status = 'open', limit = 100) {
+  const service = await getService()
+  return await service.getOrders(status, limit)
+}
+
 export async function getAlpacaTradingHistory(limit = 100) {
   const service = await getService()
   return await service.getTradingHistory(limit)

@@ -2,7 +2,7 @@ import express from 'express'
 import { state } from './config.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
 import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive, getTopMovers, fetchStockTrend, analyzeVolume } from './market-data.js'
-import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, placeOrder } from './alpaca-account.js'
+import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, getAlpacaOrders, placeOrder } from './alpaca-account.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse } from './utils.js'
 
@@ -138,6 +138,33 @@ export function createRestApiRoutes() {
     catch (error) {
       console.error('Error fetching positions:', error)
       res.status(500).json({ error: 'Failed to fetch positions' })
+    }
+  })
+
+  // Orders endpoint.
+  app.get('/api/orders', async (req, res) => {
+    try {
+      const { status = 'open', limit = 100 } = req.query
+      const orders = await getAlpacaOrders(status, parseInt(limit))
+      res.json(orders)
+    }
+    catch (error) {
+      console.error('Error fetching orders:', error)
+      res.status(500).json({ error: 'Failed to fetch orders' })
+    }
+  })
+
+  // Cancel order endpoint.
+  app.delete('/api/orders/:orderId', async (req, res) => {
+    try {
+      const { orderId } = req.params
+      const AlpacaClient = await import('./clients/alpaca-client.js')
+      await AlpacaClient.cancelOrder(orderId)
+      res.json({ success: true })
+    }
+    catch (error) {
+      console.error('Error cancelling order:', error)
+      res.status(500).json({ error: 'Failed to cancel order' })
     }
   })
 
