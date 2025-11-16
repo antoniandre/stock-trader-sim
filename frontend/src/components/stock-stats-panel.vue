@@ -10,15 +10,15 @@
         .w-flex
           .range-visualization
             .range-track
-              .range-bar(:style="{ height: dayBarWidth + '%', backgroundColor: '#22C55E' }")
-              .current-position(:style="{ top: dayPosition + '%' }")
+              .range-bar(:style="{ height: dayRange.barWidth + '%', backgroundColor: '#22C55E' }")
+              .current-position(:style="{ top: dayRange.position + '%' }")
           .range-values
             .range-high
               .size--xs.op6 High
-              .value.lh0(v-html="formatPrice(dayHigh)")
+              .value.lh0(v-html="formatPriceWithCurrency(dayRange.high, undefined, false)")
             .range-low.mt2
               .size--xs.op6 Low
-              .value.lh0(v-html="formatPrice(dayLow)")
+              .value.lh0(v-html="formatPriceWithCurrency(dayRange.low, undefined, false)")
 
     //- 52 Week Range Card
     .range-card.gradient-card.gradient-card--tall.grow
@@ -27,15 +27,15 @@
         .w-flex
           .range-visualization
             .range-track
-              .range-bar(:style="{ height: weekBarWidth + '%', backgroundColor: '#EF4444' }")
-              .current-position(:style="{ top: weekPosition + '%' }")
+              .range-bar(:style="{ height: weekRange.barWidth + '%', backgroundColor: '#EF4444' }")
+              .current-position(:style="{ top: weekRange.position + '%' }")
           .range-values
             .range-high
               .size--xs.op6 High
-              .value.lh0(v-html="formatPrice(weekHigh)")
+              .value.lh0(v-html="formatPriceWithCurrency(weekRange.high, undefined, false)")
             .range-low.mt2
               .size--xs.op6 Low
-              .value.lh0(v-html="formatPrice(weekLow)")
+              .value.lh0(v-html="formatPriceWithCurrency(weekRange.low, undefined, false)")
 
   //- Financial Metrics
   .metrics-list.mt4.text-upper
@@ -55,7 +55,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { formatCurrency } from '@/utils/formatters'
+import { formatPriceWithCurrency, formatMarketCap, formatVolumeWithSuffixes } from '@/utils/formatters'
 
 const props = defineProps({
   stock: { type: Object, required: true },
@@ -66,276 +66,291 @@ const props = defineProps({
   priceHistory: { type: Array, default: () => [] }
 })
 
+// Get currency information.
+const currency = computed(() => props.stock.currency || 'USD')
+const currencySymbol = computed(() => props.currencySymbol || props.stock.currencySymbol || '$')
+
 // Calculate price ranges from real data.
-const currentPrice = computed(() => props.currentPrice || props.stock.price || 0)
+const currentPrice = computed(() => ({
+  value: props.currentPrice || props.stock.price || 0,
+  currency: currency.value,
+  currencySymbol: currencySymbol.value
+}))
 
-// Calculate 1-day high/low using intraday data + real-time updates.
-const dayStats = computed(() => {
-  // Get today's date in YYYY-MM-DD format
-  const today = new Date().toISOString().split('T')[0]
-  const todayStart = new Date(today).getTime()
+// Day range data organized semantically.
+const dayRange = computed(() => {
+  // Calculate 1-day high/low using intraday data + real-time updates.
+  const stats = (() => {
+    // Get today's date in YYYY-MM-DD format.
+    const today = new Date().toISOString().split('T')[0]
+    const todayStart = new Date(today).getTime()
 
-  // Use intraday data (from current chart) filtered for today.
-  const todayIntradayData = props.intradayData.filter(item => {
-    const itemTime = new Date(item.timestamp).getTime()
-    return itemTime >= todayStart
-  })
+    // Use intraday data (from current chart) filtered for today.
+    const todayIntradayData = props.intradayData.filter(item => {
+      const itemTime = new Date(item.timestamp).getTime()
+      return itemTime >= todayStart
+    })
 
-  // Include all real-time updates from today.
-  const todayRealTime = props.priceHistory.filter(item => {
-    const itemTime = new Date(item.timestamp).getTime()
-    return itemTime >= todayStart
-  })
+    // Include all real-time updates from today.
+    const todayRealTime = props.priceHistory.filter(item => {
+      const itemTime = new Date(item.timestamp).getTime()
+      return itemTime >= todayStart
+    })
 
-  // Combine intraday + real-time data.
-  const allTodayData = [...todayIntradayData, ...todayRealTime]
+    // Combine intraday + real-time data.
+    const allTodayData = [...todayIntradayData, ...todayRealTime]
 
-  console.log(`📊 Stats Panel Debug:`, {
-    todayIntradayData: todayIntradayData.length,
-    todayRealTime: todayRealTime.length,
-    allTodayData: allTodayData.length,
-    totalIntradayData: props.intradayData.length,
-    totalPriceHistory: props.priceHistory.length
-  })
+    console.log(`📊 Stats Panel Debug:`, {
+      todayIntradayData: todayIntradayData.length,
+      todayRealTime: todayRealTime.length,
+      allTodayData: allTodayData.length,
+      totalIntradayData: props.intradayData.length,
+      totalPriceHistory: props.priceHistory.length
+    })
 
-  // If no data available, try to get at least some recent data from any source.
-  if (allTodayData.length === 0) {
-    // Fallback to recent intraday data regardless of date.
-    const recentData = [...props.intradayData.slice(-10), ...props.priceHistory.slice(-5)]
+    // If no data available, try to get at least some recent data from any source.
+    if (allTodayData.length === 0) {
+      // Fallback to recent intraday data regardless of date.
+      const recentData = [...props.intradayData.slice(-10), ...props.priceHistory.slice(-5)]
 
-    if (recentData.length === 0) {
+      if (recentData.length === 0) {
+        return {
+          high: currentPrice.value.value,
+          low: currentPrice.value.value
+        }
+      }
+
+      // Use recent data as fallback.
+      const fallbackPrices = []
+      recentData.forEach(item => {
+        if (item.price > 0) fallbackPrices.push(item.price)
+        if (item.close > 0) fallbackPrices.push(item.close)
+        if (item.open > 0) fallbackPrices.push(item.open)
+        if (item.high > 0) fallbackPrices.push(item.high)
+        if (item.low > 0) fallbackPrices.push(item.low)
+      })
+
+      fallbackPrices.push(currentPrice.value.value)
+      const validPrices = fallbackPrices.filter(p => p > 0)
+
       return {
-        high: currentPrice.value,
-        low: currentPrice.value
+        high: validPrices.length > 0 ? Math.max(...validPrices) : currentPrice.value.value,
+        low: validPrices.length > 0 ? Math.min(...validPrices) : currentPrice.value.value
       }
     }
 
-    // Use recent data as fallback.
-    const fallbackPrices = []
-    recentData.forEach(item => {
-      if (item.price > 0) fallbackPrices.push(item.price)
-      if (item.close > 0) fallbackPrices.push(item.close)
-      if (item.open > 0) fallbackPrices.push(item.open)
-      if (item.high > 0) fallbackPrices.push(item.high)
-      if (item.low > 0) fallbackPrices.push(item.low)
+    // Extract all price points from today's data.
+    const allPrices = []
+    allTodayData.forEach(item => {
+      // Add main price.
+      const mainPrice = item.price || item.close
+      if (mainPrice > 0) allPrices.push(mainPrice)
+
+      // Add OHLC values if available (important for intraday ranges).
+      if (item.open > 0) allPrices.push(item.open)
+      if (item.high > 0) allPrices.push(item.high)
+      if (item.low > 0) allPrices.push(item.low)
+      if (item.close > 0) allPrices.push(item.close)
     })
 
-    fallbackPrices.push(currentPrice.value)
-    const validPrices = fallbackPrices.filter(p => p > 0)
+    // Include current price.
+    allPrices.push(currentPrice.value.value)
+
+    const validPrices = allPrices.filter(p => p > 0)
 
     return {
-      high: validPrices.length > 0 ? Math.max(...validPrices) : currentPrice.value,
-      low: validPrices.length > 0 ? Math.min(...validPrices) : currentPrice.value
+      high: validPrices.length ? Math.max(...validPrices) : currentPrice.value.value,
+      low: validPrices.length ? Math.min(...validPrices) : currentPrice.value.value
     }
-  }
+  })()
 
-  // Extract all price points from today's data.
-  const allPrices = []
-  allTodayData.forEach(item => {
-    // Add main price.
-    const mainPrice = item.price || item.close
-    if (mainPrice > 0) allPrices.push(mainPrice)
+  const high = stats.high
+  const low = stats.low
 
-    // Add OHLC values if available (important for intraday ranges)
-    if (item.open > 0) allPrices.push(item.open)
-    if (item.high > 0) allPrices.push(item.high)
-    if (item.low > 0) allPrices.push(item.low)
-    if (item.close > 0) allPrices.push(item.close)
-  })
+  // Calculate position percentage for indicator.
+  const range = high - low
+  const position = range === 0 ? 50 : ((currentPrice.value.value - low) / range) * 100
 
-  // Include current price
-  allPrices.push(currentPrice.value)
-
-  const validPrices = allPrices.filter(p => p > 0)
+  // Calculate bar width (how much of the range is filled).
+  const barWidth = high > 0 ? (range / high) * 100 : 0
 
   return {
-    high: validPrices.length ? Math.max(...validPrices) : currentPrice.value,
-    low: validPrices.length ? Math.min(...validPrices) : currentPrice.value
+    stats,
+    high: { value: high, currency: currency.value, currencySymbol: currencySymbol.value },
+    low: { value: low, currency: currency.value, currencySymbol: currencySymbol.value },
+    position,
+    barWidth
   }
 })
 
-// Calculate 52-week high/low from all available historical data.
-const weekStats = computed(() => {
-  // Use all available historical data as approximation for 52-week range.
-  const allData = [...props.historicalData, ...props.priceHistory]
+// Week range data organized semantically.
+const weekRange = computed(() => {
+  // Calculate 52-week high/low from all available historical data.
+  const stats = (() => {
+    // Use all available historical data as approximation for 52-week range.
+    const allData = [...props.historicalData, ...props.priceHistory]
 
-  if (allData.length === 0) {
+    if (allData.length === 0) {
+      return {
+        high: currentPrice.value.value,
+        low: currentPrice.value.value
+      }
+    }
+
+    // Get all price points including OHLC values.
+    const allPrices = []
+    allData.forEach(item => {
+      // Add main price.
+      const mainPrice = item.price || item.close
+      if (mainPrice > 0) allPrices.push(mainPrice)
+
+      // Add OHLC values if available.
+      if (item.open > 0) allPrices.push(item.open)
+      if (item.high > 0) allPrices.push(item.high)
+      if (item.low > 0) allPrices.push(item.low)
+      if (item.close > 0) allPrices.push(item.close)
+    })
+
+    // Include current price.
+    allPrices.push(currentPrice.value.value)
+
+    const validPrices = allPrices.filter(p => p > 0)
+
     return {
-      high: currentPrice.value,
-      low: currentPrice.value
+      high: Math.max(...validPrices),
+      low: Math.min(...validPrices)
     }
-  }
+  })()
 
-  // Get all price points including OHLC values.
-  const allPrices = []
-  allData.forEach(item => {
-    // Add main price.
-    const mainPrice = item.price || item.close
-    if (mainPrice > 0) allPrices.push(mainPrice)
+  const high = stats.high
+  const low = stats.low
 
-    // Add OHLC values if available.
-    if (item.open > 0) allPrices.push(item.open)
-    if (item.high > 0) allPrices.push(item.high)
-    if (item.low > 0) allPrices.push(item.low)
-    if (item.close > 0) allPrices.push(item.close)
-  })
+  // Calculate position percentage for indicator.
+  const range = high - low
+  const position = range === 0 ? 50 : ((currentPrice.value.value - low) / range) * 100
 
-  // Include current price.
-  allPrices.push(currentPrice.value)
-
-  const validPrices = allPrices.filter(p => p > 0)
+  // Calculate bar width (how much of the range is filled).
+  const barWidth = high > 0 ? (range / high) * 100 : 0
 
   return {
-    high: Math.max(...validPrices),
-    low: Math.min(...validPrices)
+    stats,
+    high: { value: high, currency: currency.value, currencySymbol: currencySymbol.value },
+    low: { value: low, currency: currency.value, currencySymbol: currencySymbol.value },
+    position,
+    barWidth
   }
 })
 
-const dayHigh = computed(() => dayStats.value.high)
-const dayLow = computed(() => dayStats.value.low)
-const weekHigh = computed(() => weekStats.value.high)
-const weekLow = computed(() => weekStats.value.low)
+// Financial calculations organized semantically.
+const financial = computed(() => {
+  // Calculate actual volume from historical data.
+  const calculateVolume = () => {
+    let volumeValue
 
-// Calculate position percentages for indicators.
-const dayPosition = computed(() => {
-  const range = dayHigh.value - dayLow.value
-  if (range === 0) return 50
-  return ((currentPrice.value - dayLow.value) / range) * 100
-})
+    if (!props.historicalData || props.historicalData.length === 0) {
+      // Use symbol hash for consistent fallback volume estimate.
+      const symbol = props.stock.symbol || 'UNKNOWN'
+      let hash = 0
+      for (let i = 0; i < symbol.length; i++) {
+        hash = ((hash << 5) - hash) + symbol.charCodeAt(i)
+        hash = hash & hash
+      }
 
-const weekPosition = computed(() => {
-  const range = weekHigh.value - weekLow.value
-  if (range === 0) return 50
-  return ((currentPrice.value - weekLow.value) / range) * 100
-})
+      const hashMod = Math.abs(hash) % 50
+      volumeValue = (hashMod * 100000) + 1000000 // 1M-6M consistent fallback.
+    }
+    else {
+      // Get average volume from historical data.
+      const volumes = props.historicalData
+        .filter(item => item.volume && item.volume > 0)
+        .map(item => item.volume)
 
-// Calculate bar widths (how much of the range is filled).
-const dayBarWidth = computed(() => {
-  const range = dayHigh.value - dayLow.value
-  const priceRange = dayHigh.value
-  return priceRange > 0 ? (range / priceRange) * 100 : 0
-})
+      if (volumes.length === 0) {
+        // Same consistent fallback as above.
+        const symbol = props.stock.symbol || 'UNKNOWN'
+        let hash = 0
+        for (let i = 0; i < symbol.length; i++) {
+          hash = ((hash << 5) - hash) + symbol.charCodeAt(i)
+          hash = hash & hash
+        }
 
-const weekBarWidth = computed(() => {
-  const range = weekHigh.value - weekLow.value
-  const priceRange = weekHigh.value
-  return priceRange > 0 ? (range / priceRange) * 100 : 0
-})
+        const hashMod = Math.abs(hash) % 50
+        volumeValue = (hashMod * 100000) + 1000000
+      }
+      else {
+        volumeValue = volumes.reduce((sum, vol) => sum + vol, 0) / volumes.length
+      }
+    }
 
-const formatPrice = (price) => {
-  if (price === 0) return '$0.00'
-  return formatCurrency(price, 'USD', 2)
-}
+    return formatVolumeWithSuffixes(volumeValue)
+  }
 
-// Calculate actual volume from historical data.
-const calculateVolume = () => {
-  if (!props.historicalData || props.historicalData.length === 0) {
-    // Use symbol hash for consistent fallback volume estimate.
+  // Calculate approximate market cap.
+  const calculateMarketCap = () => {
+    const price = currentPrice.value.value
+    const priceCurrencySymbol = currentPrice.value.currencySymbol
+    if (price === 0) return 'N/A'
+
+    // Use symbol hash for consistent shares estimate (no blinking).
     const symbol = props.stock.symbol || 'UNKNOWN'
     let hash = 0
     for (let i = 0; i < symbol.length; i++) {
       hash = ((hash << 5) - hash) + symbol.charCodeAt(i)
-      hash = hash & hash
+      hash = hash & hash // Convert to 32-bit integer.
     }
 
-    const hashMod = Math.abs(hash) % 50
-    const fallbackVolume = (hashMod * 100000) + 1000000 // 1M-6M consistent fallback.
+    // Generate consistent estimated shares based on symbol hash.
+    let estimatedShares
+    const hashMod = Math.abs(hash) % 100
 
-    if (fallbackVolume > 1000000) return (fallbackVolume / 1000000).toFixed(1) + 'M'
-    return Math.round(fallbackVolume).toLocaleString()
+    // High-price stocks typically have fewer shares.
+    if (price > 100) estimatedShares = (hashMod * 1000000) + 10000000  // 10M-110M.
+
+    // Mid-price stocks.
+    else if (price > 10) estimatedShares = (hashMod * 5000000) + 50000000  // 50M-550M.
+
+    // Low-price stocks often have many shares.
+    else estimatedShares = (hashMod * 10000000) + 100000000  // 100M-1.1B.
+
+    const marketCap = price * estimatedShares
+    return formatMarketCap(marketCap, priceCurrencySymbol)
   }
 
-  // Get average volume from historical data.
-  const volumes = props.historicalData
-    .filter(item => item.volume && item.volume > 0)
-    .map(item => item.volume)
+  // Calculate volatility from price data.
+  const calculateVolatility = () => {
+    if (!props.historicalData || props.historicalData.length < 2) return 'N/A'
 
-  if (volumes.length === 0) {
-    // Same consistent fallback as above.
-    const symbol = props.stock.symbol || 'UNKNOWN'
-    let hash = 0
-    for (let i = 0; i < symbol.length; i++) {
-      hash = ((hash << 5) - hash) + symbol.charCodeAt(i)
-      hash = hash & hash
+    const prices = props.historicalData.map(item => item.close || item.price)
+    const returns = []
+
+    for (let i = 1; i < prices.length; i++) {
+      const dailyReturn = (prices[i] - prices[i-1]) / prices[i-1]
+      returns.push(dailyReturn)
     }
 
-    const hashMod = Math.abs(hash) % 50
-    const fallbackVolume = (hashMod * 100000) + 1000000
+    if (returns.length === 0) return 'N/A'
 
-    if (fallbackVolume > 1000000) return (fallbackVolume / 1000000).toFixed(1) + 'M'
-    return Math.round(fallbackVolume).toLocaleString()
+    const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length
+    const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length
+    const volatility = Math.sqrt(variance) * Math.sqrt(252) * 100 // Annualized volatility.
+
+    return volatility.toFixed(1) + '%'
   }
 
-  const avgVolume = volumes.reduce((sum, vol) => sum + vol, 0) / volumes.length
+  // Financial metrics with real/calculated data where possible.
+  const metrics = [
+    { label: 'VOLATILITY', value: calculateVolatility(), colorClass: '' },
+    { label: 'MARKET CAP', value: calculateMarketCap(), colorClass: '' },
+    { label: 'AVERAGE VOLUME', value: calculateVolume(), colorClass: '' },
+    { label: 'P/E RATIO', value: 'N/A', colorClass: '' },
+    { label: 'DIVIDEND YIELD', value: 'N/A', colorClass: '' }
+  ]
 
-  if (avgVolume > 1000000000) return (avgVolume / 1000000000).toFixed(1) + 'B'
-  if (avgVolume > 1000000) return (avgVolume / 1000000).toFixed(1) + 'M'
-  if (avgVolume > 1000) return (avgVolume / 1000).toFixed(1) + 'K'
-  return Math.round(avgVolume).toLocaleString()
-}
+  return { volume: calculateVolume, marketCap: calculateMarketCap, volatility: calculateVolatility, metrics }
+})
 
-// Calculate approximate market cap.
-const calculateMarketCap = () => {
-  const price = currentPrice.value
-  if (price === 0) return 'N/A'
-
-  // Use symbol hash for consistent shares estimate (no blinking).
-  const symbol = props.stock.symbol || 'UNKNOWN'
-  let hash = 0
-  for (let i = 0; i < symbol.length; i++) {
-    hash = ((hash << 5) - hash) + symbol.charCodeAt(i)
-    hash = hash & hash // Convert to 32-bit integer.
-  }
-
-  // Generate consistent estimated shares based on symbol hash.
-  let estimatedShares
-  const hashMod = Math.abs(hash) % 100
-
-  // High-price stocks typically have fewer shares.
-  if (price > 100) estimatedShares = (hashMod * 1000000) + 10000000  // 10M-110M.
-
-  // Mid-price stocks.
-  else if (price > 10) estimatedShares = (hashMod * 5000000) + 50000000  // 50M-550M.
-
-  // Low-price stocks often have many shares.
-  else estimatedShares = (hashMod * 10000000) + 100000000  // 100M-1.1B.
-
-  const marketCap = price * estimatedShares
-
-  if (marketCap > 1000000000) return '$' + (marketCap / 1000000000).toFixed(1) + 'B'
-  if (marketCap > 1000000) return '$' + (marketCap / 1000000).toFixed(1) + 'M'
-  return '$' + marketCap.toLocaleString()
-}
-
-// Calculate volatility from price data.
-const calculateVolatility = () => {
-  if (!props.historicalData || props.historicalData.length < 2) return 'N/A'
-
-  const prices = props.historicalData.map(item => item.close || item.price)
-  const returns = []
-
-  for (let i = 1; i < prices.length; i++) {
-    const dailyReturn = (prices[i] - prices[i-1]) / prices[i-1]
-    returns.push(dailyReturn)
-  }
-
-  if (returns.length === 0) return 'N/A'
-
-  const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length
-  const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length
-  const volatility = Math.sqrt(variance) * Math.sqrt(252) * 100 // Annualized volatility.
-
-  return volatility.toFixed(1) + '%'
-}
-
-// Financial metrics with real/calculated data where possible.
-const financialMetrics = computed(() => [
-  { label: 'VOLATILITY', value: calculateVolatility(), colorClass: '' },
-  { label: 'MARKET CAP', value: calculateMarketCap(), colorClass: '' },
-  { label: 'AVERAGE VOLUME', value: calculateVolume(), colorClass: '' },
-  { label: 'P/E RATIO', value: 'N/A', colorClass: '' },
-  { label: 'DIVIDEND YIELD', value: 'N/A', colorClass: '' }
-])
+// Expose financial metrics for template.
+const financialMetrics = computed(() => financial.value.metrics)
 </script>
 
 <style lang="scss" scoped>
