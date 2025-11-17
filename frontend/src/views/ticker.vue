@@ -22,7 +22,7 @@
 
         //- Price Chart Component
         PriceChart(
-          :symbol="props.symbol"
+          :symbol="stock.symbol"
           :chart-type="chartType"
           :selected-period="selectedPeriod"
           :selected-timeframe="selectedTimeframe"
@@ -47,7 +47,7 @@
     .spacer.ma3.no-grow
     aside.side-panel
       TradingInterface(
-        :symbol="props.symbol"
+        :symbol="stock.symbol"
         :stock="stock"
         :recent-trades="recentTrades"
         :has-position="!!currentPosition"
@@ -57,14 +57,19 @@
       .glass-box.mt4.pa6.pt4(v-if="openOrders.length")
         .title2.mb4 Open Orders
         .orders-list
-          .order-item.w-flex.justify-space-between.align-center.gap3.bdrs2.bd1.my1.pa2(v-for="order in openOrders" :key="order.id")
+          .order-item.w-flex.justify-space-between.align-center.gap3.bdrs2.bd1.my1.pa2(
+            v-for="order in openOrders"
+            :key="order.id"
+            :class="order.side === 'buy' ? 'order-item--buy' : 'order-item--sell'")
             .order-info.flex1
               .w-flex.align-center.gap2.mb1
                 .title3 {{ order.symbol }}
                 w-tag(
                   :class="order.side === 'buy' ? 'success--bg' : 'error--bg'"
                   xs) {{ order.side.toUpperCase() }}
-              .size--sm.op6 {{ order.qty }} shares @ {{ order.type === 'limit' ? `$${formatNumber(order.limit_price || 0)}` : 'Market' }}
+              .size--sm.op6 {{ order.qty }} shares @
+                span(v-if="order.type === 'limit'" v-html="formatCurrency(order.limit_price || 0, stock.currency, 2, false)")
+                span(v-else) Market
             .order-actions
               w-button(
                 @click="cancelOrderHandler(order.id)"
@@ -82,15 +87,17 @@
           .position-info.w-flex.align-center.gap3
             div
               .title3.mb1 {{ parseFloat(currentPosition.qty) || 0 }} share{{ parseFloat(currentPosition.qty) !== 1 ? 's' : '' }}
-              .size--sm.op6 Avg: {{ stock.currencySymbol }}{{ formatNumber(avgEntryPrice) }}
+              .size--sm.op6 Avg:
+                span(v-html="formatCurrency(avgEntryPrice, stock.currency, 2, false)")
             div.mla.text-right
               .title3.mb1(:class="unrealizedPL >= 0 ? 'currency-positive' : 'currency-negative'")
-                | {{ stock.currencySymbol }}{{ formatNumber(unrealizedPL) }}
+                span(v-html="formatCurrency(unrealizedPL, stock.currency, 2, false)")
               .size--sm.op6(:class="unrealizedPLPercent >= 0 ? 'currency-positive' : 'currency-negative'")
                 | ({{ formatPercentage(unrealizedPLPercent) }}%) P/L
           .ml4.text-right
             .title3.mb1 Market Value
-            .size--sm.op6 {{ stock.currencySymbol }}{{ formatNumber(marketValue) }}
+            .size--sm.op6
+              span(v-html="formatCurrency(marketValue, stock.currency, 2, false)")
 
       .glass-box.mt4.pa6.pt4
         StockStatsPanel(
@@ -130,7 +137,7 @@
       :is-transitioning-timeframe="isTransitioningTimeframe"
       @refresh-price="refreshPrice")
     PriceChart.small(
-      :symbol="props.symbol"
+      :symbol="stock.symbol"
       :chart-type="chartType"
       :selected-period="selectedPeriod"
       :selected-timeframe="selectedTimeframe"
@@ -155,7 +162,7 @@
     DraggableTradingInterface(
       v-if="showTradingInterface"
       :visible="showTradingInterface"
-      :symbol="props.symbol"
+      :symbol="stock.symbol"
       :stock="stock"
       :recent-trades="recentTrades"
       :initial-side="tradingInterfaceSide"
@@ -163,9 +170,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
+import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
 import { fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange } from '@/api'
-import { formatNumber, formatPercentage } from '@/utils/formatters'
+import { formatNumber, formatPercentage, formatCurrency, getCurrencySymbol } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
 import PriceChart from '@/components/price-chart.vue'
 import StockStatsPanel from '@/components/stock-stats-panel.vue'
@@ -182,8 +189,8 @@ const $waveui = inject('$waveui')
 
 // Stock Data
 // --------------------------------------------------------
-const stock = ref({
-  symbol: props.symbol,
+const stock = reactive({
+  symbol: props.symbol.toUpperCase(),
   name: '',
   price: 0,
   previousPrice: 0,
@@ -334,7 +341,7 @@ async function selectAvailableTimeframe(period, preferredTimeframe) {
       console.log(`🔍 Testing timeframe: ${timeframe}`)
 
       // Quick test to see if this timeframe has data.
-      const testResponse = await fetchStockHistoryProgressive(props.symbol, period, timeframe)
+      const testResponse = await fetchStockHistoryProgressive(stock.symbol, period, timeframe)
 
       if (testResponse?.data && testResponse.data.length > 0) {
         console.log(`✅ Found data for timeframe: ${timeframe} (${testResponse.data.length} points)`)
@@ -382,18 +389,16 @@ const availableTimeframes = computed(() => timeframeOptions[selectedPeriod.value
 
 // Get current position for this symbol (case-insensitive matching).
 const currentPosition = computed(() => {
-  const symbol = props.symbol?.toUpperCase()
-  return positions.value.find(p => p.symbol?.toUpperCase() === symbol) || null
+  return positions.value.find(p => p.symbol === stock.symbol) || null
 })
 
 // Get open orders for this symbol.
 const openOrders = computed(() => {
-  const symbol = props.symbol?.toUpperCase()
   return orders.value.filter(o => {
     const orderSymbol = o.symbol?.toUpperCase()
     const orderStatus = o.status?.toLowerCase()
     // Filter by symbol and ensure status is open (Alpaca returns open orders, but double-check).
-    return orderSymbol === symbol && ['new', 'accepted', 'pending_new', 'pending_replace', 'pending_cancel', 'open'].includes(orderStatus)
+    return orderSymbol === stock.symbol && ['new', 'accepted', 'pending_new', 'pending_replace', 'pending_cancel', 'open'].includes(orderStatus)
   })
 })
 
@@ -530,7 +535,7 @@ const lineChartData = computed(() => {
     const chartData = {
       labels: [],
       datasets: [{
-        label: props.symbol || 'Stock',
+        label: stock.symbol || 'Stock',
         data: dataToUse.filter(Boolean).map(item => ({
           x: item.timestamp || Date.now(),
           y: item.price || 0
@@ -573,7 +578,7 @@ const candlestickChartData = computed(() => {
     return {
       labels: [],
       datasets: [{
-        label: props.symbol || 'Stock',
+        label: stock.symbol || 'Stock',
         data: dataToUse.filter(Boolean).map(item => ({
           x: item.timestamp || Date.now(),
           o: item.open || 0,
@@ -618,9 +623,9 @@ const lineChartOptions = computed(() => ({
           minute: '2-digit',
           hour12: false
         }),
-        label: (context) => {
+        label: context => {
           if (typeof context.parsed.y !== 'number') return ''
-          return `${props.symbol}: ${stock.value.currencySymbol}${context.parsed.y.toFixed(2)}`
+          return `${stock.symbol}: ${formatCurrency(context.parsed.y, stock.currency, 2, false)}`
         }
       }
     },
@@ -640,7 +645,7 @@ const lineChartOptions = computed(() => ({
       grid: { color: 'rgba(255, 255, 255, 0.05)' },
       ticks: {
         color: '#C9D1D9',
-        callback: value => typeof value === 'number' ? stock.value.currencySymbol + value.toFixed(2) : ''
+        callback: value => typeof value === 'number' ? formatCurrency(value, stock.currency, 2, false) : ''
       }
     }
   }
@@ -672,7 +677,7 @@ const candlestickChartOptions = computed(() => ({
           minute: '2-digit',
           hour12: false
         }),
-        label: (context) => {
+        label: context => {
           const value = context.parsed
           if (!value || typeof value.o !== 'number') return ''
           const { o: open, h: high, l: low, c: close } = value
@@ -775,33 +780,33 @@ function updateOHLCData(price, timestamp) {
 // Message Handlers
 // --------------------------------------------------------
 function handlePriceUpdate(data) {
-  if (data.symbol !== props.symbol) return
+  if (data.symbol !== stock.symbol) return
 
   // Throttle price updates to prevent blinking.
   const now = Date.now()
   if (now - lastPriceUpdate < PRICE_UPDATE_THROTTLE) return
   lastPriceUpdate = now
 
-  const oldPrice = stock.value.price
-  stock.value.price = data.price
-  stock.value.previousPrice = oldPrice
+  const oldPrice = stock.price
+  stock.price = data.price
+  stock.previousPrice = oldPrice
 
   // Always update market status if provided, otherwise preserve existing.
   if (data.marketState) {
-    stock.value.marketState = data.marketState
-    stock.value.marketMessage = data.marketMessage || 'Status Updated'
-    stock.value.nextOpen = data.nextOpen
-    stock.value.nextClose = data.nextClose
+    stock.marketState = data.marketState
+    stock.marketMessage = data.marketMessage || 'Status Updated'
+    stock.nextOpen = data.nextOpen
+    stock.nextClose = data.nextClose
   }
   // If no market status provided but current status is unknown/loading, set default.
-  else if (!stock.value.marketState || stock.value.marketState === 'unknown' || stock.value.marketMessage === 'Loading...') {
-    stock.value.marketState = 'closed'
-    stock.value.marketMessage = 'Market Status Unavailable'
+  else if (!stock.marketState || stock.marketState === 'unknown' || stock.marketMessage === 'Loading...') {
+    stock.marketState = 'closed'
+    stock.marketMessage = 'Market Status Unavailable'
   }
 
   console.log(`📊 Price update for ${data.symbol}: $${oldPrice.toFixed(2)} → $${data.price.toFixed(2)} (${((data.price - oldPrice) / oldPrice * 100).toFixed(2)}%)`, {
-    marketState: stock.value.marketState,
-    marketMessage: stock.value.marketMessage,
+    marketState: stock.marketState,
+    marketMessage: stock.marketMessage,
     timestamp: new Date().toLocaleString()
   })
 
@@ -830,10 +835,10 @@ function handlePriceUpdate(data) {
 function handleMarketStatusUpdate(data) {
   console.log('📊 Market status update received:', data)
   const statusData = data.data || data
-  stock.value.marketState = statusData.status || 'closed'
-  stock.value.marketMessage = statusData.message || 'Market Status Updated'
-  stock.value.nextOpen = statusData.nextOpen
-  stock.value.nextClose = statusData.nextClose
+  stock.marketState = statusData.status || 'closed'
+  stock.marketMessage = statusData.message || 'Market Status Updated'
+  stock.nextOpen = statusData.nextOpen
+  stock.nextClose = statusData.nextClose
 }
 
 // Dynamic Loading Functions
@@ -963,16 +968,16 @@ async function loadAdditionalData(startTime, endTime) {
     const startKey = Math.floor(startTime / (60 * 1000)) // Round to minutes.
     const endKey = Math.floor(endTime / (60 * 1000))
     const rangeMinutes = endKey - startKey
-    const cacheKey = `${props.symbol}-${selectedTimeframe.value}-${startKey}-${endKey}-${rangeMinutes}m`
+    const cacheKey = `${stock.symbol}-${selectedTimeframe.value}-${startKey}-${endKey}-${rangeMinutes}m`
 
     // Create a broader request key to prevent overlapping requests.
     // Use larger buckets to catch overlapping ranges better.
     const requestStartBucket = Math.floor(startTime / (15 * 60 * 1000)) // 15-minute buckets.
     const requestEndBucket = Math.floor(endTime / (15 * 60 * 1000))
-    const requestKey = `${props.symbol}-${selectedTimeframe.value}-${requestStartBucket}-${requestEndBucket}`
+    const requestKey = `${stock.symbol}-${selectedTimeframe.value}-${requestStartBucket}-${requestEndBucket}`
 
     console.log('📊 Loading data request:', {
-      symbol: props.symbol,
+      symbol: stock.symbol,
       timeframe: selectedTimeframe.value,
       startTime: new Date(startTime).toISOString(),
       endTime: new Date(endTime).toISOString(),
@@ -984,7 +989,7 @@ async function loadAdditionalData(startTime, endTime) {
 
     // Check if we're already loading this range or an overlapping range.
     const overlappingRequest = Array.from(activeRequests.value).find(key => {
-      if (key.startsWith(`${props.symbol}-${selectedTimeframe.value}-`)) {
+      if (key.startsWith(`${stock.symbol}-${selectedTimeframe.value}-`)) {
         const [, , , startBucket, endBucket] = key.split('-').map(Number)
         // Check for overlap.
         return (requestStartBucket <= endBucket && requestEndBucket >= startBucket)
@@ -1014,7 +1019,7 @@ async function loadAdditionalData(startTime, endTime) {
     }
 
     console.log('🌐 Fetching new data from API:', {
-      symbol: props.symbol,
+      symbol: stock.symbol,
       timeframe: selectedTimeframe.value,
       start: new Date(startTime).toISOString(),
       end: new Date(endTime).toISOString(),
@@ -1022,7 +1027,7 @@ async function loadAdditionalData(startTime, endTime) {
     })
 
     const result = await fetchStockHistoryRange(
-      props.symbol,
+      stock.symbol,
       selectedTimeframe.value,
       startTime,
       endTime
@@ -1054,7 +1059,7 @@ async function loadAdditionalData(startTime, endTime) {
     // Remove this request from active requests.
     const requestStartBucket = Math.floor(startTime / (15 * 60 * 1000))
     const requestEndBucket = Math.floor(endTime / (15 * 60 * 1000))
-    const requestKey = `${props.symbol}-${selectedTimeframe.value}-${requestStartBucket}-${requestEndBucket}`
+    const requestKey = `${stock.symbol}-${selectedTimeframe.value}-${requestStartBucket}-${requestEndBucket}`
     activeRequests.value.delete(requestKey)
   }
 }
@@ -1243,7 +1248,7 @@ function handleChartViewChange(chart, action) {
 }
 
 function handleTrade(data) {
-  if (data.symbol === props.symbol) {
+  if (data.symbol === stock.symbol) {
     // Refresh positions and orders when a trade occurs for this symbol.
     fetchPositionsData()
     fetchOrdersData()
@@ -1259,38 +1264,42 @@ function setupWebSocket() {
 // Data Fetching Functions
 // --------------------------------------------------------
 async function fetchStockData() {
-  if (!props.symbol) return
+  if (!stock.symbol) return
 
   try {
-    const data = await fetchStock(props.symbol)
-    // Ensure market status is always set.
-    stock.value = {
-      ...stock.value,
-      ...data,
+    const data = await fetchStock(stock.symbol)
+    // Assign all stock data from API response.
+    Object.assign(stock, {
+      name: data.name || stock.name || '',
+      price: data.price || stock.price || 0,
+      currency: data.currency || stock.currency || 'USD',
+      currencySymbol: data.currencySymbol || stock.currencySymbol || '$',
       marketState: data.marketState || 'closed',
       marketMessage: data.marketMessage || 'Market Status Unavailable',
       nextOpen: data.nextOpen || null,
-      nextClose: data.nextClose || null
-    }
-
-    console.log(`📊 Stock data loaded for ${props.symbol}:`, {
-      price: stock.value.price,
-      marketState: stock.value.marketState,
-      marketMessage: stock.value.marketMessage
+      nextClose: data.nextClose || null,
+      exchange: data.exchange || stock.exchange || 'Unknown',
+      tradable: data.tradable !== undefined ? data.tradable : stock.tradable
     })
 
-    subscribeToStock(props.symbol)
+    console.log(`📊 Stock data loaded for ${stock.symbol}:`, {
+      name: stock.name,
+      price: stock.price,
+      marketState: stock.marketState,
+      marketMessage: stock.marketMessage
+    })
+
+    subscribeToStock(stock.symbol)
   }
   catch (error) {
-    console.error(`❌ Error fetching stock data for ${props.symbol}:`, error)
+    console.error(`❌ Error fetching stock data for ${stock.symbol}:`, error)
     // Set fallback values if API fails.
-    stock.value = {
-      ...stock.value,
+    Object.assign(stock, {
       marketState: 'closed',
       marketMessage: 'Data Unavailable',
       nextOpen: null,
       nextClose: null
-    }
+    })
   }
 }
 
@@ -1299,12 +1308,12 @@ async function fetchPositionsData() {
     positions.value = await fetchPositions()
     console.log(`📊 Positions loaded: ${positions.value.length} positions`)
     console.log(`📊 Position symbols:`, positions.value.map(p => p.symbol))
-    console.log(`📊 Looking for position for symbol: ${props.symbol}`)
+    console.log(`📊 Looking for position for symbol: ${stock.symbol}`)
     if (currentPosition.value) {
-      console.log(`✅ Found position for ${props.symbol}:`, currentPosition.value)
+      console.log(`✅ Found position for ${stock.symbol}:`, currentPosition.value)
     }
     else {
-      console.log(`⚠️ No position found for ${props.symbol} in ${positions.value.length} positions`)
+      console.log(`⚠️ No position found for ${stock.symbol} in ${positions.value.length} positions`)
     }
   }
   catch (error) {
@@ -1338,7 +1347,7 @@ async function cancelOrderHandler(orderId) {
 }
 
 async function fetchHistoricalData() {
-  if (!props.symbol) return
+  if (!stock.symbol) return
 
   try {
     isLoadingHistoricalData.value = true
@@ -1350,25 +1359,25 @@ async function fetchHistoricalData() {
       selectedTimeframe.value = availableTimeframe
     }
 
-    console.log(`📊 Fetching historical data for ${props.symbol}, period: ${selectedPeriod.value}, timeframe: ${selectedTimeframe.value}`)
+    console.log(`📊 Fetching historical data for ${stock.symbol}, period: ${selectedPeriod.value}, timeframe: ${selectedTimeframe.value}`)
     // Use progressive loading for faster initial display and maximum data retrieval.
-    const response = await fetchStockHistoryProgressive(props.symbol, selectedPeriod.value, selectedTimeframe.value)
+    const response = await fetchStockHistoryProgressive(stock.symbol, selectedPeriod.value, selectedTimeframe.value)
 
     // Check for warnings, errors, or fallback data in the response
     if (response?.warning || response?.error) {
       const message = response.error || response.warning
-      console.error(`❌ ALPACA DATA ISSUE for ${props.symbol}:`, message)
+      console.error(`❌ ALPACA DATA ISSUE for ${stock.symbol}:`, message)
 
       // Show alert to user about data issues
       if (response.dataAge) {
-        $waveui.notify(`DATA WARNING: ${props.symbol} historical data is ${response.dataAge} hours old.\n\n${message}\n\nNote: Alpaca operates in US Eastern Time. The chart shows old trading session data, not current market data.`, 'warning', 0)
+        $waveui.notify(`DATA WARNING: ${stock.symbol} historical data is ${response.dataAge} hours old.\n\n${message}\n\nNote: Alpaca operates in US Eastern Time. The chart shows old trading session data, not current market data.`, 'warning', 0)
       }
       else $waveui.notify(`DATA ERROR: ${message}`, 'error', 0)
     }
 
     // Handle fallback data (showing data from last available trading day)
     if (response?.isFallbackData && response?.fallbackMessage) {
-      console.log(`📊 Using fallback data for ${props.symbol}: ${response.fallbackMessage}`)
+      console.log(`📊 Using fallback data for ${stock.symbol}: ${response.fallbackMessage}`)
 
       // Show a less intrusive notification for fallback data
       $waveui.notify(`📊 ${response.fallbackMessage}`, 'info', 5000)
@@ -1385,7 +1394,7 @@ async function fetchHistoricalData() {
         const maxPrice = Math.max(...prices)
 
         console.log(`✅ Loaded ${historicalData.value.length} historical data points:`, {
-          symbol: props.symbol,
+          symbol: stock.symbol,
           period: selectedPeriod.value,
           timeframe: selectedTimeframe.value,
           timeRange: `${new Date(firstPoint.timestamp).toLocaleString()} to ${new Date(lastPoint.timestamp).toLocaleString()}`,
@@ -1404,13 +1413,13 @@ async function fetchHistoricalData() {
       await fetchStatsHistoricalData()
     }
     else {
-      $waveui.notify(`NO DATA: No historical data available for ${props.symbol} from Alpaca API.`, 'error', 0)
+      $waveui.notify(`NO DATA: No historical data available for ${stock.symbol} from Alpaca API.`, 'error', 0)
       historicalData.value = []
       statsHistoricalData.value = []
     }
   }
   catch (error) {
-    $waveui.notify(`API ERROR: Failed to fetch historical data for ${props.symbol}.\n\n${error.message}`, 'error', 0)
+    $waveui.notify(`API ERROR: Failed to fetch historical data for ${stock.symbol}.\n\n${error.message}`, 'error', 0)
     historicalData.value = []
     statsHistoricalData.value = []
   }
@@ -1420,12 +1429,12 @@ async function fetchHistoricalData() {
 }
 
 async function fetchStatsHistoricalData() {
-  if (!props.symbol) return
+  if (!stock.symbol) return
 
   try {
     // Use separate request only for stats that need longer timeframe data.
-    console.log(`📊 Fetching stats historical data for ${props.symbol} (12M/1Day)`)
-    const response = await fetchStockHistoryProgressive(props.symbol, '12M', '1Day')
+    console.log(`📊 Fetching stats historical data for ${stock.symbol} (12M/1Day)`)
+    const response = await fetchStockHistoryProgressive(stock.symbol, '12M', '1Day')
     if (response?.data) {
       statsHistoricalData.value = response.data.sort((a, b) => a.timestamp - b.timestamp)
       console.log(`✅ Loaded ${statsHistoricalData.value.length} stats historical data points`)
@@ -1458,7 +1467,7 @@ async function changePeriod(period) {
   selectedTimeframe.value = availableTimeframe
 
   // Only clear cache for the old period/timeframe combination.
-  const oldCacheKey = `${props.symbol}-${previousPeriod}-${previousTimeframe}`
+  const oldCacheKey = `${stock.symbol}-${previousPeriod}-${previousTimeframe}`
   if (timeframeDataCache.value.has(oldCacheKey)) {
     // Keep recent cache but clear old one to save memory.
     const cacheKeys = Array.from(timeframeDataCache.value.keys())
@@ -1503,7 +1512,7 @@ async function changeTimeframe(timeframe) {
     selectedTimeframe.value = availableTimeframe
 
     // Check if we have cached data for this timeframe.
-    const cacheKey = `${props.symbol}-${selectedPeriod.value}-${availableTimeframe}`
+    const cacheKey = `${stock.symbol}-${selectedPeriod.value}-${availableTimeframe}`
 
     if (timeframeDataCache.value.has(cacheKey)) {
       console.log(`📊 Using cached data for ${availableTimeframe}`)
@@ -1516,7 +1525,7 @@ async function changeTimeframe(timeframe) {
       console.log(`📊 Fetching new data for ${availableTimeframe}`)
 
       // Fetch new data but don't clear existing data until we have the new data
-      const response = await fetchStockHistoryProgressive(props.symbol, selectedPeriod.value, availableTimeframe)
+      const response = await fetchStockHistoryProgressive(stock.symbol, selectedPeriod.value, availableTimeframe)
 
       if (response?.data) {
         const newData = response.data.sort((a, b) => a.timestamp - b.timestamp)
@@ -1549,11 +1558,11 @@ async function refreshPrice() {
 
   try {
     isRefreshing.value = true
-    const data = await fetchStockPrice(props.symbol, true)
+    const data = await fetchStockPrice(stock.symbol, true)
     if (data.price > 0) {
-      const oldPrice = stock.value.price
-      stock.value.price = data.price
-      stock.value.previousPrice = oldPrice
+      const oldPrice = stock.price
+      stock.price = data.price
+      stock.previousPrice = oldPrice
 
       const timestamp = Date.now()
       priceHistory.value.push({ timestamp, price: data.price })
@@ -1573,7 +1582,7 @@ async function refreshPrice() {
     }
   }
   catch (error) {
-    console.error(`❌ Error refreshing price for ${props.symbol}:`, error)
+    console.error(`❌ Error refreshing price for ${stock.symbol}:`, error)
   }
   finally {
     isRefreshing.value = false
@@ -1583,25 +1592,24 @@ async function refreshPrice() {
 async function refreshMarketStatus() {
   try {
     const data = await fetchMarketStatus()
-    stock.value = {
-      ...stock.value,
+    Object.assign(stock, {
       marketState: data.status || 'closed',
       marketMessage: data.message || 'Market Status Updated',
       nextOpen: data.nextOpen,
       nextClose: data.nextClose
-    }
+    })
 
     console.log('📊 Market status refreshed:', {
-      status: stock.value.marketState,
-      message: stock.value.marketMessage
+      status: stock.marketState,
+      message: stock.marketMessage
     })
   }
   catch (error) {
     console.error('❌ Error refreshing market status:', error)
     // Don't leave stock in loading state - set reasonable defaults.
-    if (!stock.value.marketState || stock.value.marketState === 'unknown' || stock.value.marketMessage === 'Loading...') {
-      stock.value.marketState = 'closed'
-      stock.value.marketMessage = 'Market Status Unavailable'
+    if (!stock.marketState || stock.marketState === 'unknown' || stock.marketMessage === 'Loading...') {
+      stock.marketState = 'closed'
+      stock.marketMessage = 'Market Status Unavailable'
     }
   }
 }
@@ -1652,7 +1660,7 @@ onUnmounted(() => {
   dataCache.value.clear()
 })
 
-watch(() => props.symbol, async (newSymbol, oldSymbol) => {
+watch(() => stock.symbol, async (newSymbol, oldSymbol) => {
   if (newSymbol === oldSymbol) return
 
   // Cancel any ongoing requests for the old symbol
@@ -1693,6 +1701,19 @@ watch(() => historicalData.value.length, (newLength, oldLength) => {
   .side-panel {
     width: 25%;
     min-width: 300px;
+  }
+
+  div.order-item {
+    border: 1px solid transparent;
+
+    &--buy {
+      background-image: linear-gradient(135deg, color-mix(in srgb, var(--w-success-color) 12%, transparent), transparent 80%);
+      border-color: color-mix(in srgb, var(--w-success-color) 40%, transparent);
+    }
+    &--sell {
+      background-image: linear-gradient(135deg, color-mix(in srgb, var(--w-error-color) 12%, transparent), transparent 80%);
+      border-color: color-mix(in srgb, var(--w-error-color) 40%, transparent);
+    }
   }
 }
 </style>

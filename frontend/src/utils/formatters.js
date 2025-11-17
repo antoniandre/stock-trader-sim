@@ -53,24 +53,35 @@ const currencySymbols = {
 
 // Currency Formatting
 // --------------------------------------------------------
-export function formatCurrency(amount, currency = 'USD', decimals = 2, color = true) {
-  const value = parseFloat(amount)
-  if (isNaN(value)) return `${currencySymbols[currency]}0.00`
+export function getCurrencySymbol(currency) {
+  const currencyCode = currency || 'USD'
+  return currencySymbols[currencyCode] || currencyCode
+}
 
-  const symbol = `<small class="op6">${currencySymbols[currency]}</small>`
+// Format currency - accepts amount, price object { value, currency, currencySymbol }, or (value, currency).
+export function formatCurrency(amountOrPrice, currency = 'USD', decimals = 2, color = true) {
+  // Handle price object format: { value, currency, currencySymbol }.
+  if (typeof amountOrPrice === 'object' && amountOrPrice !== null && 'value' in amountOrPrice) {
+    const priceValue = amountOrPrice.value || 0
+    const priceCurrency = amountOrPrice.currency || currency || 'USD'
+    return formatCurrency(priceValue, priceCurrency, decimals, color)
+  }
+
+  // Handle simple value with currency code.
+  const value = typeof amountOrPrice === 'number' ? amountOrPrice : parseFloat(amountOrPrice) || 0
+  const currencyCode = currency || 'USD'
+  const symbolText = getCurrencySymbol(currencyCode)
+  if (isNaN(value)) return `<strong class="lh0">${symbolText}0.00</strong>`
+
+  const symbol = `<small class="op6">${symbolText}</small>`
   const formattedValue = value.toFixed(decimals)
 
   if (color) {
     const colorClass = value > 0 ? 'currency-positive' : (value ? 'currency-negative' : 'base')
-    return `${symbol}<span class="${colorClass}">${formattedValue}</span>`
+    return `<strong class="lh0">${symbol}<span class="${colorClass}">${formattedValue}</span></strong>`
   }
 
-  return `${symbol}${formattedValue}`
-}
-
-export function getCurrencySymbol(currency) {
-  const symbols = { 'USD': '$', 'EUR': '€', 'GBP': '£', 'JPY': '¥', 'CAD': 'C$', 'AUD': 'A$', 'CHF': 'Fr', 'CNY': '¥', 'BTC': '₿', 'ETH': 'Ξ' }
-  return symbols[currency] || currency
+  return `<strong class="lh0">${symbol}${formattedValue}</strong>`
 }
 
 // Number Formatting
@@ -93,11 +104,12 @@ export function formatNumber(value, decimals = 2) {
   return num.toFixed(decimals)
 }
 
-export function formatPriceChange(change, currencySymbol = '$', decimals = 2) {
+export function formatPriceChange(change, currency = 'USD', decimals = 2) {
   const value = parseFloat(change)
-  if (isNaN(value)) return `${currencySymbol}0.00`
+  const symbol = getCurrencySymbol(currency)
+  if (isNaN(value)) return `${symbol}0.00`
   const sign = value >= 0 ? '+' : ''
-  return `${sign}${currencySymbol}${value.toFixed(decimals)}`
+  return `${sign}${symbol}${value.toFixed(decimals)}`
 }
 
 export function formatPriceChangePercent(changePercent, decimals = 2) {
@@ -113,37 +125,17 @@ export function formatPrice(price, decimals = 2) {
   return typeof price === 'number' ? price.toFixed(decimals) : price
 }
 
-// Format price object with currency (accepts { value, currency, currencySymbol } or (value, currency)).
-export function formatPriceWithCurrency(priceOrValue, currencyCode = 'USD', color = true) {
-  // Handle price object format: { value, currency, currencySymbol }.
-  if (typeof priceOrValue === 'object' && priceOrValue !== null && 'value' in priceOrValue) {
-    const priceValue = priceOrValue.value || 0
-    const currency = priceOrValue.currency || currencyCode
-    if (priceValue === 0) {
-      const symbol = currencySymbols[currency] || currency
-      return `${symbol}0.00`
-    }
-    return formatCurrency(priceValue, currency, 2, color)
-  }
-
-  // Handle simple value with currency code.
-  const priceValue = typeof priceOrValue === 'number' ? priceOrValue : parseFloat(priceOrValue) || 0
-  if (priceValue === 0) {
-    const symbol = currencySymbols[currencyCode] || currencyCode
-    return `${symbol}0.00`
-  }
-  return formatCurrency(priceValue, currencyCode, 2, color)
-}
-
 // Format market cap with currency symbol and K/M/B suffixes.
-export function formatMarketCap(marketCap, currencySymbol = '$') {
+export function formatMarketCap(marketCap, currency = 'USD') {
   if (!marketCap || marketCap === 0) return 'N/A'
   const value = typeof marketCap === 'number' ? marketCap : parseFloat(marketCap)
   if (isNaN(value)) return 'N/A'
 
-  if (value >= 1000000000) return `${currencySymbol}${(value / 1000000000).toFixed(1)}B`
-  if (value >= 1000000) return `${currencySymbol}${(value / 1000000).toFixed(1)}M`
-  return `${currencySymbol}${value.toLocaleString()}`
+  const symbol = getCurrencySymbol(currency)
+
+  if (value >= 1000000000) return `${symbol}${(value / 1000000000).toFixed(1)}B`
+  if (value >= 1000000) return `${symbol}${(value / 1000000).toFixed(1)}M`
+  return `${symbol}${value.toLocaleString()}`
 }
 
 // Format volume with K/M/B suffixes.

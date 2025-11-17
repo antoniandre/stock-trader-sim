@@ -1,16 +1,15 @@
 <template lang="pug">
 .chart-info.w-flex.align-center.gap2
-  .title2.text-bold(v-if="stock.price")
-    span.op6.mr2 {{ stock.currencySymbol }}
-    span {{ stock.price.toFixed(2) }}
+  h2.title2(v-if="stock.price")
+    strong(v-html="formatCurrency(stock.price, stock.currency, 2, false)")
   .title3(v-else)
     w-icon.mr2.op4(size="1.4rem") wi-info-circle
     span.op6 Price Unavailable
 
-  .price-change.text-center.lh0(
+  .price-change.text-center.lh0.w-flex.align-center.gap1(
     v-if="priceChange && stock.price"
     :class="priceChange >= 0 ? 'currency-positive' : 'currency-negative'")
-    strong {{ priceChange >= 0 ? '+' : '' }}{{ stock.currencySymbol }}{{ Math.abs(priceChange).toFixed(2) }}
+    strong(v-html="formatCurrency(priceChange, stock.currency, 2, true)")
     span.size--xs ({{ priceChange >= 0 ? '+' : '' }}{{ priceChangePercent.toFixed(2) }}%)
 
   .caption.mt1.op7.w-flex.align-center.gap1
@@ -34,6 +33,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { formatCurrency } from '@/utils/formatters'
 
 const props = defineProps({
   stock: {
@@ -45,23 +45,14 @@ const props = defineProps({
       currencySymbol: '$'
     })
   },
-  lastUpdate: {
-    type: String,
-    default: ''
-  },
-  isRefreshing: {
-    type: Boolean,
-    default: false
-  },
-  isTransitioningTimeframe: {
-    type: Boolean,
-    default: false
-  }
+  lastUpdate: { type: String, default: '' },
+  isRefreshing: { type: Boolean, default: false },
+  isTransitioningTimeframe: { type: Boolean, default: false }
 })
 
 defineEmits(['refresh-price'])
 
-// Computed Properties
+// Computed Properties.
 // --------------------------------------------------------
 const priceChange = computed(() => {
   return props.stock.price && props.stock.previousPrice

@@ -9,24 +9,23 @@
       w-table.bd0(:headers="headers" :items="reversedHistory")
         template(#item="{ item }")
           tr
-            td.px2.text-bold
+            td.px1.text-bold
               .w-flex.align-center
                 ticker-logo.mr3(:symbol="item.symbol" size="sm")
                 router-link.text-bold.hover-underline(:to="`/trading/${item.symbol}`") {{ item.symbol }}
-            td.px2.text-center
+            td.px1.text-center
               w-tag.px2.py1.text-bold(:class="item.side === 'buy' ? 'success--bg' : 'error--bg'" round xs)
                 | {{ item.side.toUpperCase() }}
-            td.px2.text-right {{ item.qty }}
-            td.px2.text-right.text-bold
-              span.op6.mr1 $
-              | {{ item.price.toFixed(2) }}
-            td.px2.text-right.text-bold
-              span.op6.mr1 $
-              | {{ (item.qty * item.price).toFixed(2) }}
-            td.px2.text-right.grey.size--sm
-              | {{ new Date(item.timestamp).toLocaleDateString() }}
-              br
-              | {{ new Date(item.timestamp).toLocaleTimeString() }}
+            td.px1.text-right {{ item.qty }}
+            td.px1.text-right.text-bold(v-html="formatCurrency(item.price, 'USD', 2, false)")
+            td.px1.text-right.text-bold(v-html="formatCurrency((item.qty * item.price), 'USD', 2, false)")
+            td.px1.text-right.size--sm.w-flex.column.align-end.op7
+              .w-flex.align-center.gap1
+                icon.grey.op7(icon="mdi:calendar-outline" width="12" height="12")
+                span.date-time {{ new Date(item.timestamp).toLocaleDateString() }}
+              .w-flex.align-center.gap1
+                icon.grey.op7(icon="mdi:clock-outline" width="12" height="12")
+                span.date-time {{ new Date(item.timestamp).toLocaleTimeString() }}
 
     .text-center.mt4.py12(v-if="loading")
       w-progress(circle)
@@ -41,6 +40,7 @@
 <script setup>
 import { computed } from 'vue'
 import TickerLogo from './ticker-logo.vue'
+import { formatCurrency } from '@/utils/formatters'
 
 const props = defineProps({
   history: { type: Array, required: true },
@@ -48,9 +48,7 @@ const props = defineProps({
 })
 
 // Show the most recent trades first.
-const reversedHistory = computed(() => {
-  return [...props.history].reverse()
-})
+const reversedHistory = computed(() => [...props.history].reverse())
 
 const headers = [
   { key: 'symbol', label: 'Symbol', align: 'left' },
@@ -61,3 +59,7 @@ const headers = [
   { key: 'timestamp', label: 'Date', align: 'right' }
 ]
 </script>
+
+<style lang="scss" scoped>
+.date-time {width: 4rem;}
+</style>

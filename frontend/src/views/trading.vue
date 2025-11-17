@@ -31,7 +31,7 @@ template(v-else)
             @click="$router.push(`/trading/${topMovers.data.gainers[n - 1].symbol}`)"
             round
             xs)
-            span.text-bold {{ topMovers.data.gainers[n - 1].symbol }}
+            strong {{ topMovers.data.gainers[n - 1].symbol }}
             span.ml2.currency-positive {{ ~~(topMovers.data.gainers[n - 1].pct) }}%
         w-button(
           v-if="topMovers.gainersDisplayCount < 15"
@@ -57,7 +57,7 @@ template(v-else)
             @click="$router.push(`/trading/${topMovers.data.losers[n - 1].symbol}`)"
             round
             xs)
-            span.text-bold {{ topMovers.data.losers[n - 1].symbol }}
+            strong {{ topMovers.data.losers[n - 1].symbol }}
             span.ml2.currency-negative {{ ~~(topMovers.data.losers[n - 1].pct) }}%
         w-button(
           v-if="topMovers.losersDisplayCount < 15"
@@ -120,14 +120,15 @@ template(v-else)
 
                 //- ticker-logo.mr3(:symbol="stock.symbol")
                 .w-flex.gap2
-                  span.text-bold {{ stock.symbol }}
+                  strong {{ stock.symbol }}
                   w-tag(sm round :style="`background-color: var(--${['NYSE', 'NASDAQ'].includes(stock.exchange) ? stock.exchange.toLowerCase() : 'other-se'}-color)`")
                     small {{ stock.exchange }}
             td.w-table__cell.px2.py2
               span {{ stock.name }}
             td.w-table__cell.px2.py2.text-right
-              .w-flex.align-center.justify-end.gap1(v-if="stock.price > 0")
-                span.text-bold {{ stock.currencySymbol || '$' }}{{ stock.price.toFixed(2) }}
+              strong.w-flex.align-center.justify-end(
+                v-if="stock.price"
+                v-html="formatCurrency(stock.price, stock.currency, 2, false)")
               .w-flex.align-center.justify-end.gap1(v-else)
                 span.op5 Fetching...
             td.w-table__cell.pl2.pr4.py2.text-center
@@ -164,6 +165,7 @@ template(v-else)
 import { ref, onMounted, onBeforeUnmount, computed, inject } from 'vue'
 import { fetchAllStocks, fetchTopMovers, fetchBatchTrends } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
+import { formatCurrency } from '@/utils/formatters'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
 

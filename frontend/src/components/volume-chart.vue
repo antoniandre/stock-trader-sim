@@ -2,8 +2,8 @@
 .volume-chart
   .volume-info.w-flex.align-center.gap2.mb2
     .volume-title.size--sm.text-bold Volume
-    .volume-value.size--sm.op7(v-if="currentVolume") {{ formatVolume(currentVolume) }}
-    .volume-avg.size--xs.op5(v-if="averageVolume") Avg: {{ formatVolume(averageVolume) }}
+    .volume-value.size--sm.op7(v-if="currentVolume") {{ formatVolumeWithSuffixes(currentVolume) }}
+    .volume-avg.size--xs.op5(v-if="averageVolume") Avg: {{ formatVolumeWithSuffixes(averageVolume) }}
 
   .volume-canvas
     Bar(:data="volumeChartData" :options="volumeChartOptions" :key="chartKey")
@@ -13,6 +13,7 @@
 import { ref, computed, watch } from 'vue'
 import { Bar } from 'vue-chartjs'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js'
+import { formatVolumeWithSuffixes } from '@/utils/formatters'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
@@ -97,7 +98,7 @@ const volumeChartOptions = computed(() => ({
           })
         },
         label(context) {
-          return `Volume: ${formatVolume(context.parsed.y)}`
+          return `Volume: ${formatVolumeWithSuffixes(context.parsed.y)}`
         }
       }
     }
@@ -122,7 +123,7 @@ const volumeChartOptions = computed(() => ({
         color: '#C9D1D9',
         font: { size: 10 },
         maxTicksLimit: 3,
-        callback: (value) => formatVolume(value)
+        callback: value => formatVolumeWithSuffixes(value)
       }
     }
   }
@@ -143,13 +144,6 @@ const averageVolume = computed(() => {
   const sum = volumes.reduce((acc, vol) => acc + vol, 0)
   return sum / volumes.length
 })
-
-function formatVolume(volume) {
-  if (volume >= 1000000) return (volume / 1000000).toFixed(1) + 'M'
-  if (volume >= 1000) return (volume / 1000).toFixed(1) + 'K'
-
-  return volume.toString()
-}
 
 // Force re-render when data changes
 watch(() => props.data, () => {

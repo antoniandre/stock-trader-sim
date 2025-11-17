@@ -15,10 +15,10 @@
           .range-values
             .range-high
               .size--xs.op6 High
-              .value.lh0(v-html="formatPriceWithCurrency(dayRange.high, undefined, false)")
+              .value.lh0(v-html="formatCurrency(dayRange.high, undefined, 2, false)")
             .range-low.mt2
               .size--xs.op6 Low
-              .value.lh0(v-html="formatPriceWithCurrency(dayRange.low, undefined, false)")
+              .value.lh0(v-html="formatCurrency(dayRange.low, undefined, 2, false)")
 
     //- 52 Week Range Card
     .range-card.gradient-card.gradient-card--tall.grow
@@ -32,10 +32,10 @@
           .range-values
             .range-high
               .size--xs.op6 High
-              .value.lh0(v-html="formatPriceWithCurrency(weekRange.high, undefined, false)")
+              .value.lh0(v-html="formatCurrency(weekRange.high, undefined, 2, false)")
             .range-low.mt2
               .size--xs.op6 Low
-              .value.lh0(v-html="formatPriceWithCurrency(weekRange.low, undefined, false)")
+              .value.lh0(v-html="formatCurrency(weekRange.low, undefined, 2, false)")
 
   //- Financial Metrics
   .metrics-list.mt4.text-upper
@@ -55,7 +55,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { formatPriceWithCurrency, formatMarketCap, formatVolumeWithSuffixes } from '@/utils/formatters'
+import { formatCurrency, formatMarketCap, formatVolumeWithSuffixes } from '@/utils/formatters'
 
 const props = defineProps({
   stock: { type: Object, required: true },
@@ -288,7 +288,7 @@ const financial = computed(() => {
   // Calculate approximate market cap.
   const calculateMarketCap = () => {
     const price = currentPrice.value.value
-    const priceCurrencySymbol = currentPrice.value.currencySymbol
+    const priceCurrency = currentPrice.value.currency
     if (price === 0) return 'N/A'
 
     // Use symbol hash for consistent shares estimate (no blinking).
@@ -313,7 +313,7 @@ const financial = computed(() => {
     else estimatedShares = (hashMod * 10000000) + 100000000  // 100M-1.1B.
 
     const marketCap = price * estimatedShares
-    return formatMarketCap(marketCap, priceCurrencySymbol)
+    return formatMarketCap(marketCap, priceCurrency)
   }
 
   // Calculate volatility from price data.

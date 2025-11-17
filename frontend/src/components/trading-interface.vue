@@ -90,7 +90,7 @@
         .mt4(v-if="orderValue > 0 && stock.price > 0")
           .w-flex.justify-between.gap2
             span.op7.text-right.grow Total:
-            span.text-bold {{ stock.currencySymbol }}{{ orderValue.toFixed(2) }}
+            strong(v-html="formatCurrency(orderValue, stock.currency, 2, false)")
 
     //- Buy/Sell Buttons
     .w-flex.gap4.mt4.gap12(v-if="stock.price")
@@ -116,12 +116,13 @@
             | {{ trade.side.toUpperCase() }}
           span {{ trade.qty }} shares
         .text-right
-          .text-bold {{ stock.currencySymbol }}{{ trade.price.toFixed(2) }}
+          strong(v-html="formatCurrency(trade.price, stock.currency, 2, false)")
           .size--sm.op7 {{ new Date(trade.timestamp).toLocaleTimeString() }}
 </template>
 
 <script setup>
 import { ref, computed, inject, watch } from 'vue'
+import { formatCurrency } from '@/utils/formatters'
 
 const props = defineProps({
   symbol: { type: String, required: true },
@@ -199,8 +200,14 @@ async function placeOrder(side) {
     const orderTypeText = orderForm.value.type.charAt(0).toUpperCase() + orderForm.value.type.slice(1)
     let confirmationText = `${orderTypeText} ${side.toUpperCase()} ${order.quantity} ${props.symbol}`
 
-    if (orderForm.value.type === 'limit') confirmationText += ` @ $${orderForm.value.limitPrice}`
-    if (orderForm.value.stopLoss) confirmationText += ` (Stop Loss: $${orderForm.value.stopLoss})`
+    if (orderForm.value.type === 'limit') {
+      const limitPriceFormatted = formatCurrency(orderForm.value.limitPrice, props.stock.currency, 2, false)
+      confirmationText += ` @ ${limitPriceFormatted.replace(/<[^>]*>/g, '')}` // Strip HTML tags for plain text notification.
+    }
+    if (orderForm.value.stopLoss) {
+      const stopLossFormatted = formatCurrency(orderForm.value.stopLoss, props.stock.currency, 2, false)
+      confirmationText += ` (Stop Loss: ${stopLossFormatted.replace(/<[^>]*>/g, '')})` // Strip HTML tags for plain text notification.
+    }
 
     $waveui.notify(`Order placed: ${confirmationText}`, 'success')
     orderForm.value.quantity = 1

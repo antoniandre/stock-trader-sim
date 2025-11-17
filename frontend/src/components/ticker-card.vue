@@ -33,8 +33,7 @@
       .trend-placeholder(v-else) No data
 
     .w-flex.align-center.text-bold.mt2.gap1
-      span.op6 {{ stock.currencySymbol }}
-      | {{ stock.price.toFixed(2) }}
+      span(v-html="formatCurrency(stock.price, stock.currency, 2, false)")
 
       //- Percentage change (for top movers)
       span.text-bold.size--sm(v-if="showPercentageChange && stock.pct != null" :class="stock.pct >= 0 ? 'success' : 'error'") {{ stock.pct >= 0 ? '+' : '' }}{{ stock.pct.toFixed(2) }}%
@@ -50,6 +49,7 @@ import { useWebSocket } from '@/composables/web-socket'
 import { fetchStockTrend } from '@/api'
 import TickerLogo from './ticker-logo.vue'
 import MiniTrendChart from './mini-trend-chart.vue'
+import { formatCurrency } from '@/utils/formatters'
 
 const props = defineProps({
   stock: { type: Object, required: true },

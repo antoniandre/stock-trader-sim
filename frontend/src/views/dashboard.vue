@@ -11,24 +11,15 @@
     .gradient-card.grow
       .gradient-card__wrap
         .text-upper.size--xs.op5 Account Balance
-        .title2.mt3.text-center
-          span.op6.mr1 $
-          span(:class="account.cash > 0 ? 'currency-positive' : (account.cash ? 'currency-negative' : 'base')")
-            | {{ account.cash ? parseFloat(account.cash).toLocaleString() : '0.00' }}
+        .title2.mt3.text-center(v-html="formatCurrency(account.cash)")
     .gradient-card.grow
       .gradient-card__wrap
         .text-upper.size--xs.op5 Portfolio Value
-        .title2.mt3.text-center
-          span.op6.mr1 $
-          span(:class="account.portfolio_value > 0 ? 'currency-positive' : (account.portfolio_value ? 'currency-negative' : 'base')")
-            | {{ account.portfolio_value ? parseFloat(account.portfolio_value).toLocaleString() : '0.00' }}
+        .title2.mt3.text-center(v-html="formatCurrency(account.portfolio_value)")
     .gradient-card.grow
       .gradient-card__wrap
         .text-upper.size--xs.op5 Buying Power
-        .title2.mt3.text-center
-          span.op6.mr1 $
-          span(:class="account.buying_power > 0 ? 'currency-positive' : (account.buying_power ? 'currency-negative' : 'base')")
-            | {{ account.buying_power ? parseFloat(account.buying_power).toLocaleString() : '0.00' }}
+        .title2.mt3.text-center(v-html="formatCurrency(account.buying_power)")
 
   portfolio-chart.mt6(:history="portfolio.portfolioHistory" @period-change="onPeriodChange")
   open-positions.mt6
@@ -42,6 +33,7 @@ import { useWebSocket } from '@/composables/web-socket'
 import PortfolioChart from '@/components/portfolio-chart.vue'
 import OpenPositions from '@/components/open-positions.vue'
 import TradeHistory from '@/components/trade-history.vue'
+import { formatCurrency } from '@/utils/formatters'
 
 const account = ref(null)
 const portfolio = reactive({

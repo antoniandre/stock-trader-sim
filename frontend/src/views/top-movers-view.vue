@@ -96,7 +96,7 @@
       .w-flex.align-center.justify-between.gap4.wrap
         .stat-item(v-if="topStock")
           .title3(:class="isPositive ? 'currency-positive' : 'currency-negative'")
-            | {{ isPositive ? '+' : '' }}{{ formatPercentage(topStock.pct) }}
+            | {{ isPositive ? '+' : '' }}{{ formatPercentageWithConversion(topStock.pct) }}
           .size--sm.op6 {{ isPositive ? 'Top Performer' : 'Biggest Drop' }}: {{ topStock.symbol }}
         .stat-item(v-if="volumeStats.highVolume")
           strong.warning {{ volumeStats.highVolume }}
@@ -129,6 +129,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { fetchTopMovers, fetchBatchTrends } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
+import { formatPercentage } from '@/utils/formatters'
 import TickerCard from '@/components/ticker-card.vue'
 
 // Props.
@@ -260,12 +261,12 @@ const volumeStats = computed(() => {
   return stats
 })
 
-// Format percentage - handle potential decimal conversion issues.
-function formatPercentage(pct) {
+// Format percentage with special handling for decimal conversion issues.
+function formatPercentageWithConversion(pct) {
   if (pct == null || isNaN(pct)) return 'N/A'
   // If percentage seems way too high (likely a decimal that wasn't converted), divide by 100.
   if (Math.abs(pct) > 1000) pct = pct / 100
-  return pct.toFixed(2)
+  return formatPercentage(pct, 2)
 }
 
 // Get top stock from filtered stocks.
