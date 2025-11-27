@@ -31,9 +31,7 @@
           :is-loading-historical-data="isLoadingHistoricalData"
           :is-loading-additional-data="isLoadingAdditionalData"
           :line-chart-data="lineChartData"
-          :line-chart-options="lineChartOptions"
           :candlestick-chart-data="candlestickChartData"
-          :candlestick-chart-options="candlestickChartOptions"
           :effective-timeframe="effectiveTimeframe"
           :is-using-fallback-timeframe="isUsingFallbackTimeframe"
           :show-fullscreen-button="true"
@@ -90,10 +88,9 @@
               .size--sm.op6 Avg:
                 span(v-html="formatCurrency(avgEntryPrice, stock.currency, 2, false)")
             div.mla.text-right
-              .title3.mb1(:class="unrealizedPL >= 0 ? 'currency-positive' : 'currency-negative'")
-                span(v-html="formatCurrency(unrealizedPL, stock.currency, 2, false)")
+              .title3.mb1(v-html="formatCurrency(unrealizedPL, stock.currency, 2, false)")
               .size--sm.op6(:class="unrealizedPLPercent >= 0 ? 'currency-positive' : 'currency-negative'")
-                | ({{ formatPercentage(unrealizedPLPercent) }}%) P/L
+                | ({{ formatPercentage(unrealizedPLPercent) }}) P/L
           .ml4.text-right
             .title3.mb1 Market Value
             .size--sm.op6
@@ -146,9 +143,7 @@
       :is-loading-historical-data="isLoadingHistoricalData"
       :is-loading-additional-data="isLoadingAdditionalData"
       :line-chart-data="lineChartData"
-      :line-chart-options="lineChartOptions"
       :candlestick-chart-data="candlestickChartData"
-      :candlestick-chart-options="candlestickChartOptions"
       :effective-timeframe="effectiveTimeframe"
       :is-using-fallback-timeframe="isUsingFallbackTimeframe"
       :show-fullscreen-button="false"
@@ -172,7 +167,7 @@
 <script setup>
 import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
 import { fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange } from '@/api'
-import { formatNumber, formatPercentage, formatCurrency, getCurrencySymbol } from '@/utils/formatters'
+import { formatPercentage, formatCurrency } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
 import PriceChart from '@/components/price-chart.vue'
 import StockStatsPanel from '@/components/stock-stats-panel.vue'
@@ -595,123 +590,6 @@ const candlestickChartData = computed(() => {
     return { labels: [], datasets: [] }
   }
 })
-
-// Chart Options.
-const lineChartOptions = computed(() => ({
-  responsive: true,
-  maintainAspectRatio: false,
-  animation: false,
-  parsing: false,
-  normalized: true,
-  interaction: { mode: 'index', intersect: false },
-  plugins: {
-    legend: { display: false },
-    tooltip: {
-      enabled: true,
-      mode: 'index',
-      intersect: false,
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
-      titleColor: '#fff',
-      bodyColor: '#fff',
-      borderColor: '#3B82F6',
-      borderWidth: 1,
-      callbacks: {
-        title: (tooltipItems) => new Date(tooltipItems[0].parsed.x).toLocaleString(undefined, {
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false
-        }),
-        label: context => {
-          if (typeof context.parsed.y !== 'number') return ''
-          return `${stock.symbol}: ${formatCurrency(context.parsed.y, stock.currency, 2, false)}`
-        }
-      }
-    },
-    zoom: createZoomPanConfig()
-  },
-  scales: {
-    x: {
-      type: 'time',
-      adapters: { date: { zone: Intl.DateTimeFormat().resolvedOptions().timeZone } },
-      time: { unit: chartTimeUnit.value, displayFormats: chartDisplayFormats.value },
-      grid: { display: false },
-      ticks: { color: '#C9D1D9', maxTicksLimit: 16, source: 'auto' }
-    },
-    y: {
-      position: 'right',
-      beginAtZero: false,
-      grid: { color: 'rgba(255, 255, 255, 0.05)' },
-      ticks: {
-        color: '#C9D1D9',
-        callback: value => typeof value === 'number' ? formatCurrency(value, stock.currency, 2, false) : ''
-      }
-    }
-  }
-}))
-
-const candlestickChartOptions = computed(() => ({
-  responsive: true,
-  maintainAspectRatio: false,
-  animation: false,
-  parsing: false,
-  normalized: true,
-  interaction: { mode: 'index', intersect: false },
-  plugins: {
-    legend: { display: false },
-    tooltip: {
-      enabled: true,
-      mode: 'index',
-      intersect: false,
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
-      titleColor: '#fff',
-      bodyColor: '#fff',
-      borderColor: '#3B82F6',
-      borderWidth: 1,
-      callbacks: {
-        title: (tooltipItems) => new Date(tooltipItems[0].parsed.x).toLocaleString(undefined, {
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false
-        }),
-        label: context => {
-          const value = context.parsed
-          if (!value || typeof value.o !== 'number') return ''
-          const { o: open, h: high, l: low, c: close } = value
-          return [
-            `${props.symbol}`,
-            `O: ${stock.value.currencySymbol}${open.toFixed(2)}`,
-            `H: ${stock.value.currencySymbol}${high.toFixed(2)}`,
-            `L: ${stock.value.currencySymbol}${low.toFixed(2)}`,
-            `C: ${stock.value.currencySymbol}${close.toFixed(2)}`
-          ]
-        }
-      }
-    },
-    zoom: createZoomPanConfig()
-  },
-  scales: {
-    x: {
-      type: 'time',
-      adapters: { date: { zone: Intl.DateTimeFormat().resolvedOptions().timeZone } },
-      time: { unit: chartTimeUnit.value, displayFormats: chartDisplayFormats.value },
-      grid: { display: false },
-      ticks: { color: '#C9D1D9', maxTicksLimit: 16, source: 'auto' }
-    },
-    y: {
-      position: 'right',
-      beginAtZero: false,
-      grid: { color: 'rgba(255, 255, 255, 0.05)' },
-      ticks: {
-        color: '#C9D1D9',
-        callback: value => typeof value === 'number' ? stock.value.currencySymbol + value.toFixed(2) : ''
-      }
-    }
-  }
-}))
 
 // Helper Functions
 // --------------------------------------------------------

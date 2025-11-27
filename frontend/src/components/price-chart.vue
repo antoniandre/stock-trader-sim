@@ -208,9 +208,7 @@ const props = defineProps({
   isLoadingHistoricalData: { type: Boolean, required: true },
   isLoadingAdditionalData: { type: Boolean, default: false },
   lineChartData: { type: Object, required: true },
-  lineChartOptions: { type: Object, required: true },
   candlestickChartData: { type: Object, required: true },
-  candlestickChartOptions: { type: Object, required: true },
   // Smart timeframe selection props.
   effectiveTimeframe: { type: String, default: null },
   isUsingFallbackTimeframe: { type: Boolean, default: false },

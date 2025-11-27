@@ -115,6 +115,10 @@ export class AlpacaTradingService extends TradingService {
     try {
       const data = await AlpacaClient.getOrders(status, limit)
       console.log(`✅ Successfully fetched ${data.length} orders (status: ${status})`)
+      if (data.length) {
+        console.log('📋 Sample order:', JSON.stringify(data[0], null, 2))
+        console.log('📋 All order statuses:', data.map(o => ({ symbol: o.symbol, status: o.status })))
+      }
       return data
     }
     catch (error) {
