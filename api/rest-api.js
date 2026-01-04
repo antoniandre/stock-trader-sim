@@ -628,6 +628,18 @@ export function createRestApiRoutes() {
     }))
   })
 
+  // 404 handler for unmatched routes.
+  app.use((req, res) => {
+    console.error(`❌ 404: ${req.method} ${req.url}`)
+    res.status(404).json({ error: `Route not found: ${req.method} ${req.url}` })
+  })
+
+  // Error handler.
+  app.use((err, req, res, next) => {
+    console.error('❌ Express error:', err)
+    res.status(500).json({ error: 'Internal server error' })
+  })
+
   return app
 }
 
