@@ -1346,6 +1346,7 @@ function handleZoomComplete(context) {
   const chart = context.chart
   if (!chart || !chart.scales || !chart.scales.x) return
 
+  // Handle X-axis zoom (default behavior).
   let { min, max } = chart.scales.x
   const originalMin = min
   const originalMax = max
