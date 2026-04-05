@@ -13,6 +13,7 @@ import { getTradingService } from './services/trading-service.js'
 import { getPrice } from './market-data.js'
 import { IS_SIMULATION, state } from './config.js'
 import { getMockAccountData } from './simulation.js'
+import { getBrokerAdapter } from './services/broker-manager.js'
 
 // Lazy-load service instance.
 let serviceInstance = null
@@ -25,36 +26,35 @@ async function getService() {
 // Account Functions.
 // --------------------------------------------------------
 export async function getAlpacaAccount() {
-  if (IS_SIMULATION) return getMockAccountData()
-  const service = await getService()
-  const account = await service.getAccount()
+  const broker = await getBrokerAdapter()
+  const account = await broker.getAccount()
   if (account) state.alpacaAccount = account
   return account
 }
 
 export async function getAlpacaAccountActivities(activityType = null, limit = 100) {
-  const service = await getService()
-  return await service.getAccountActivities(activityType, limit)
+  const broker = await getBrokerAdapter()
+  return await broker.getAccountActivities(activityType, limit)
 }
 
 export async function getAlpacaPositions() {
-  const service = await getService()
-  return await service.getPositions()
+  const broker = await getBrokerAdapter()
+  return await broker.getPositions()
 }
 
 export async function getAlpacaOrders(status = 'open', limit = 100) {
-  const service = await getService()
-  return await service.getOrders(status, limit)
+  const broker = await getBrokerAdapter()
+  return await broker.getOrders(status, limit)
 }
 
 export async function getAlpacaTradingHistory(limit = 100) {
-  const service = await getService()
-  return await service.getTradingHistory(limit)
+  const broker = await getBrokerAdapter()
+  return await broker.getTradingHistory(limit)
 }
 
 export async function getAlpacaPortfolioHistory(period = '1D', timeframe = '1Min') {
-  const service = await getService()
-  return await service.getPortfolioHistory(period, timeframe)
+  const broker = await getBrokerAdapter()
+  return await broker.getPortfolioHistory(period, timeframe)
 }
 
 // Trading Functions.
@@ -78,26 +78,6 @@ function brokerErrorMessage(error) {
  * REST-friendly market order: structured result, Alpaca errors surfaced.
  */
 export async function submitMarketOrder(symbol, rawQty, side) {
-  const sym = String(symbol || '').trim().toUpperCase()
-  const qty = Number(rawQty)
-  if (!sym || !Number.isFinite(qty) || qty <= 0) {
-    return { success: false, error: 'Invalid symbol or quantity' }
-  }
-  const s = String(side || '').toLowerCase()
-  if (s !== 'buy' && s !== 'sell') {
-    return { success: false, error: 'side must be buy or sell' }
-  }
-
-  try {
-    const service = await getService()
-    const order = await service.placeOrder(sym, qty, s, 'market', { timeInForce: 'gtc' })
-    if (!order) {
-      return { success: false, error: 'Order was not accepted (no price or broker rejection)' }
-    }
-    return { success: true, order }
-  }
-  catch (error) {
-    console.error('submitMarketOrder:', error.message)
-    return { success: false, error: brokerErrorMessage(error) }
-  }
+  const broker = await getBrokerAdapter()
+  return await broker.submitOrder({ symbol, qty: rawQty, side, type: 'market' })
 }

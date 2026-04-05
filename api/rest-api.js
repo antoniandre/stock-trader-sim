@@ -1,5 +1,7 @@
 import express from 'express'
 import { state, IS_SIMULATION, getTradingEnvironmentLabel } from './config.js'
+import { getBrokerIdentity, getBrokerCapabilities } from './services/broker-manager.js'
+import { getMarketDataIdentity, getMarketDataCapabilities } from './services/market-data-manager.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
 import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive, getTopMovers, fetchStockTrend, analyzeVolume } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, getAlpacaOrders, placeOrder, submitMarketOrder } from './alpaca-account.js'
@@ -710,8 +712,15 @@ export function createRestApiRoutes() {
   })
 
   // Health check endpoint.
-  app.get('/api/health', (req, res) => {
+  app.get('/api/health', async (req, res) => {
     const tradingEnvironment = getTradingEnvironmentLabel()
+    const [broker, brokerCapabilities, marketDataProvider, marketDataCapabilities] = await Promise.all([
+      getBrokerIdentity(),
+      getBrokerCapabilities(),
+      getMarketDataIdentity(),
+      getMarketDataCapabilities()
+    ])
+
     res.json(createStandardResponse({
       status: 'ok',
       simulation: process.env.SIMULATION === 'true',
@@ -720,6 +729,10 @@ export function createRestApiRoutes() {
         ? (!process.env.ALPACA_KEY ? 'missing_alpaca_key' : 'SIMULATION=true')
         : 'live_alpaca',
       tradingEnvironment,
+      broker,
+      brokerCapabilities,
+      marketDataProvider,
+      marketDataCapabilities,
       riskNotice:
         tradingEnvironment === 'simulation'
           ? 'Simulation — mock prices and local portfolio only.'
