@@ -1,7 +1,7 @@
 import express from 'express'
 import { state, IS_SIMULATION, getTradingEnvironmentLabel } from './config.js'
 import { getBrokerIdentity, getBrokerCapabilities } from './services/broker-manager.js'
-import { getMarketDataIdentity, getMarketDataCapabilities } from './services/market-data-manager.js'
+import { getMarketDataIdentity, getMarketDataCapabilities, getMarketDataProvider } from './services/market-data-manager.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
 import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive, getTopMovers, fetchStockTrend, analyzeVolume } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, getAlpacaOrders, placeOrder, submitMarketOrder } from './alpaca-account.js'
@@ -36,8 +36,8 @@ export function createRestApiRoutes() {
 
       // Handle 'all' market type by defaulting to 'stocks'
       const validMarket = market === 'all' ? 'stocks' : market
-
-      const response = await getTopMovers(validMarket, direction, parseInt(top))
+      const marketDataProvider = await getMarketDataProvider()
+      const response = await marketDataProvider.getTopMovers(validMarket, direction, parseInt(top))
 
       if (response.error) {
         return res.status(500).json({ error: response.message || 'Failed to fetch top movers.' })
@@ -202,7 +202,8 @@ export function createRestApiRoutes() {
   // Stock endpoints.
   app.get('/api/stocks', async (req, res) => {
     try {
-      const stocks = await getAllTradableStocks()
+      const marketDataProvider = await getMarketDataProvider()
+      const stocks = await marketDataProvider.getAllTradableStocks()
       const { search, page = 1, limit = 50 } = req.query
 
       let filteredStocks = stocks
@@ -239,7 +240,7 @@ export function createRestApiRoutes() {
           // Get price (use cached if available, otherwise fetch).
           let price = state.stockPrices[stock.symbol] || 0
           if (price === 0) {
-            price = await getPrice(stock.symbol)
+            price = await marketDataProvider.getPrice(stock.symbol)
             if (price > 0) {
               state.stockPrices[stock.symbol] = price
               console.log(`💲 Fetched ${stock.symbol}: $${price.toFixed(2)}`)
@@ -305,16 +306,17 @@ export function createRestApiRoutes() {
     try {
       const { symbol } = req.params
       const { fresh } = req.query
+      const marketDataProvider = await getMarketDataProvider()
 
       let price
       if (fresh === 'true') {
         // Force fresh price fetch by clearing cache.
         delete state.stockPrices[symbol]
-        price = await getPrice(symbol)
+        price = await marketDataProvider.getPrice(symbol)
         console.log(`🔄 Fresh price fetch for ${symbol}: $${price.toFixed(2)}`)
       }
       else {
-        price = await getPrice(symbol)
+        price = await marketDataProvider.getPrice(symbol)
       }
 
       // Cache the price for future WebSocket updates.
@@ -340,15 +342,16 @@ export function createRestApiRoutes() {
     try {
       const { symbol } = req.params
       const { ordersStatus = 'open', ordersLimit = 100 } = req.query
+      const marketDataProvider = await getMarketDataProvider()
 
       // Fetch all data in parallel for maximum speed.
       const [stockData, positions, orders, marketStatusData] = await Promise.all([
         (async () => {
-          const stocks = await getAllTradableStocks()
+          const stocks = await marketDataProvider.getAllTradableStocks()
           const stock = stocks.find(s => s.symbol === symbol)
           if (!stock) return null
 
-          const price = await getPrice(symbol)
+          const price = await marketDataProvider.getPrice(symbol)
           if (price > 0) state.stockPrices[symbol] = price
 
           let marketStatus
@@ -383,7 +386,7 @@ export function createRestApiRoutes() {
         })(),
         getAlpacaPositions(),
         getAlpacaOrders(ordersStatus, parseInt(ordersLimit)),
-        getMarketStatus()
+        marketDataProvider.getMarketStatus()
       ])
 
       if (!stockData) return res.status(404).json({ error: `Stock ${symbol} not found` })
@@ -493,11 +496,12 @@ export function createRestApiRoutes() {
     try {
       const { symbol } = req.params
       const { period = '1D', timeframe, progressive = 'true' } = req.query
+      const marketDataProvider = await getMarketDataProvider()
 
       // For 1D period, use regular loading to get complete continuous data like TradingView.
       // Progressive loading can cause gaps in intraday data.
       if (period === '1D') {
-        const historicalData = await getStockHistoricalData(symbol, period, timeframe)
+        const historicalData = await marketDataProvider.getStockHistoricalData(symbol, period, timeframe)
         res.json(historicalData)
       }
       // Use progressive loading for longer periods where it's beneficial.
@@ -506,7 +510,7 @@ export function createRestApiRoutes() {
         res.json(historicalData)
       }
       else {
-        const historicalData = await getStockHistoricalData(symbol, period, timeframe)
+        const historicalData = await marketDataProvider.getStockHistoricalData(symbol, period, timeframe)
         res.json(historicalData)
       }
     }
@@ -700,8 +704,11 @@ export function createRestApiRoutes() {
     try {
       let marketStatus = getCurrentMarketStatus()
 
-      // Fallback to direct API call if cached status not available yet.
-      if (!marketStatus) marketStatus = await getMarketStatus()
+      // Fallback to active market-data provider if cached status not available yet.
+      if (!marketStatus) {
+        const marketDataProvider = await getMarketDataProvider()
+        marketStatus = await marketDataProvider.getMarketStatus()
+      }
 
       res.json(createStandardResponse(marketStatus))
     }
