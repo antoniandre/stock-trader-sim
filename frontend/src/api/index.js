@@ -1,5 +1,12 @@
 // Dev: use Vite proxy (`/api` → api :3000). Prod: set VITE_API_BASE to your API origin + /api
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? '/api' : 'http://127.0.0.1:3000/api')
+const API_BEARER_TOKEN = import.meta.env.VITE_API_BEARER_TOKEN || ''
+
+function getMutationHeaders(extra = {}) {
+  const headers = { ...extra }
+  if (API_BEARER_TOKEN) headers.Authorization = `Bearer ${API_BEARER_TOKEN}`
+  return headers
+}
 
 // Request deduplication and caching.
 // --------------------------------------------------------
@@ -183,7 +190,10 @@ export async function fetchOrders(status = 'open', limit = 100) {
 
 export async function cancelOrder(orderId) {
   try {
-    const response = await fetch(`${API_BASE}/orders/${orderId}`, { method: 'DELETE' })
+    const response = await fetch(`${API_BASE}/orders/${orderId}`, {
+      method: 'DELETE',
+      headers: getMutationHeaders()
+    })
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
     return await response.json()
@@ -198,7 +208,7 @@ export async function cancelOrder(orderId) {
 export async function postMarketOrder(symbol, qty, side) {
   const response = await fetch(`${API_BASE}/orders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getMutationHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       symbol: String(symbol).trim().toUpperCase(),
       qty: Number(qty),
