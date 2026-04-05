@@ -37,25 +37,30 @@ const banner = computed(() => {
   }
   const h = health.value
   if (!h) return null
+
   const env = h.tradingEnvironment || (h.effectiveSimulation ? 'simulation' : 'live')
+  const brokerLabel = h.broker?.label || 'Broker unavailable'
+  const dataLabel = h.marketDataProvider?.label || 'Data provider unavailable'
+  const detail = `${brokerLabel} • Data: ${dataLabel}`
+
   if (env === 'simulation') {
     return {
       tone: 'tone-sim',
       label: 'Simulation mode',
-      sub: h.riskNotice || 'Mock data — practice only.'
+      sub: `${h.riskNotice || 'Mock data — practice only.'} ${detail}`
     }
   }
   if (env === 'paper') {
     return {
       tone: 'tone-paper',
       label: 'Paper trading',
-      sub: h.riskNotice || 'Alpaca paper account — no real money.'
+      sub: `${h.riskNotice || 'Alpaca paper account — no real money.'} ${detail}`
     }
   }
   return {
     tone: 'tone-live',
     label: 'Live trading',
-    sub: h.riskNotice || 'Real money at risk. Not financial advice.'
+    sub: `${h.riskNotice || 'Real money at risk. Not financial advice.'} ${detail}`
   }
 })
 

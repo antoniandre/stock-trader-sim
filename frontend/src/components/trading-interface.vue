@@ -116,6 +116,7 @@
       w-alert.pa3.bdrs2.mb4(:success="marketGate.reason === 'open'" :warning="marketGate.reason !== 'open'")
         strong {{ pendingEnvironmentLabel }}
         div.mt1 {{ marketGate.message }}
+        div.mt1.size--sm.op7 {{ providerSummary }}
 
       .confirmation-grid
         .confirmation-row
@@ -235,6 +236,12 @@ const pendingEnvironmentLabel = computed(() => {
   if (env === 'simulation') return 'Simulation mode'
   if (env === 'paper') return 'Paper trading'
   return 'Live trading'
+})
+
+const providerSummary = computed(() => {
+  const broker = health.value?.broker?.label || 'Unknown broker'
+  const dataProvider = health.value?.marketDataProvider?.label || 'Unknown data provider'
+  return `Execution: ${broker} • Data: ${dataProvider}`
 })
 
 const marketGate = computed(() => {
