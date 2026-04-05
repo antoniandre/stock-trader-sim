@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node stockbot.js",
-    "dev": "nodemon stockbot.js"
+    "dev": "nodemon stockbot.js",
+    "smoke:sim-order": "node scripts/smoke-sim-order.mjs"
   },
   "dependencies": {
     "axios": "^1.6.7",
