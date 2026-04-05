@@ -1,38 +1,41 @@
 <template lang="pug">
-.w-flex.h-screen
-  sidebar(
-    :is-open="sidebarOpen"
-    @update:is-open="sidebarOpen = $event")
-  .ova.grow.relative
-    .w-flex.justify-end.align-center.gap2.pr2.ovh
-      //- Burger Menu Button (shown when sidebar is collapsed or always on mobile)
-      w-button.pa0(
-        v-if="!sidebarOpen || isMobile"
-        width="32"
-        height="32"
-        @click="sidebarOpen = !sidebarOpen"
-        tooltip="Toggle Menu"
-        :tooltip-props="{ sm: true }"
-        round
-        text)
-        icon(icon="line-md:menu-unfold-right" width="1.2rem" height="1.2rem")
-      w-switch.py2(
-        :model-value="$waveui.theme === 'dark'"
-        @update:model-value="onThemeSwitch")
-        template(#thumb)
-          icon.w-icon.size--sm(
-            :icon="$waveui.theme === 'dark' ? 'line-md:moon-filled' : 'mingcute:sun-fill'"
-            :class="$waveui.theme === 'dark' ? 'primary' : 'amber'")
+.w-flex.column.h-screen.app-root
+  trading-mode-banner
+  .w-flex.grow.min-h-0
+    sidebar(
+      :is-open="sidebarOpen"
+      @update:is-open="sidebarOpen = $event")
+    .ova.grow.relative.min-h-0
+      .w-flex.justify-end.align-center.gap2.pr2.ovh
+        //- Burger Menu Button (shown when sidebar is collapsed or always on mobile)
+        w-button.pa0(
+          v-if="!sidebarOpen || isMobile"
+          width="32"
+          height="32"
+          @click="sidebarOpen = !sidebarOpen"
+          tooltip="Toggle Menu"
+          :tooltip-props="{ sm: true }"
+          round
+          text)
+          icon(icon="line-md:menu-unfold-right" width="1.2rem" height="1.2rem")
+        w-switch.py2(
+          :model-value="$waveui.theme === 'dark'"
+          @update:model-value="onThemeSwitch")
+          template(#thumb)
+            icon.w-icon.size--sm(
+              :icon="$waveui.theme === 'dark' ? 'line-md:moon-filled' : 'mingcute:sun-fill'"
+              :class="$waveui.theme === 'dark' ? 'primary' : 'amber'")
 
-    //- Mobile overlay (shown when sidebar is open on mobile)
-    .sidebar-overlay(v-if="isMobile && sidebarOpen" @click="sidebarOpen = false")
+      //- Mobile overlay (shown when sidebar is open on mobile)
+      .sidebar-overlay(v-if="isMobile && sidebarOpen" @click="sidebarOpen = false")
 
-    main.px12.mt4.mb6
-      router-view
+      main.px12.mt4.mb6
+        router-view
 </template>
 
 <script setup>
 import Sidebar from '@/components/sidebar.vue'
+import TradingModeBanner from '@/components/trading-mode-banner.vue'
 import { computed, inject, onMounted, ref, watch } from 'vue'
 
 const $waveui = inject('$waveui')
