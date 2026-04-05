@@ -1,4 +1,5 @@
-const API_BASE = 'http://localhost:3000/api'
+// Dev: use Vite proxy (`/api` → api :3000). Prod: set VITE_API_BASE to your API origin + /api
+const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? '/api' : 'http://127.0.0.1:3000/api')
 
 // Request deduplication and caching.
 // --------------------------------------------------------
@@ -191,6 +192,29 @@ export async function cancelOrder(orderId) {
     console.error('API Error:', error)
     throw error
   }
+}
+
+/** Market order only; simulation or Alpaca per backend .env */
+export async function postMarketOrder(symbol, qty, side) {
+  const response = await fetch(`${API_BASE}/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      symbol: String(symbol).trim().toUpperCase(),
+      qty: Number(qty),
+      side: String(side).toLowerCase(),
+      type: 'market'
+    })
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const err = payload.error || payload.data?.error || payload.message || response.statusText
+    throw new Error(typeof err === 'string' ? err : 'Order failed')
+  }
+
+  if (payload.order) return payload.order
+  return payload.data ?? payload
 }
 
 // Market Data.

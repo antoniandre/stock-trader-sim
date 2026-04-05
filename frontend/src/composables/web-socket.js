@@ -2,7 +2,16 @@ import { ref, onBeforeUnmount } from 'vue'
 
 // WebSocket Composable
 // --------------------------------------------------------
-export function useWebSocket(url = 'ws://localhost:3000') {
+function getDefaultWebSocketUrl() {
+  if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL
+  if (import.meta.env.DEV) return 'ws://127.0.0.1:3000'
+  if (typeof window === 'undefined') return 'ws://127.0.0.1:3000'
+  const { protocol, host } = window.location
+  const wsProto = protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${wsProto}//${host}`
+}
+
+export function useWebSocket(url = getDefaultWebSocketUrl()) {
   const wsConnected = ref(false)
   const lastUpdate = ref('Never')
   let ws = null
