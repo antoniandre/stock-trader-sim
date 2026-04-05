@@ -63,3 +63,41 @@ export async function placeOrder(symbol, qty, side) {
   const service = await getService()
   return await service.placeOrder(symbol, qty, side, 'market', { timeInForce: 'gtc' })
 }
+
+function brokerErrorMessage(error) {
+  const d = error.response?.data
+  if (!d) return error.message || 'Order failed'
+  if (typeof d.message === 'string') return d.message
+  if (Array.isArray(d.errors)) {
+    return d.errors.map((e) => (typeof e === 'string' ? e : e?.message || JSON.stringify(e))).join('; ')
+  }
+  return error.message || 'Order failed'
+}
+
+/**
+ * REST-friendly market order: structured result, Alpaca errors surfaced.
+ */
+export async function submitMarketOrder(symbol, rawQty, side) {
+  const sym = String(symbol || '').trim().toUpperCase()
+  const qty = Number(rawQty)
+  if (!sym || !Number.isFinite(qty) || qty <= 0) {
+    return { success: false, error: 'Invalid symbol or quantity' }
+  }
+  const s = String(side || '').toLowerCase()
+  if (s !== 'buy' && s !== 'sell') {
+    return { success: false, error: 'side must be buy or sell' }
+  }
+
+  try {
+    const service = await getService()
+    const order = await service.placeOrder(sym, qty, s, 'market', { timeInForce: 'gtc' })
+    if (!order) {
+      return { success: false, error: 'Order was not accepted (no price or broker rejection)' }
+    }
+    return { success: true, order }
+  }
+  catch (error) {
+    console.error('submitMarketOrder:', error.message)
+    return { success: false, error: brokerErrorMessage(error) }
+  }
+}

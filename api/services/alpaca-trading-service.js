@@ -105,7 +105,7 @@ export class AlpacaTradingService extends TradingService {
     }
     catch (error) {
       console.error(`❌ Order error for ${symbol}:`, error.message)
-      return null
+      throw error
     }
   }
 

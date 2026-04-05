@@ -15,6 +15,14 @@ export const {
 
 export const IS_SIMULATION = !ALPACA_KEY || (SIMULATION === 'true')
 
+/** For health/API: simulation vs Alpaca paper vs live endpoint (informational only). */
+export function getTradingEnvironmentLabel() {
+  if (IS_SIMULATION) return 'simulation'
+  const base = String(ALPACA_BASE_URL || '')
+  if (base.includes('paper-api')) return 'paper'
+  return 'live'
+}
+
 export const HEADERS = {
   'APCA-API-KEY-ID': ALPACA_KEY,
   'APCA-API-SECRET-KEY': ALPACA_SECRET

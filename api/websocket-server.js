@@ -1,7 +1,6 @@
 import WebSocket, { WebSocketServer } from 'ws'
 import { IS_SIMULATION, state } from './config.js'
 import { getMarketStatus, getStockMarketStatus, startPricePolling, stopPricePolling } from './market-data.js'
-import { placeOrder } from './alpaca-account.js'
 import { runSimulation, mockPrices } from './simulation.js'
 import { createAlpacaWebSocket, subscribeToSymbols, unsubscribeFromSymbols } from './clients/alpaca-websocket-client.js'
 

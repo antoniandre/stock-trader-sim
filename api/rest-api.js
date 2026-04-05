@@ -1,8 +1,9 @@
 import express from 'express'
-import { state } from './config.js'
+import { state, IS_SIMULATION, getTradingEnvironmentLabel } from './config.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
 import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive, getTopMovers, fetchStockTrend, analyzeVolume } from './market-data.js'
-import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, getAlpacaOrders, placeOrder } from './alpaca-account.js'
+import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, getAlpacaOrders, placeOrder, submitMarketOrder } from './alpaca-account.js'
+import { broadcast } from './websocket-server.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse } from './utils.js'
 
@@ -710,9 +711,21 @@ export function createRestApiRoutes() {
 
   // Health check endpoint.
   app.get('/api/health', (req, res) => {
+    const tradingEnvironment = getTradingEnvironmentLabel()
     res.json(createStandardResponse({
       status: 'ok',
       simulation: process.env.SIMULATION === 'true',
+      effectiveSimulation: IS_SIMULATION,
+      simulationReason: IS_SIMULATION
+        ? (!process.env.ALPACA_KEY ? 'missing_alpaca_key' : 'SIMULATION=true')
+        : 'live_alpaca',
+      tradingEnvironment,
+      riskNotice:
+        tradingEnvironment === 'simulation'
+          ? 'Simulation — mock prices and local portfolio only.'
+          : tradingEnvironment === 'paper'
+            ? 'Alpaca paper — no real money, but real market data delays/feeds apply per Alpaca.'
+            : 'Live brokerage — real money at risk. Not financial advice.',
       connectedClients: state.wsClients.size,
       totalStocks: state.allStocks.length,
       alpacaConnections: {
@@ -724,6 +737,103 @@ export function createRestApiRoutes() {
         activitiesCount: state.accountActivities.length
       }
     }))
+  })
+
+  // Place a market order (simulation or Alpaca paper/live per .env).
+  app.post('/api/orders', async (req, res) => {
+    try {
+      const { symbol, qty, quantity, side, type = 'market' } = req.body || {}
+      const amount = qty ?? quantity
+      if (String(type).toLowerCase() !== 'market') {
+        return res.status(400).json({ error: 'Only type=market is supported' })
+      }
+
+      const result = await submitMarketOrder(symbol, amount, side)
+      if (!result.success) {
+        return res.status(400).json(createStandardResponse({ error: result.error }))
+      }
+
+      const o = result.order
+      if (o?.symbol) {
+        const rawQty = o.qty ?? o.filled_qty ?? o.quantity
+        const qtyNum = typeof rawQty === 'string' ? parseFloat(rawQty) : Number(rawQty)
+        const price = o.price ?? o.filled_avg_price ?? state.stockPrices[o.symbol]
+        if (price != null && Number.isFinite(Number(price))) {
+          broadcast({
+            type: 'trade',
+            symbol: o.symbol,
+            qty: Number.isFinite(qtyNum) ? qtyNum : undefined,
+            side: String(o.side || req.body?.side || '').toLowerCase(),
+            price: Number(price),
+            timestamp: o.timestamp || o.submitted_at || new Date().toISOString()
+          })
+        }
+      }
+
+      res.json(createStandardResponse({ order: result.order }))
+    }
+    catch (error) {
+      console.error('POST /api/orders:', error)
+      res.status(500).json({ error: 'Failed to place order' })
+    }
+  })
+
+  // Compact read-only bundle for local AI agents (OpenClaw, scripts, MCP bridges).
+  app.get('/api/agent/snapshot', async (req, res) => {
+    try {
+      const baseUrl = process.env.STOCK_TRADER_API_BASE || `http://localhost:${process.env.PORT || 3000}/api`
+
+      const [marketStatus, account, positions, orders] = await Promise.all([
+        getMarketStatus().catch(() => null),
+        getAlpacaAccount().catch(() => null),
+        getAlpacaPositions().catch(() => []),
+        getAlpacaOrders('open', 50).catch(() => [])
+      ])
+
+      const accountSummary = account
+        ? {
+            status: account.status,
+            currency: account.currency,
+            cash: account.cash,
+            portfolio_value: account.portfolio_value,
+            buying_power: account.buying_power
+          }
+        : null
+
+      const positionSummaries = (positions || []).slice(0, 25).map((p) => ({
+        symbol: p.symbol,
+        qty: p.qty,
+        market_value: p.market_value,
+        unrealized_pl: p.unrealized_pl,
+        current_price: p.current_price
+      }))
+
+      res.json(createStandardResponse({
+        generatedAt: new Date().toISOString(),
+        apiBase: baseUrl,
+        mode: IS_SIMULATION ? 'simulation' : 'live',
+        tradingEnvironment: getTradingEnvironmentLabel(),
+        server: {
+          connectedWebSocketClients: state.wsClients.size,
+          tradableStocksLoaded: state.allStocks.length
+        },
+        market: marketStatus,
+        account: accountSummary,
+        positions: positionSummaries,
+        openOrdersCount: Array.isArray(orders) ? orders.length : 0,
+        hints: {
+          ticker: 'GET /api/ticker/:symbol',
+          dashboard: 'GET /api/dashboard',
+          movers: 'GET /api/movers',
+          history: 'GET /api/stocks/:symbol/history?period=1D',
+          placeMarketOrder: 'POST /api/orders JSON { symbol, qty, side, type: "market" }'
+        }
+      }))
+    }
+    catch (error) {
+      console.error('Error building agent snapshot:', error)
+      res.status(500).json({ error: 'Failed to build agent snapshot' })
+    }
   })
 
   // 404 handler for unmatched routes.
