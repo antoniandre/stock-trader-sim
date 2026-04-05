@@ -99,6 +99,15 @@ pnpm dev
 | `ALPACA_BASE_URL` | Alpaca trading API URL | `https://api.alpaca.markets` |
 | `ALPACA_DATA_STREAM_URL` | Alpaca market data WebSocket URL | See `api/config.js` / Alpaca docs |
 | `SIMULATION` | Force simulation when `true` | unset |
+| `API_BEARER_TOKEN` | Bearer token required on order mutations when set | unset |
+| `FEATURE_LIVE_TRADING` | Enable live trading surfaces/flows | `true` |
+| `FEATURE_PAPER_TRADING` | Enable paper trading flows | `true` |
+| `FEATURE_MARKET_ORDERS` | Enable market order flows | `true` |
+| `FEATURE_LIMIT_ORDERS` | Enable limit order flows | `false` |
+| `FEATURE_STOP_ORDERS` | Enable stop order flows | `false` |
+| `FEATURE_API_ACCESS` | Enable partner/pro API surfaces | `false` |
+| `FEATURE_ALERTS` | Enable alerts features | `false` |
+| `FEATURE_BOTS` | Enable automation/bot features | `false` |
 | `PORT` | Server port | `3000` |
 
 ### Trading Modes
@@ -185,6 +194,28 @@ Use Alpaca's paper trading environment:
 ALPACA_BASE_URL=https://paper-api.alpaca.markets
 SIMULATION=false
 ```
+
+### Feature Flags
+
+Use feature flags to control commercialization and rollout without changing code defaults.
+
+Example backend `.env`:
+
+```env
+API_BEARER_TOKEN=change-me
+FEATURE_LIVE_TRADING=true
+FEATURE_PAPER_TRADING=true
+FEATURE_MARKET_ORDERS=true
+FEATURE_LIMIT_ORDERS=false
+FEATURE_STOP_ORDERS=false
+FEATURE_API_ACCESS=false
+FEATURE_ALERTS=false
+FEATURE_BOTS=false
+```
+
+Current note:
+- `GET /api/health` exposes `featureFlags` so the frontend and operators can inspect enabled capabilities.
+- The current UI fully supports market orders; limit/stop are still intentionally disabled by default.
 
 ## 📈 Scaling Considerations
 

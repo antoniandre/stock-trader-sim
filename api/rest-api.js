@@ -1,5 +1,5 @@
 import express from 'express'
-import { state, IS_SIMULATION, getTradingEnvironmentLabel, API_BEARER_TOKEN } from './config.js'
+import { state, IS_SIMULATION, getTradingEnvironmentLabel, API_BEARER_TOKEN, FEATURE_FLAGS } from './config.js'
 import { getBrokerIdentity, getBrokerCapabilities } from './services/broker-manager.js'
 import { getMarketDataIdentity, getMarketDataCapabilities, getMarketDataProvider } from './services/market-data-manager.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
@@ -755,6 +755,7 @@ export function createRestApiRoutes() {
       brokerCapabilities,
       marketDataProvider,
       marketDataCapabilities,
+      featureFlags: FEATURE_FLAGS,
       riskNotice:
         tradingEnvironment === 'simulation'
           ? 'Simulation — mock prices and local portfolio only.'
