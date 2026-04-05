@@ -227,6 +227,65 @@ The current architecture supports scaling through:
 - **Error Resilience**: Graceful degradation
 - **Configuration**: Environment-based settings
 
+## 💼 Pro Tier Preview
+
+The commercial direction of this product is not "just another broker UI." The value proposition is a safer trading cockpit with automation hooks and provider flexibility.
+
+### Positioning
+
+- **Starter** — simulation-first learning environment
+- **Trader** — paper/live trading cockpit with clearer safety UX
+- **Pro** — API, alerts, automation, and provider-aware workflows
+
+### What Pro is for
+
+Pro is aimed at users who want more than charts and manual clicks:
+
+- automation-friendly API access
+- webhook and agent workflows
+- alerting and eventually guarded bots
+- clearer execution/data-provider visibility
+- future multi-broker support through adapter architecture
+
+### Proposed Pro capabilities
+
+Current or in-progress foundations:
+
+- bearer auth for mutation routes
+- API route documentation in `docs/API.md`
+- broker abstraction scaffolding
+- market-data provider abstraction scaffolding
+- health endpoint capability reporting
+- feature-flag-based rollout controls
+
+Planned Pro-facing features:
+
+- user-scoped API tokens
+- alerts (price, % move, unusual volume)
+- draft-order workflows
+- guarded automation policies
+- webhooks for fills/rejects/summaries
+- alternate market-data providers
+- multi-broker execution over time
+
+### Why this can be paid
+
+Brokers already provide execution UIs. This product becomes paid-worthy if it does these better:
+
+- clearer trust and mode labeling
+- safer execution UX
+- better workflow tooling
+- provider flexibility
+- automation and integrations
+
+### Early pricing shape (draft)
+
+- **Free / Starter**: simulation and basic market views
+- **Trader**: paper/live cockpit and persistence
+- **Pro**: API + alerts + automation workflows
+
+This is intentionally a staged rollout, not a promise that every Pro feature is already production-ready.
+
 ## 🤝 Contributing
 
 1. Fork the repository
