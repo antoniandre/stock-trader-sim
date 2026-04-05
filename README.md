@@ -56,12 +56,14 @@ ALPACA_SECRET=your_api_secret_here
 ALPACA_BASE_URL=https://paper-api.alpaca.markets
 ALPACA_DATA_STREAM=wss://stream.data.alpaca.markets/v2/iex
 
-# Application Mode
-SIMULATION=false
+# Application Mode (optional; see Trading Modes below)
+# SIMULATION=true
 
 # Server Configuration (optional)
 PORT=3000
 ```
+
+**Note:** The API treats **`SIMULATION=true` *or* missing `ALPACA_KEY`** as simulation mode (mock data, no Alpaca trading). Set both keys and `SIMULATION=false` for paper/live Alpaca.
 
 ### 3. Frontend Setup
 
@@ -69,6 +71,8 @@ PORT=3000
 cd frontend
 pnpm install
 ```
+
+In **development**, Vite proxies **`/api`** to `http://127.0.0.1:3000`, so the UI can call the API on the same origin as the dev server. For **production**, set `VITE_API_BASE` and usually `VITE_WS_URL` — see `frontend/.env.example`.
 
 ### 4. Start Development
 
@@ -90,22 +94,22 @@ pnpm dev
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ALPACA_KEY` | Your Alpaca API key | Required |
-| `ALPACA_SECRET` | Your Alpaca API secret | Required |
+| `ALPACA_KEY` | Your Alpaca API key | Omit for simulation |
+| `ALPACA_SECRET` | Your Alpaca API secret | Omit for simulation |
 | `ALPACA_BASE_URL` | Alpaca trading API URL | `https://api.alpaca.markets` |
-| `ALPACA_DATA_STREAM` | Alpaca WebSocket URL | `wss://stream.data.alpaca.markets/v2/iex` |
-| `SIMULATION` | Enable simulation mode | `false` |
+| `ALPACA_DATA_STREAM_URL` | Alpaca market data WebSocket URL | See `api/config.js` / Alpaca docs |
+| `SIMULATION` | Force simulation when `true` | unset |
 | `PORT` | Server port | `3000` |
 
 ### Trading Modes
 
-#### Simulation Mode (`SIMULATION=true`)
+#### Simulation Mode (`SIMULATION=true` **or** no `ALPACA_KEY`)
 - Uses mock data with realistic price movements
 - No real money involved
 - Perfect for testing and development
-- Runs every 5 seconds with demo trading logic
+- Demo loop runs about **every 1 second** (see `api/stockbot.js`)
 
-#### Live Mode (`SIMULATION=false`)
+#### Live Mode (`SIMULATION=false` and keys set)
 - Connects to Alpaca WebSocket for real-time data
 - Real trading capabilities
 - Requires valid Alpaca API credentials
@@ -114,8 +118,11 @@ pnpm dev
 ## 📡 API Endpoints
 
 ### REST API
-- `GET /api/portfolio` - Get current portfolio and trade history
-- `GET /api/health` - Health check with connection status
+- `GET /api/portfolio` — Local/sim portfolio and trade history
+- `GET /api/dashboard` — Account, positions, orders, history (Alpaca path)
+- `GET /api/agent/snapshot` — Compact JSON for scripts / AI assistants
+- `POST /api/orders` — Place a **market** order (`{ "symbol", "qty", "side": "buy"|"sell", "type": "market" }`)
+- `GET /api/health` — Health check; includes `effectiveSimulation` (matches server logic) and `simulationReason`
 
 ### WebSocket Events
 - `market-update` - Stock price updates
@@ -127,20 +134,18 @@ pnpm dev
 ```
 stock-trader-sim/
 ├── api/
-│   ├── stockBot.js          # Main server with WebSocket and API
+│   ├── stockbot.js         # HTTP + WebSocket entry
+│   ├── rest-api.js         # REST routes
 │   ├── package.json
-│   └── .env                 # Environment configuration
+│   └── .env                # Environment configuration
 ├── frontend/
 │   ├── src/
-│   │   ├── views/
-│   │   │   └── dashboard.vue # Main trading interface
+│   │   ├── views/          # dashboard, ticker, trading, movers, …
 │   │   ├── components/
-│   │   │   ├── ticker-card.vue
-│   │   │   ├── portfolio-chart.vue
-│   │   │   └── trade-history.vue
 │   │   └── api/
-│   │       └── index.js     # API client
+│   │       └── index.js    # API client
 │   └── package.json
+├── AGENTS.md               # OpenClaw / agent backlog charter (optional)
 └── README.md
 ```
 
