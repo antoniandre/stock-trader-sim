@@ -13,6 +13,8 @@ function getDefaultWebSocketUrl() {
 
 export function useWebSocket(url = getDefaultWebSocketUrl()) {
   const wsConnected = ref(false)
+  const wsReconnecting = ref(false)
+  const wsStatusLabel = ref('Connecting…')
   const lastUpdate = ref('Never')
   let ws = null
   let reconnectTimeout = null
@@ -25,10 +27,14 @@ export function useWebSocket(url = getDefaultWebSocketUrl()) {
       if (ws?.readyState === WebSocket.OPEN) return
       if (ws) ws.close()
 
+      wsStatusLabel.value = wsConnected.value ? 'Live' : 'Connecting…'
+      wsReconnecting.value = !wsConnected.value && lastUpdate.value !== 'Never'
       ws = new WebSocket(url)
 
       ws.onopen = () => {
         wsConnected.value = true
+        wsReconnecting.value = false
+        wsStatusLabel.value = 'Live'
         if (reconnectTimeout) {
           clearTimeout(reconnectTimeout)
           reconnectTimeout = null
@@ -58,17 +64,23 @@ export function useWebSocket(url = getDefaultWebSocketUrl()) {
 
       ws.onclose = () => {
         wsConnected.value = false
+        wsReconnecting.value = true
+        wsStatusLabel.value = lastUpdate.value === 'Never' ? 'Connecting…' : 'Reconnecting… using cached data'
         reconnectTimeout = setTimeout(connect, 3000)
       }
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error)
         wsConnected.value = false
+        wsReconnecting.value = true
+        wsStatusLabel.value = 'Connection issue — retrying'
       }
     }
     catch (error) {
       console.error('Error connecting to WebSocket:', error)
       wsConnected.value = false
+      wsReconnecting.value = true
+      wsStatusLabel.value = 'Connection issue — retrying'
     }
   }
 
@@ -118,6 +130,8 @@ export function useWebSocket(url = getDefaultWebSocketUrl()) {
     }
     messageHandlers.clear()
     wsConnected.value = false
+    wsReconnecting.value = false
+    wsStatusLabel.value = 'Offline'
   }
 
   onBeforeUnmount(() => {
@@ -126,6 +140,8 @@ export function useWebSocket(url = getDefaultWebSocketUrl()) {
 
   return {
     wsConnected,
+    wsReconnecting,
+    wsStatusLabel,
     lastUpdate,
     connect,
     send,

@@ -9,9 +9,9 @@ template(v-else)
 
     //- Connection Status.
     .w-flex.align-center.gap2.no-grow.mt1.mla
-      .w-icon.size--xs(:class="wsConnected ? 'success--bg' : 'yellow--bg'")
-      span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
-        | {{ wsConnected ? 'Live' : 'Polling fallback' }}
+      .w-icon.size--xs(:class="wsConnected ? 'success--bg' : wsReconnecting ? 'warning--bg' : 'yellow--bg'")
+      span.size--sm(:class="wsConnected ? 'success' : wsReconnecting ? 'warning' : 'yellow'")
+        | {{ wsStatusLabel }}
 
   //- Top Movers Strip.
   .my4.w-flex.wrap.gap3
@@ -190,7 +190,7 @@ const topMovers = ref({
 })
 
 // Use composables for WebSocket and market status.
-const { wsConnected, lastUpdate, connect, addMessageHandler } = useWebSocket()
+const { wsConnected, wsReconnecting, wsStatusLabel, lastUpdate, connect, addMessageHandler } = useWebSocket()
 
 const filteredStocks = computed(() => {
   return stocks.value
