@@ -7,7 +7,7 @@ import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, 
 import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, getAlpacaOrders, placeOrder, submitMarketOrder } from './alpaca-account.js'
 import { broadcast } from './websocket-server.js'
 import { recordTrade } from './simulation.js'
-import { createStandardResponse } from './utils.js'
+import { createStandardResponse, sleep, withRateLimitBackoff } from './utils.js'
 
 // Express API Routes.
 // --------------------------------------------------------
@@ -580,76 +580,80 @@ export function createRestApiRoutes() {
         return res.status(400).json({ error: 'symbols array is required' })
       }
 
-      console.log(`🚀 Batch trends: Processing ${symbols.length} symbols with simplified approach`)
+      console.log(`🚀 Batch trends: Processing ${symbols.length} symbols with bounded concurrency`)
 
       const results = {}
-      const batchSize = 5 // Process in small batches to avoid overwhelming the API
+      const batchSize = 5 // Keep bounded concurrency to respect provider limits.
+      const normalizedPoints = parseInt(points)
 
-      // Process ALL stocks in parallel - no batching, no delays!
-      const promises = symbols.map(async (symbol) => {
-          try {
-            // Simple single API call to avoid rate limits
-            const historicalData = await getStockHistoricalData(symbol, '1W', '1Day')
+      async function fetchTrendForSymbol(symbol) {
+        try {
+          const historicalData = await withRateLimitBackoff(
+            () => getStockHistoricalData(symbol, '1W', '1Day'),
+            { label: `trend:${symbol}`, retries: 2, baseDelayMs: 600, maxDelayMs: 2500 }
+          )
 
-            if (historicalData?.data && historicalData.data.length >= 2) {
-              const trendData = historicalData.data
-                .slice(-parseInt(points))
-                .map(item => ({
-                  timestamp: item.timestamp,
-                  price: item.close || item.price || 0
-                }))
+          if (historicalData?.data && historicalData.data.length >= 2) {
+            const trendData = historicalData.data
+              .slice(-normalizedPoints)
+              .map(item => ({
+                timestamp: item.timestamp,
+                price: item.close || item.price || 0
+              }))
 
-              // Analyze volume for unusual activity
-              const volumeAnalysis = analyzeVolume(historicalData.data)
+            const volumeAnalysis = analyzeVolume(historicalData.data)
 
-              return {
-                symbol,
-                data: trendData,
-                volumeAnalysis,
-                fallback: { period: '1W', timeframe: '1Day' }
-              }
-            }
-            else {
-              // No historical data available - this is common for some screener stocks.
-              // Return empty data but indicate this is expected for some stocks.
-              return {
-                symbol,
-                data: [],
-                volumeAnalysis: {
-                  currentVolume: 0,
-                  averageVolume: 0,
-                  volumeRatio: 0,
-                  isUnusualVolume: false,
-                  volumeStatus: 'no-historical-data'
-                },
-                fallback: null
-              }
-            }
-          }
-          catch (error) {
-            console.warn(`Failed to fetch trend for ${symbol}:`, error.message)
             return {
               symbol,
-              data: [],
-              volumeAnalysis: {
-                currentVolume: 0,
-                averageVolume: 0,
-                volumeRatio: 0,
-                isUnusualVolume: false,
-                volumeStatus: 'no-historical-data'
-              },
-              fallback: null
+              data: trendData,
+              volumeAnalysis,
+              fallback: { period: '1W', timeframe: '1Day' }
             }
           }
-        })
 
-      const allResults = await Promise.all(promises)
-      for (const result of allResults) {
-        results[result.symbol] = {
-          data: result.data,
-          volumeAnalysis: result.volumeAnalysis,
-          fallback: result.fallback
+          return {
+            symbol,
+            data: [],
+            volumeAnalysis: {
+              currentVolume: 0,
+              averageVolume: 0,
+              volumeRatio: 0,
+              isUnusualVolume: false,
+              volumeStatus: 'no-historical-data'
+            },
+            fallback: null
+          }
         }
+        catch (error) {
+          console.warn(`Failed to fetch trend for ${symbol}:`, error.message)
+          return {
+            symbol,
+            data: [],
+            volumeAnalysis: {
+              currentVolume: 0,
+              averageVolume: 0,
+              volumeRatio: 0,
+              isUnusualVolume: false,
+              volumeStatus: 'no-historical-data'
+            },
+            fallback: null
+          }
+        }
+      }
+
+      for (let i = 0; i < symbols.length; i += batchSize) {
+        const batch = symbols.slice(i, i + batchSize)
+        const batchResults = await Promise.all(batch.map(fetchTrendForSymbol))
+
+        for (const result of batchResults) {
+          results[result.symbol] = {
+            data: result.data,
+            volumeAnalysis: result.volumeAnalysis,
+            fallback: result.fallback
+          }
+        }
+
+        if (i + batchSize < symbols.length) await sleep(250)
       }
 
       res.json(createStandardResponse(results))

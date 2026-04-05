@@ -48,6 +48,46 @@ export function handleTryCatch(fn, fallback = null) {
   }
 }
 
+export function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+export async function withRateLimitBackoff(fn, options = {}) {
+  const {
+    retries = 2,
+    baseDelayMs = 500,
+    maxDelayMs = 3000,
+    label = 'request'
+  } = options
+
+  let attempt = 0
+  let lastError = null
+
+  while (attempt <= retries) {
+    try {
+      return await fn()
+    }
+    catch (error) {
+      lastError = error
+      const status = error?.response?.status
+      if (status !== 429 || attempt === retries) throw error
+
+      const retryAfterHeader = error?.response?.headers?.['retry-after']
+      const retryAfterMs = retryAfterHeader
+        ? Math.max(0, Number(retryAfterHeader) * 1000)
+        : 0
+      const exponentialDelay = Math.min(baseDelayMs * (2 ** attempt), maxDelayMs)
+      const delayMs = Math.max(retryAfterMs, exponentialDelay)
+
+      console.warn(`⏳ Rate limited for ${label}; retrying in ${delayMs}ms (attempt ${attempt + 1}/${retries})`)
+      await sleep(delayMs)
+      attempt += 1
+    }
+  }
+
+  throw lastError
+}
+
 // Currency utility functions.
 // --------------------------------------------------------
 export function getCurrencyInfo(asset) {
