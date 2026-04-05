@@ -379,13 +379,13 @@ async function prevPage() {
 
 async function placeOrder(symbol, qty, side) {
   try {
-    console.log(`📈 Placing ${side} order for ${qty} ${symbol}`)
-    // For now, just log the order. In a real app, you'd call the trading API
-    $waveui.notify(`${side.toUpperCase()} ${qty} ${symbol} - Order placed!`, 'success')
+    const { postMarketOrder } = await import('@/api/index.js')
+    await postMarketOrder(symbol, qty, side)
+    $waveui.notify(`${side.toUpperCase()} ${qty} ${symbol} — order sent`, 'success')
   }
   catch (err) {
     console.error('Error placing order:', err)
-    $waveui.notify('Failed to place order', 'error')
+    $waveui.notify(err.message || 'Failed to place order', 'error')
   }
 }
 

@@ -18,6 +18,10 @@
     w-alert.pa3.bdrs2(v-if="!stock.price" error)
       | Trading disabled: No current market data available
 
+    w-alert.pa3.bdrs2.mb4(v-else-if="marketGate.reason !== 'open'" warning)
+      strong {{ marketGate.title }}
+      div.mt1 {{ marketGate.message }}
+
     //- Quick Actions
     .quick-actions.glass-box.pa4
       .mb2.text-upper.op6.body Quick Actions
@@ -89,20 +93,56 @@
         //- Order Value Display
         .mt4(v-if="orderValue > 0 && stock.price > 0")
           .w-flex.justify-between.gap2
-            span.op7.text-right.grow Total:
+            span.op7.text-right.grow Estimated Notional:
             strong(v-html="formatCurrency(orderValue, stock.currency, 2, false)")
 
     //- Buy/Sell Buttons
     .w-flex.gap4.mt4.gap12(v-if="stock.price")
       button.grow.buy(
-        @click="placeOrder('buy')"
-        :disabled="!isOrderValid || stock.price === 0")
+        @click="openOrderConfirmation('buy')"
+        :disabled="!canSubmitOrder")
         strong BUY
 
       button.grow.sell(
-        @click="placeOrder('sell')"
-        :disabled="!isOrderValid || stock.price === 0")
+        @click="openOrderConfirmation('sell')"
+        :disabled="!canSubmitOrder")
         strong SELL
+
+  w-modal(
+    v-model="showOrderConfirmation"
+    title="Confirm market order"
+    width="520")
+    .confirmation-copy(v-if="pendingOrder")
+      w-alert.pa3.bdrs2.mb4(:success="marketGate.reason === 'open'" :warning="marketGate.reason !== 'open'")
+        strong {{ pendingEnvironmentLabel }}
+        div.mt1 {{ marketGate.message }}
+
+      .confirmation-grid
+        .confirmation-row
+          span.op7 Symbol
+          strong {{ pendingOrder.symbol }}
+        .confirmation-row
+          span.op7 Side
+          strong(:class="pendingOrder.side === 'buy' ? 'success' : 'error'") {{ pendingOrder.side.toUpperCase() }}
+        .confirmation-row
+          span.op7 Quantity
+          strong {{ pendingOrder.quantity }} shares
+        .confirmation-row
+          span.op7 Estimated notional
+          strong(v-html="formatCurrency(pendingOrder.estimatedNotional, stock.currency, 2, false)")
+
+      p.size--sm.op7.mt4
+        | Market orders fill at the best available price and can move before execution.
+
+      .w-flex.justify-end.gap2.mt5
+        w-button(@click="showOrderConfirmation = false" text round) Cancel
+        w-button(
+          @click="confirmOrder"
+          :disabled="submittingOrder || marketGate.reason !== 'open'"
+          :loading="submittingOrder"
+          :color="pendingOrder.side === 'buy' ? 'success' : 'error'"
+          round)
+          | Confirm {{ pendingOrder.side.toUpperCase() }}
 
   //- Recent Trades for this symbol
   .glass-box.pa6.mt4(v-if="recentTrades.length")
@@ -121,8 +161,9 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, watch } from 'vue'
+import { ref, computed, inject, watch, onMounted, onUnmounted } from 'vue'
 import { formatCurrency } from '@/utils/formatters'
+import { postMarketOrder, fetchMarketStatus, checkHealth } from '@/api/index.js'
 
 const props = defineProps({
   symbol: { type: String, required: true },
@@ -140,20 +181,25 @@ const props = defineProps({
 })
 
 const $waveui = inject('$waveui')
+const marketStatus = ref(null)
+const health = ref(null)
+const showOrderConfirmation = ref(false)
+const pendingOrder = ref(null)
+const submittingOrder = ref(false)
+let refreshTimer = null
 
 // Trading Form
 // --------------------------------------------------------
-// Default to 'sell' if there's a position, otherwise 'buy'.
 const defaultSide = computed(() => props.hasPosition ? 'sell' : props.initialSide)
 
 const orderForm = ref({
-  type: 'limit',
+  type: 'market',
   side: defaultSide.value,
   quantity: 1,
-  limitPrice: undefined
+  limitPrice: undefined,
+  stopLoss: null
 })
 
-// Watch for position or initialSide changes to update the order form side.
 watch([() => props.hasPosition, () => props.initialSide], ([hasPosition, initialSide]) => {
   const newSide = hasPosition ? 'sell' : (initialSide || 'buy')
   if (['buy', 'sell'].includes(newSide)) orderForm.value.side = newSide
@@ -181,48 +227,114 @@ const isOrderValid = computed(() => {
   if (!orderForm.value.quantity || orderForm.value.quantity <= 0) return false
   if (!props.stock.price || props.stock.price <= 0) return false
   if (orderForm.value.type === 'limit' && (!orderForm.value.limitPrice || orderForm.value.limitPrice <= 0)) return false
-
   return true
 })
 
-// Trading Functions
-// --------------------------------------------------------
-async function placeOrder(side) {
+const pendingEnvironmentLabel = computed(() => {
+  const env = health.value?.tradingEnvironment || (health.value?.effectiveSimulation ? 'simulation' : 'live')
+  if (env === 'simulation') return 'Simulation mode'
+  if (env === 'paper') return 'Paper trading'
+  return 'Live trading'
+})
+
+const marketGate = computed(() => {
+  const payload = marketStatus.value?.data || marketStatus.value || {}
+  const status = String(payload.status || payload.marketState || '').toLowerCase()
+  const isOpen = payload.isOpen === true || status === 'open'
+
+  if (isOpen) {
+    return {
+      reason: 'open',
+      title: 'Market open',
+      message: payload.message || 'Orders can be submitted now.'
+    }
+  }
+
+  const nextOpen = payload.nextOpen ? new Date(payload.nextOpen).toLocaleString() : null
+  return {
+    reason: status || 'closed',
+    title: 'Market closed',
+    message: payload.message || (nextOpen ? `Orders are disabled until the market reopens at ${nextOpen}.` : 'Orders are disabled while the market is closed.')
+  }
+})
+
+const canSubmitOrder = computed(() => {
+  if (!isOrderValid.value) return false
+  if (orderForm.value.type !== 'market') return false
+  return true
+})
+
+async function refreshTradingContext() {
   try {
-    const order = {
-      symbol: props.symbol,
-      side,
-      quantity: orderForm.value.quantity,
-      type: orderForm.value.type,
-      limitPrice: orderForm.value.limitPrice,
-      stopLoss: orderForm.value.stopLoss
-    }
-    const orderTypeText = orderForm.value.type.charAt(0).toUpperCase() + orderForm.value.type.slice(1)
-    let confirmationText = `${orderTypeText} ${side.toUpperCase()} ${order.quantity} ${props.symbol}`
+    const [healthPayload, marketPayload] = await Promise.all([
+      checkHealth(),
+      fetchMarketStatus()
+    ])
+    health.value = healthPayload.data || healthPayload
+    marketStatus.value = marketPayload.data || marketPayload
+  }
+  catch (error) {
+    console.error('Failed to refresh trading context:', error)
+  }
+}
 
-    if (orderForm.value.type === 'limit') {
-      const limitPriceFormatted = formatCurrency(orderForm.value.limitPrice, props.stock.currency, 2, false)
-      confirmationText += ` @ ${limitPriceFormatted.replace(/<[^>]*>/g, '')}` // Strip HTML tags for plain text notification.
-    }
-    if (orderForm.value.stopLoss) {
-      const stopLossFormatted = formatCurrency(orderForm.value.stopLoss, props.stock.currency, 2, false)
-      confirmationText += ` (Stop Loss: ${stopLossFormatted.replace(/<[^>]*>/g, '')})` // Strip HTML tags for plain text notification.
-    }
+function openOrderConfirmation(side) {
+  if (orderForm.value.type !== 'market') {
+    $waveui.notify('Only market orders are supported by the API right now. Switch order type to Market.', 'warning')
+    return
+  }
+  if (!isOrderValid.value) return
 
+  pendingOrder.value = {
+    symbol: String(props.symbol).toUpperCase(),
+    side,
+    quantity: Number(orderForm.value.quantity),
+    estimatedNotional: orderValue.value
+  }
+  showOrderConfirmation.value = true
+}
+
+async function confirmOrder() {
+  if (!pendingOrder.value) return
+  if (marketGate.value.reason !== 'open') {
+    $waveui.notify(marketGate.value.message, 'warning')
+    return
+  }
+
+  submittingOrder.value = true
+  try {
+    await postMarketOrder(pendingOrder.value.symbol, pendingOrder.value.quantity, pendingOrder.value.side)
+
+    const confirmationText = `Market ${pendingOrder.value.side.toUpperCase()} ${pendingOrder.value.quantity} ${pendingOrder.value.symbol}`
     $waveui.notify(`Order placed: ${confirmationText}`, 'success')
+    showOrderConfirmation.value = false
+    pendingOrder.value = null
     orderForm.value.quantity = 1
     orderForm.value.limitPrice = undefined
     orderForm.value.stopLoss = null
+    await refreshTradingContext()
   }
   catch (error) {
     console.error('❌ Error placing order:', error)
-    $waveui.notify('Failed to place order', 'error')
+    $waveui.notify(error.message || 'Failed to place order', 'error')
+  }
+  finally {
+    submittingOrder.value = false
   }
 }
 
 function setQuickQuantity(quantity) {
   orderForm.value.quantity = quantity
 }
+
+onMounted(() => {
+  refreshTradingContext()
+  refreshTimer = setInterval(refreshTradingContext, 60_000)
+})
+
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+})
 </script>
 
 <style lang="scss">
@@ -244,6 +356,19 @@ function setQuickQuantity(quantity) {
       border-color: var(--w-error-color);
       background-image: linear-gradient(135deg, color-mix(in srgb, var(--w-error-color) 8%, transparent), transparent 80%);
     }
+  }
+
+  .confirmation-grid {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .confirmation-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    padding-bottom: 0.5rem;
   }
 
   .quick-actions {
