@@ -1,4 +1,5 @@
 import express from 'express'
+import { createHttpLogger, logger } from './logger.js'
 import { state, IS_SIMULATION, getTradingEnvironmentLabel, API_BEARER_TOKEN, FEATURE_FLAGS } from './config.js'
 import { getBrokerIdentity, getBrokerCapabilities } from './services/broker-manager.js'
 import { getMarketDataIdentity, getMarketDataCapabilities, getMarketDataProvider } from './services/market-data-manager.js'
@@ -16,6 +17,11 @@ export function createRestApiRoutes() {
 
   // JSON body parsing middleware.
   app.use(express.json())
+  app.use(createHttpLogger())
+  app.use((req, res, next) => {
+    res.setHeader('X-Request-Id', req.id)
+    next()
+  })
 
   // CORS middleware.
   app.use((req, res, next) => {
@@ -878,14 +884,14 @@ export function createRestApiRoutes() {
 
   // 404 handler for unmatched routes.
   app.use((req, res) => {
-    console.error(`❌ 404: ${req.method} ${req.url}`)
-    res.status(404).json({ error: `Route not found: ${req.method} ${req.url}` })
+    logger.warn({ method: req.method, url: req.url, requestId: req.id }, 'Route not found')
+    res.status(404).json({ error: `Route not found: ${req.method} ${req.url}`, requestId: req.id })
   })
 
   // Error handler.
   app.use((err, req, res, next) => {
-    console.error('❌ Express error:', err)
-    res.status(500).json({ error: 'Internal server error' })
+    logger.error({ err, requestId: req.id }, 'Express error')
+    res.status(500).json({ error: 'Internal server error', requestId: req.id })
   })
 
   return app
