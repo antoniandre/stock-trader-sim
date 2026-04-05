@@ -10,7 +10,8 @@ export const {
   ALPACA_BASE_URL,
   ALPACA_API_BASE_URL,
   ALPACA_DATA_STREAM_URL,
-  SIMULATION
+  SIMULATION,
+  API_BEARER_TOKEN
 } = process.env
 
 export const IS_SIMULATION = !ALPACA_KEY || (SIMULATION === 'true')

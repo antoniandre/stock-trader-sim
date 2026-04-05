@@ -1,5 +1,5 @@
 import express from 'express'
-import { state, IS_SIMULATION, getTradingEnvironmentLabel } from './config.js'
+import { state, IS_SIMULATION, getTradingEnvironmentLabel, API_BEARER_TOKEN } from './config.js'
 import { getBrokerIdentity, getBrokerCapabilities } from './services/broker-manager.js'
 import { getMarketDataIdentity, getMarketDataCapabilities, getMarketDataProvider } from './services/market-data-manager.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
@@ -28,6 +28,21 @@ export function createRestApiRoutes() {
 
     next()
   })
+
+  function requireMutationAuth(req, res, next) {
+    if (!API_BEARER_TOKEN) return next()
+
+    const authHeader = req.headers.authorization || ''
+    const expected = `Bearer ${API_BEARER_TOKEN}`
+    if (authHeader !== expected) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Provide Authorization: Bearer <token> for mutation routes.'
+      })
+    }
+
+    next()
+  }
 
   // Top movers endpoint (gainers/losers).
   app.get('/api/movers', async (req, res) => {
@@ -186,7 +201,7 @@ export function createRestApiRoutes() {
   })
 
   // Cancel order endpoint.
-  app.delete('/api/orders/:orderId', async (req, res) => {
+  app.delete('/api/orders/:orderId', requireMutationAuth, async (req, res) => {
     try {
       const { orderId } = req.params
       const AlpacaClient = await import('./clients/alpaca-client.js')
@@ -760,7 +775,7 @@ export function createRestApiRoutes() {
   })
 
   // Place a market order (simulation or Alpaca paper/live per .env).
-  app.post('/api/orders', async (req, res) => {
+  app.post('/api/orders', requireMutationAuth, async (req, res) => {
     try {
       const { symbol, qty, quantity, side, type = 'market' } = req.body || {}
       const amount = qty ?? quantity
