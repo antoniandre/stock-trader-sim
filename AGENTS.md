@@ -65,25 +65,25 @@ You are the implementation agent for a **commercializable** trading web app (Vue
 ### Phase 2 — Safety UX
 
 - [x] Global **mode banner** (`trading-mode-banner.vue` + `/api/health`).
-- [ ] Order confirmation modal + notional estimate.
-- [ ] Gate orders when market closed (use `/api/market-status` + broker error body).
+- [x] Order confirmation modal + notional estimate.
+- [x] Gate orders when market closed (use `/api/market-status` + broker error body).
 
 ### Phase 3 — Deployability
 
 - [x] Vite dev proxy `/api` → `:3000`; `VITE_API_BASE` for prod; `VITE_WS_URL` supported.
-- [ ] WS reconnect UX copy; debounce storm on ticker.
-- [ ] Batch route backoff when Alpaca rate-limits.
+- [x] WS reconnect UX copy; debounce storm on ticker.
+- [x] Batch route backoff when Alpaca rate-limits.
 
 ### Phase 4 — API surface for partners
 
-- [ ] `docs/API.md` or OpenAPI 3 spec (paths, auth header, examples).
+- [x] `docs/API.md` or OpenAPI 3 spec (paths, auth header, examples).
 - [x] `GET /api/agent/snapshot` (+ order hint).
 
 ### Phase 5 — Monetization plumbing
 
-- [ ] `POST/DELETE` mutations require `Authorization: Bearer <token>` (dev token in `.env`).
-- [ ] `FEATURE_*` env flags documented.
-- [ ] README “Pro tier” one-pager.
+- [x] `POST/DELETE` mutations require `Authorization: Bearer <token>` (dev token in `.env`).
+- [x] `FEATURE_*` env flags documented.
+- [x] README “Pro tier” one-pager.
 
 ### Phase 6 — Accounts & billing (when ready)
 
