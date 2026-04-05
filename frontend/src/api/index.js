@@ -1,10 +1,93 @@
 const API_BASE = 'http://localhost:3000/api'
 
+// Request deduplication and caching.
+// --------------------------------------------------------
+const pendingRequests = new Map() // Track in-flight requests.
+const requestCache = new Map() // Simple cache for GET requests.
+const CACHE_TTL = 5000 // 5 seconds cache TTL for fast updates.
+
+// Helper to create cache key from URL and params.
+function getCacheKey(url, params = {}) {
+  const sortedParams = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join('&')
+  return `${url}${sortedParams ? `?${sortedParams}` : ''}`
+}
+
+// Helper to check if request is cached and valid.
+function getCachedResponse(cacheKey) {
+  const cached = requestCache.get(cacheKey)
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data
+  }
+  if (cached) requestCache.delete(cacheKey) // Expired cache.
+  return null
+}
+
+// Helper to cache response.
+function setCachedResponse(cacheKey, data) {
+  requestCache.set(cacheKey, { data, timestamp: Date.now() })
+  // Limit cache size to prevent memory issues.
+  if (requestCache.size > 100) {
+    const firstKey = requestCache.keys().next().value
+    requestCache.delete(firstKey)
+  }
+}
+
 // Re-export utilities for convenience.
 export { formatCurrency, formatNumber, formatPercentage, getCurrencySymbol } from '@/utils/formatters'
 
 // Account & Portfolio.
 // --------------------------------------------------------
+// Batch endpoint for dashboard - fetches account + positions + orders + trading history in one call.
+export async function fetchDashboard(tradingHistoryLimit = 100, ordersStatus = 'open', ordersLimit = 100) {
+  const params = {
+    tradingHistoryLimit: tradingHistoryLimit.toString(),
+    ordersStatus,
+    ordersLimit: ordersLimit.toString()
+  }
+  const cacheKey = getCacheKey(`${API_BASE}/dashboard`, params)
+
+  // Check cache first.
+  const cached = getCachedResponse(cacheKey)
+  if (cached) {
+    console.log('💾 Using cached dashboard data')
+    return cached
+  }
+
+  // Check if request is already in flight.
+  if (pendingRequests.has(cacheKey)) {
+    console.log('⏳ Dashboard request already in flight, waiting...')
+    return await pendingRequests.get(cacheKey)
+  }
+
+  // Create new request.
+  const requestPromise = (async () => {
+    try {
+      const urlParams = new URLSearchParams(params)
+      const response = await fetch(`${API_BASE}/dashboard?${urlParams}`)
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+      const result = await response.json()
+      const data = result.data || result
+
+      // Cache the response.
+      setCachedResponse(cacheKey, data)
+
+      return data
+    }
+    catch (error) {
+      console.error('API Error:', error)
+      throw error
+    }
+    finally {
+      // Remove from pending requests.
+      pendingRequests.delete(cacheKey)
+    }
+  })()
+
+  pendingRequests.set(cacheKey, requestPromise)
+  return await requestPromise
+}
+
 export async function fetchAccount() {
   try {
     const response = await fetch(`${API_BASE}/account`)
@@ -131,13 +214,61 @@ export async function fetchAllStocks(page = 1, limit = 50, search = '') {
   }
 }
 
+// Batch endpoint for ticker - fetches stock + position + orders + market status in one call.
+export async function fetchTicker(symbol, ordersStatus = 'open', ordersLimit = 100) {
+  const params = { ordersStatus, ordersLimit: ordersLimit.toString() }
+  const cacheKey = getCacheKey(`${API_BASE}/ticker/${symbol}`, params)
+
+  // Check cache first (shorter TTL for ticker data since it changes frequently).
+  const cached = getCachedResponse(cacheKey)
+  if (cached) {
+    console.log(`💾 Using cached ticker data for ${symbol}`)
+    return cached
+  }
+
+  // Check if request is already in flight.
+  if (pendingRequests.has(cacheKey)) {
+    console.log(`⏳ Ticker request for ${symbol} already in flight, waiting...`)
+    return await pendingRequests.get(cacheKey)
+  }
+
+  // Create new request.
+  const requestPromise = (async () => {
+    try {
+      const urlParams = new URLSearchParams(params)
+      const response = await fetch(`${API_BASE}/ticker/${symbol}?${urlParams}`)
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+      const result = await response.json()
+      const data = result.data || result
+
+      // Cache the response.
+      setCachedResponse(cacheKey, data)
+
+      return data
+    }
+    catch (error) {
+      console.error('API Error:', error)
+      throw error
+    }
+    finally {
+      // Remove from pending requests.
+      pendingRequests.delete(cacheKey)
+    }
+  })()
+
+  pendingRequests.set(cacheKey, requestPromise)
+  return await requestPromise
+}
+
 // Get single stock details
 export async function fetchStock(symbol) {
   try {
     const response = await fetch(`${API_BASE}/stocks/${symbol}`)
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
-    return await response.json()
+    const result = await response.json()
+    return result.data || result
   }
   catch (error) {
     console.error('API Error:', error)

@@ -72,6 +72,34 @@ export function createRestApiRoutes() {
     res.json({ stocks, history })
   })
 
+  // Dashboard batch endpoint - combines account + portfolio + positions + orders + trading history.
+  app.get('/api/dashboard', async (req, res) => {
+    try {
+      const { tradingHistoryLimit = 100, ordersStatus = 'open', ordersLimit = 100 } = req.query
+
+      // Fetch all data in parallel for maximum speed.
+      const [account, positions, orders, tradingHistoryResult] = await Promise.all([
+        getAlpacaAccount(),
+        getAlpacaPositions(),
+        getAlpacaOrders(ordersStatus, parseInt(ordersLimit)),
+        getAlpacaTradingHistory(parseInt(tradingHistoryLimit))
+      ])
+
+      const tradingHistory = tradingHistoryResult.success ? tradingHistoryResult.history : []
+
+      res.json(createStandardResponse({
+        account: account || null,
+        positions: positions || [],
+        orders: orders || [],
+        tradingHistory
+      }))
+    }
+    catch (error) {
+      console.error('Error fetching dashboard data:', error)
+      res.status(500).json({ error: 'Failed to fetch dashboard data' })
+    }
+  })
+
   // Account endpoints.
   app.get('/api/account', async (req, res) => {
     try {
@@ -301,6 +329,76 @@ export function createRestApiRoutes() {
     catch (error) {
       console.error(`Error fetching price for ${req.params.symbol}:`, error)
       res.status(500).json({ error: `Failed to fetch price for ${req.params.symbol}` })
+    }
+  })
+
+  // Ticker batch endpoint - combines stock + position + orders + market status for a symbol.
+  app.get('/api/ticker/:symbol', async (req, res) => {
+    try {
+      const { symbol } = req.params
+      const { ordersStatus = 'open', ordersLimit = 100 } = req.query
+
+      // Fetch all data in parallel for maximum speed.
+      const [stockData, positions, orders, marketStatusData] = await Promise.all([
+        (async () => {
+          const stocks = await getAllTradableStocks()
+          const stock = stocks.find(s => s.symbol === symbol)
+          if (!stock) return null
+
+          const price = await getPrice(symbol)
+          if (price > 0) state.stockPrices[symbol] = price
+
+          let marketStatus
+          try {
+            marketStatus = await getStockMarketStatus(stock)
+          }
+          catch (error) {
+            console.warn(`⚠️ Failed to get market status for ${symbol}:`, error.message)
+            marketStatus = {
+              status: 'closed',
+              message: 'Market Status Unavailable',
+              nextOpen: null,
+              nextClose: null
+            }
+          }
+
+          return {
+            symbol: stock.symbol,
+            name: stock.name,
+            exchange: stock.exchange,
+            status: stock.status,
+            tradable: stock.tradable,
+            price,
+            lastSide: 'buy',
+            currency: stock.currency || 'USD',
+            currencySymbol: stock.currencySymbol || '$',
+            marketState: marketStatus.status,
+            marketMessage: marketStatus.message,
+            nextOpen: marketStatus.nextOpen,
+            nextClose: marketStatus.nextClose
+          }
+        })(),
+        getAlpacaPositions(),
+        getAlpacaOrders(ordersStatus, parseInt(ordersLimit)),
+        getMarketStatus()
+      ])
+
+      if (!stockData) return res.status(404).json({ error: `Stock ${symbol} not found` })
+
+      // Find position and orders for this symbol.
+      const position = positions.find(p => p.symbol === symbol) || null
+      const symbolOrders = orders.filter(o => o.symbol === symbol)
+
+      res.json(createStandardResponse({
+        stock: stockData,
+        position,
+        orders: symbolOrders,
+        marketStatus: marketStatusData
+      }))
+    }
+    catch (error) {
+      console.error(`Error fetching ticker data for ${req.params.symbol}:`, error)
+      res.status(500).json({ error: `Failed to fetch ticker data for ${req.params.symbol}` })
     }
   })
 

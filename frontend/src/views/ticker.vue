@@ -166,7 +166,7 @@
 
 <script setup>
 import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
-import { fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange } from '@/api'
+import { fetchTicker, fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange } from '@/api'
 import { formatPercentage, formatCurrency } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
 import PriceChart from '@/components/price-chart.vue'
@@ -389,12 +389,25 @@ const currentPosition = computed(() => {
 
 // Get open orders for this symbol.
 const openOrders = computed(() => {
-  return orders.value.filter(o => {
+  const filtered = orders.value.filter(o => {
     const orderSymbol = o.symbol?.toUpperCase()
     const orderStatus = o.status?.toLowerCase()
+    const matchesSymbol = orderSymbol === stock.symbol
+    const matchesStatus = ['new', 'accepted', 'pending_new', 'pending_replace', 'pending_cancel', 'open', 'held'].includes(orderStatus)
+
+    if (matchesSymbol && !matchesStatus) {
+      console.log(`⚠️ Order for ${stock.symbol} has unexpected status: ${o.status}`, o)
+    }
+
     // Filter by symbol and ensure status is open (Alpaca returns open orders, but double-check).
-    return orderSymbol === stock.symbol && ['new', 'accepted', 'pending_new', 'pending_replace', 'pending_cancel', 'open'].includes(orderStatus)
+    return matchesSymbol && matchesStatus
   })
+
+  if (orders.value.length && filtered.length === 0) {
+    console.log(`⚠️ No matching orders for ${stock.symbol}. All orders:`, orders.value.map(o => ({ symbol: o.symbol, status: o.status })))
+  }
+
+  return filtered
 })
 
 // Position display values.
@@ -1127,9 +1140,9 @@ function handleChartViewChange(chart, action) {
 
 function handleTrade(data) {
   if (data.symbol === stock.symbol) {
-    // Refresh positions and orders when a trade occurs for this symbol.
-    fetchPositionsData()
-    fetchOrdersData()
+    // Refresh ticker data (positions and orders) when a trade occurs for this symbol.
+    // Use batch endpoint for efficiency.
+    fetchTickerData()
   }
 }
 
@@ -1141,36 +1154,63 @@ function setupWebSocket() {
 
 // Data Fetching Functions
 // --------------------------------------------------------
-async function fetchStockData() {
+// Batch fetch stock + position + orders + market status in one call.
+async function fetchTickerData() {
   if (!stock.symbol) return
 
   try {
-    const data = await fetchStock(stock.symbol)
-    // Assign all stock data from API response.
-    Object.assign(stock, {
-      name: data.name || stock.name || '',
-      price: data.price || stock.price || 0,
-      currency: data.currency || stock.currency || 'USD',
-      currencySymbol: data.currencySymbol || stock.currencySymbol || '$',
-      marketState: data.marketState || 'closed',
-      marketMessage: data.marketMessage || 'Market Status Unavailable',
-      nextOpen: data.nextOpen || null,
-      nextClose: data.nextClose || null,
-      exchange: data.exchange || stock.exchange || 'Unknown',
-      tradable: data.tradable !== undefined ? data.tradable : stock.tradable
-    })
+    const data = await fetchTicker(stock.symbol, 'open', 100)
 
-    console.log(`📊 Stock data loaded for ${stock.symbol}:`, {
+    // Update stock data.
+    if (data.stock) {
+      Object.assign(stock, {
+        name: data.stock.name || stock.name || '',
+        price: data.stock.price || stock.price || 0,
+        currency: data.stock.currency || stock.currency || 'USD',
+        currencySymbol: data.stock.currencySymbol || stock.currencySymbol || '$',
+        marketState: data.stock.marketState || 'closed',
+        marketMessage: data.stock.marketMessage || 'Market Status Unavailable',
+        nextOpen: data.stock.nextOpen || null,
+        nextClose: data.stock.nextClose || null,
+        exchange: data.stock.exchange || stock.exchange || 'Unknown',
+        tradable: data.stock.tradable !== undefined ? data.stock.tradable : stock.tradable
+      })
+    }
+
+    // Update positions — always sync, including removal when position is closed.
+    const existingIndex = positions.value.findIndex(p => p.symbol === stock.symbol)
+    if (data.position) {
+      if (existingIndex >= 0) {
+        positions.value[existingIndex] = data.position
+      }
+      else {
+        positions.value.push(data.position)
+      }
+    }
+    else if (existingIndex >= 0) {
+      // No position returned — remove stale entry.
+      positions.value.splice(existingIndex, 1)
+    }
+
+    // Update orders.
+    if (data.orders) {
+      // Remove old orders for this symbol and add new ones.
+      orders.value = orders.value.filter(o => o.symbol !== stock.symbol)
+      orders.value.push(...data.orders)
+    }
+
+    console.log(`📊 Ticker data loaded for ${stock.symbol}:`, {
       name: stock.name,
       price: stock.price,
       marketState: stock.marketState,
-      marketMessage: stock.marketMessage
+      hasPosition: !!data.position,
+      orderCount: data.orders?.length || 0
     })
 
     subscribeToStock(stock.symbol)
   }
   catch (error) {
-    console.error(`❌ Error fetching stock data for ${stock.symbol}:`, error)
+    console.error(`❌ Error fetching ticker data for ${stock.symbol}:`, error)
     // Set fallback values if API fails.
     Object.assign(stock, {
       marketState: 'closed',
@@ -1179,6 +1219,11 @@ async function fetchStockData() {
       nextClose: null
     })
   }
+}
+
+// Legacy function for compatibility.
+async function fetchStockData() {
+  await fetchTickerData()
 }
 
 async function fetchPositionsData() {
@@ -1202,9 +1247,43 @@ async function fetchPositionsData() {
 
 async function fetchOrdersData() {
   try {
+    // First try fetching with status='open'.
     orders.value = await fetchOrders('open', 100)
-    console.log(`📊 Orders loaded: ${orders.value.length} orders`)
-    console.log(`📊 Order symbols:`, orders.value.map(o => o.symbol))
+    console.log(`📊 Orders loaded (status=open): ${orders.value.length} orders`)
+
+    // If no orders found, try fetching all orders as fallback (useful during premarket).
+    if (orders.value.length === 0) {
+      console.log('⚠️ No orders with status=open, trying to fetch all orders...')
+      try {
+        // Try with status='all' first, then without status parameter.
+        let allOrders = await fetchOrders('all', 100)
+        if (allOrders.length === 0) {
+          console.log('⚠️ No orders with status=all, trying without status filter...')
+          allOrders = await fetchOrders(null, 100)
+        }
+        console.log(`📊 All orders loaded: ${allOrders.length} orders`)
+        if (allOrders.length > 0) {
+          // Filter to only open/pending orders.
+          orders.value = allOrders.filter(o => {
+            const status = o.status?.toLowerCase()
+            return ['new', 'accepted', 'pending_new', 'pending_replace', 'pending_cancel', 'open', 'held', 'accepted_for_bidding'].includes(status)
+          })
+          console.log(`📊 Filtered to ${orders.value.length} open/pending orders`)
+        }
+      }
+      catch (fallbackError) {
+        console.warn('⚠️ Fallback fetch failed:', fallbackError)
+      }
+    }
+
+    if (orders.value.length > 0) {
+      console.log(`📊 Order symbols:`, orders.value.map(o => o.symbol))
+      console.log(`📊 Order statuses:`, orders.value.map(o => ({ symbol: o.symbol, status: o.status })))
+      console.log(`📊 Sample order:`, orders.value[0])
+    }
+    else {
+      console.log('⚠️ No orders returned from backend after all attempts')
+    }
   }
   catch (error) {
     console.error('❌ Error fetching orders:', error)
@@ -1469,13 +1548,24 @@ async function refreshPrice() {
 
 async function refreshMarketStatus() {
   try {
-    const data = await fetchMarketStatus()
-    Object.assign(stock, {
-      marketState: data.status || 'closed',
-      marketMessage: data.message || 'Market Status Updated',
-      nextOpen: data.nextOpen,
-      nextClose: data.nextClose
-    })
+    // Use ticker batch endpoint which includes market status.
+    const data = await fetchTicker(stock.symbol)
+    if (data.stock) {
+      Object.assign(stock, {
+        marketState: data.stock.marketState || 'closed',
+        marketMessage: data.stock.marketMessage || 'Market Status Updated',
+        nextOpen: data.stock.nextOpen,
+        nextClose: data.stock.nextClose
+      })
+    }
+    else if (data.marketStatus) {
+      Object.assign(stock, {
+        marketState: data.marketStatus.status || 'closed',
+        marketMessage: data.marketStatus.message || 'Market Status Updated',
+        nextOpen: data.marketStatus.nextOpen,
+        nextClose: data.marketStatus.nextClose
+      })
+    }
 
     console.log('📊 Market status refreshed:', {
       status: stock.marketState,
@@ -1507,7 +1597,9 @@ onMounted(async () => {
   const availableTimeframe = await selectAvailableTimeframe(selectedPeriod.value, selectedTimeframe.value)
   selectedTimeframe.value = availableTimeframe
 
-  await Promise.all([fetchStockData(), fetchHistoricalData(), refreshMarketStatus(), fetchPositionsData(), fetchOrdersData()])
+  // Use batch endpoint to fetch stock + position + orders + market status in one call.
+  // Market status is included in ticker data, so we don't need a separate call.
+  await Promise.all([fetchTickerData(), fetchHistoricalData()])
   startMarketStatusMonitoring()
 })
 
@@ -1525,7 +1617,6 @@ onUnmounted(() => {
   }
 
   // Clear active requests.
-  activeRequests.value.forEach(request => request.abort())
   activeRequests.value.clear()
 
   // Clear data to free memory
@@ -1541,8 +1632,7 @@ onUnmounted(() => {
 watch(() => stock.symbol, async (newSymbol, oldSymbol) => {
   if (newSymbol === oldSymbol) return
 
-  // Cancel any ongoing requests for the old symbol
-  activeRequests.value.forEach(request => request.abort())
+  // Cancel any ongoing requests for the old symbol.
   activeRequests.value.clear()
 
   // Clear all data for symbol change
@@ -1560,8 +1650,8 @@ watch(() => stock.symbol, async (newSymbol, oldSymbol) => {
   userHasPanned.value = false
   isLoadingHistoricalData.value = false
 
-  // Fetch new data.
-  await Promise.all([fetchStockData(), fetchHistoricalData(), fetchPositionsData(), fetchOrdersData()])
+  // Fetch new data using batch endpoint.
+  await Promise.all([fetchTickerData(), fetchHistoricalData()])
 }, { immediate: false })
 
 watch(() => historicalData.value.length, (newLength, oldLength) => {

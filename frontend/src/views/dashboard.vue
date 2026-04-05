@@ -28,7 +28,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, provide, reactive } from 'vue'
-import { fetchPortfolio, fetchTradingHistory, fetchAccount, fetchPortfolioHistory } from '@/api'
+import { fetchDashboard, fetchPortfolioHistory } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import PortfolioChart from '@/components/portfolio-chart.vue'
 import OpenPositions from '@/components/open-positions.vue'
@@ -46,30 +46,33 @@ const portfolio = reactive({
 // Use WebSocket composable.
 const { connect, addMessageHandler } = useWebSocket()
 
-async function fetchPortfolioData() {
-  try {
-    const data = await fetchPortfolio()
-    portfolio.history = data.history || []
-    portfolio.trades = data.trades || []
-  }
-  catch (err) {
-    console.error('Error fetching portfolio:', err)
-  }
-  fetchHistory()
-}
-
-async function fetchHistory() {
+// Batch fetch all dashboard data in one call.
+async function fetchDashboardData() {
   try {
     portfolio.loading = true
-    portfolio.history = await fetchTradingHistory(100) || []
+    const data = await fetchDashboard(100, 'open', 100)
+
+    // Update account.
+    account.value = data.account || null
+
+    // Update trading history.
+    portfolio.history = data.tradingHistory || []
+
+    // Note: positions and orders are handled by their respective components via WebSocket updates.
   }
   catch (err) {
-    console.error('Error fetching Alpaca trading history:', err)
+    console.error('Error fetching dashboard data:', err)
+    account.value = null
     portfolio.history = []
   }
   finally {
     portfolio.loading = false
   }
+}
+
+// Legacy function for compatibility.
+async function fetchHistory() {
+  await fetchDashboardData()
 }
 
 async function fetchPortfolioHistoryData(period = '1M') {
@@ -95,29 +98,27 @@ function onPeriodChange(period) {
   fetchPortfolioHistoryData(period)
 }
 
-async function fetchAccountData() {
-  try {
-    const data = await fetchAccount()
-    account.value = data
-  }
-  catch (err) {
-    console.error('Error fetching account data:', err)
-    account.value = null
-  }
-}
-
 // WebSocket message handlers.
 function handleAccountUpdate(data) {
   console.log('📊 Account update received:', data)
-  // Refresh account data when updates are received.
-  fetchAccountData()
-  fetchPortfolioHistoryData()
+  // Update account directly from WebSocket data if available, otherwise refresh.
+  if (data.account) {
+    account.value = data.account
+  }
+  else {
+    fetchDashboardData()
+  }
+  // Only refresh portfolio history if needed (not on every update).
+  if (data.portfolioValue !== undefined) {
+    fetchPortfolioHistoryData()
+  }
 }
 
 function handleTrade(data) {
   console.log('📈 New trade received:', data)
   // Refresh trading history when new trades occur.
   fetchHistory()
+  // Only refresh portfolio history if this trade affects portfolio value.
   fetchPortfolioHistoryData()
 }
 
@@ -133,9 +134,9 @@ provide('fetchHistory', () => {
 })
 
 onMounted(() => {
-  fetchPortfolioData()
+  // Use batch endpoint to fetch all dashboard data in one call.
+  fetchDashboardData()
   fetchPortfolioHistoryData()
-  fetchAccountData()
   setupWebSocket()
   connect() // WS for real-time market data only.
 })

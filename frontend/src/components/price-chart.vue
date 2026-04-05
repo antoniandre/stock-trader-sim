@@ -131,7 +131,7 @@
   //- Main Chart Display
   .charts-wrap.w-flex.column.bdrs2.w-card(v-if="!isLoadingHistoricalData")
     //- Main Price Chart Pane
-    .charts.ml6(ref="chartContainer")
+    .charts.ml6.relative(ref="chartContainer")
       Line.chart.chart--price.chart--line(
         v-if="chartType === 'line'"
         ref="lineChartRef"
@@ -184,7 +184,7 @@
 <script setup>
 // Imports
 // --------------------------------------------------------
-import { ref, computed, inject, watch, nextTick } from 'vue'
+import { ref, computed, inject, watch, nextTick, onBeforeUnmount, markRaw } from 'vue'
 import { Line } from 'vue-chartjs'
 import { Chart, BarController, BarElement } from 'chart.js'
 import 'chart.js/auto'
@@ -215,7 +215,9 @@ const props = defineProps({
   // Show trading interface toggle button (for fullscreen mode).
   showTradingToggle: { type: Boolean, default: false },
   // Show fullscreen button.
-  showFullscreenButton: { type: Boolean, default: true }
+  showFullscreenButton: { type: Boolean, default: true },
+  // Position entry price to display on chart.
+  entryPrice: { type: Number, default: null }
 })
 
 const emit = defineEmits([
@@ -1183,15 +1185,47 @@ const macdChartOptions = computed(() => ({
 // --------------------------------------------------------
 const currentOHLC = computed(() => {
   if (props.chartType === 'candlestick' && props.candlestickChartData?.datasets?.[0]?.data) {
-    const lastPoint = props.candlestickChartData.datasets[0].data.slice(-1)[0]
-    if (lastPoint) {
+    const dataPoints = props.candlestickChartData.datasets[0].data
+    if (dataPoints.length === 0) return null
+
+    // Get the last point (most recent data).
+    const lastPoint = dataPoints[dataPoints.length - 1]
+    if (!lastPoint) return null
+
+    // If the last point has volume, use it.
+    if (lastPoint.volume && lastPoint.volume > 0) {
       return {
         open: lastPoint.o || 0,
         high: lastPoint.h || 0,
         low: lastPoint.l || 0,
         close: lastPoint.c || 0,
-        volume: lastPoint.volume || 0
+        volume: lastPoint.volume
       }
+    }
+
+    // Otherwise, find the most recent point with volume (from historical data).
+    // Search backwards from the end to find the last point with actual volume.
+    for (let i = dataPoints.length - 1; i >= 0; i--) {
+      const point = dataPoints[i]
+      if (point && point.volume && point.volume > 0) {
+        // Use the last point's OHLC but with the historical volume.
+        return {
+          open: lastPoint.o || 0,
+          high: lastPoint.h || 0,
+          low: lastPoint.l || 0,
+          close: lastPoint.c || 0,
+          volume: point.volume
+        }
+      }
+    }
+
+    // Fallback: use last point even if volume is 0 (for pre-market or after-hours).
+    return {
+      open: lastPoint.o || 0,
+      high: lastPoint.h || 0,
+      low: lastPoint.l || 0,
+      close: lastPoint.c || 0,
+      volume: 0
     }
   }
   else if (props.chartType === 'line' && props.lineChartData?.datasets?.[0]?.data) {
@@ -1365,15 +1399,18 @@ function handleZoomComplete(context) {
     console.log('📊 Zoom range corrected due to extreme values')
   }
 
-  // Auto-rescale Y-axis when zooming (but don't force update if range wasn't modified).
-  const visibleData = getVisibleDataInRange(min, max)
-  const { yMin, yMax } = calculateOptimalYRange(visibleData)
+  // Auto-rescale Y-axis when zooming X-axis (but don't force update if range wasn't modified).
+  // Only auto-rescale if user hasn't manually zoomed Y-axis.
+  if (!yAxisDrag.isDragging) {
+    const visibleData = getVisibleDataInRange(min, max)
+    const { yMin, yMax } = calculateOptimalYRange(visibleData)
 
-  if (yMin !== null && yMax !== null && chart.scales.y &&
-      !chart.canvas.parentElement.classList.contains('rsi-pane') &&
-      !chart.canvas.parentElement.classList.contains('macd-pane')) {
-    chart.scales.y.options.min = yMin
-    chart.scales.y.options.max = yMax
+    if (yMin !== null && yMax !== null && chart.scales.y &&
+        !chart.canvas.parentElement.classList.contains('rsi-pane') &&
+        !chart.canvas.parentElement.classList.contains('macd-pane')) {
+      chart.scales.y.options.min = yMin
+      chart.scales.y.options.max = yMax
+    }
   }
 
   // Only force update if we made corrections, otherwise let Chart.js handle it naturally.
@@ -1421,6 +1458,161 @@ function handlePanComplete(context) {
   }
 
   syncZoom(chart, { min, max })
+}
+
+// Y-axis drag zoom.
+const yAxisDrag = { isDragging: false, chart: null, startY: 0, startMin: 0, startMax: 0 }
+
+function startYAxisDrag(e) {
+  // Get chart from the event target (the canvas that was clicked).
+  const canvas = e.currentTarget || e.target
+  if (!canvas) return
+
+  // Get chart instance from canvas - Chart.js stores it on the canvas.
+  let chart = Chart.getChart(canvas)
+  if (!chart) {
+    // Fallback: try to find chart from refs.
+    const chartFromRefs = getActiveChart()
+    if (!chartFromRefs || chartFromRefs.canvas !== canvas) return
+    chart = chartFromRefs
+  }
+
+  // Verify it's not an indicator chart.
+  const isRSIChart = chart === rsiChartRef.value?.chart
+  const isMACDChart = chart === macdChartRef.value?.chart
+  if (isRSIChart || isMACDChart) return
+
+  if (!chart?.chartArea || !chart?.scales?.y) {
+    console.log('Y-axis drag start: Chart not ready', { chart: !!chart, chartArea: !!chart?.chartArea, scales: !!chart?.scales?.y })
+    return
+  }
+
+  const rect = chart.canvas.getBoundingClientRect()
+  const scaleX = chart.canvas.width / rect.width
+  const x = ((e.clientX ?? e.touches?.[0]?.clientX) - rect.left) * scaleX
+  console.log('Y-axis drag: Click detected', { x, chartAreaRight: chart.chartArea.right, threshold: chart.chartArea.right - 30 })
+
+  if (x < chart.chartArea.right - 30) return
+
+  const y = e.clientY ?? e.touches?.[0]?.clientY
+  if (!y) return
+
+  console.log('Y-axis drag: Starting drag')
+  yAxisDrag.isDragging = true
+  yAxisDrag.chart = markRaw(chart)
+  yAxisDrag.startY = y
+  yAxisDrag.startMin = chart.scales.y.min
+  yAxisDrag.startMax = chart.scales.y.max
+
+  window.addEventListener('mousemove', updateYAxisZoom, { passive: false })
+  window.addEventListener('mouseup', endYAxisDrag)
+  window.addEventListener('touchmove', updateYAxisZoom, { passive: false })
+  window.addEventListener('touchend', endYAxisDrag)
+
+  chart.canvas.style.cursor = 'ns-resize'
+  e.preventDefault()
+  e.stopPropagation()
+  e.stopImmediatePropagation()
+}
+
+function updateYAxisZoom(e) {
+  if (!yAxisDrag.isDragging || !yAxisDrag.chart) return
+  const y = e.clientY ?? e.touches?.[0]?.clientY
+  if (!y) return
+
+  const { chart, startY, startMin, startMax } = yAxisDrag
+  if (!chart?.chartArea || !chart?.scales?.y) return
+
+  // Only update the chart being dragged, and only if it's the main price chart (not RSI/MACD).
+  const isRSIChart = chart === rsiChartRef.value?.chart
+  const isMACDChart = chart === macdChartRef.value?.chart
+
+  if (isRSIChart || isMACDChart) {
+    // Don't allow Y-axis drag on indicator charts.
+    return
+  }
+
+  const deltaY = startY - y
+  const range = startMax - startMin
+  const newRange = range * Math.max(0.1, Math.min(10, 1 + (deltaY / chart.chartArea.height) * 2))
+  const center = (startMin + startMax) / 2
+  const newMin = center - newRange / 2
+  const newMax = center + newRange / 2
+
+  // Only update the chart being dragged.
+  if (chart.scales.y.options) {
+    chart.scales.y.options.min = newMin
+    chart.scales.y.options.max = newMax
+    chart.update('none')
+  }
+
+  e.preventDefault()
+  e.stopPropagation()
+}
+
+function endYAxisDrag() {
+  if (yAxisDrag.chart?.canvas) yAxisDrag.chart.canvas.style.cursor = 'default'
+  window.removeEventListener('mousemove', updateYAxisZoom)
+  window.removeEventListener('mouseup', endYAxisDrag)
+  window.removeEventListener('touchmove', updateYAxisZoom)
+  window.removeEventListener('touchend', endYAxisDrag)
+  Object.assign(yAxisDrag, { isDragging: false, chart: null, startY: 0, startMin: 0, startMax: 0 })
+}
+
+// Attach listeners when chart is ready.
+function attachYAxisListeners() {
+  // Attach to both line and candlestick charts (but not RSI/MACD).
+  const charts = []
+  const candleChart = candleChartRef.value
+  const lineChart = lineChartRef.value
+
+  if (candleChart) {
+    const chart = typeof candleChart.chart === 'function' ? candleChart.chart() : candleChart.chart
+    if (chart?.canvas) charts.push(chart)
+  }
+  if (lineChart?.chart?.canvas) charts.push(lineChart.chart)
+
+  charts.forEach(chart => {
+    if (!chart?.canvas) return
+
+    // Remove existing listeners first
+    chart.canvas.removeEventListener('mousedown', startYAxisDrag, { capture: true })
+    chart.canvas.removeEventListener('touchstart', startYAxisDrag, { capture: true })
+
+    // Add new listeners with capture phase to intercept before zoom plugin
+    chart.canvas.addEventListener('mousedown', startYAxisDrag, { capture: true })
+    chart.canvas.addEventListener('touchstart', startYAxisDrag, { capture: true, passive: false })
+    console.log('Y-axis drag: Listeners attached to chart canvas', chart.canvas)
+  })
+}
+
+watch([lineChartRef, candleChartRef, () => props.chartType], () => {
+  nextTick(() => {
+    setTimeout(() => {
+      attachYAxisListeners()
+    }, 300) // Wait for chart to fully initialize
+  })
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  endYAxisDrag()
+  attachYAxisListeners() // Remove listeners
+})
+
+
+// Get the active chart (line or candlestick).
+function getActiveChart() {
+  // Handle both function and property access patterns.
+  const candleChart = candleChartRef.value
+  const lineChart = lineChartRef.value
+
+  if (candleChart) {
+    return typeof candleChart.chart === 'function' ? candleChart.chart() : candleChart.chart
+  }
+  if (lineChart) {
+    return lineChart.chart
+  }
+  return null
 }
 
 // Base chart options for synchronization.
@@ -1486,34 +1678,100 @@ const baseYAxisConfig = {
   ticks: { color: $waveui.colors.light1 }
 }
 
-// Synchronized chart options for each pane.
-const synchronizedLineChartOptions = computed(() => ({
-  ...baseSynchronizedOptions.value,
-  scales: {
-    ...baseSynchronizedOptions.value.scales,
-    x: { ...baseSynchronizedOptions.value.scales.x, display: true },
-    y: baseYAxisConfig
-  }
-}))
+// Entry price line plugin - creates a plugin function that returns the plugin object.
+const createEntryPricePlugin = () => ({
+  id: 'entryPriceLine',
+  afterDraw: (chart) => {
+    if (!props.entryPrice || props.entryPrice <= 0) return
 
-const synchronizedCandlestickChartOptions = computed(() => ({
-  ...baseSynchronizedOptions.value,
-  plugins: {
-    ...baseSynchronizedOptions.value.plugins,
-    volumeBand: { height: VOLUME_BAND_HEIGHT } // Reserve space for volume band.
-  },
-  scales: {
-    ...baseSynchronizedOptions.value.scales,
-    x: { ...baseSynchronizedOptions.value.scales.x, display: true },
-    y: baseYAxisConfig,
-    yVolume: {
-      position: 'right',
-      display: false,
-      beginAtZero: true,
-      grid: { display: false }
+    const ctx = chart.ctx
+    const chartArea = chart.chartArea
+    const yScale = chart.scales.y
+
+    if (!yScale || !chartArea) return
+
+    const entryY = yScale.getPixelForValue(props.entryPrice)
+
+    // Only draw if the entry price is within the visible chart area.
+    if (entryY < chartArea.top || entryY > chartArea.bottom) return
+
+    ctx.save()
+
+    // Draw horizontal line at entry price.
+    ctx.strokeStyle = $waveui.colors.primary
+    ctx.setLineDash([5, 5]) // Dashed line.
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(chartArea.left, entryY)
+    ctx.lineTo(chartArea.right, entryY)
+    ctx.stroke()
+
+    // Draw label on the right side.
+    const labelText = `Entry: $${props.entryPrice.toFixed(2)}`
+    ctx.font = '12px sans-serif'
+    const labelPadding = 8
+    const labelWidth = ctx.measureText(labelText).width + labelPadding * 2
+    const labelHeight = 20
+    const labelX = chartArea.right - labelWidth
+    const labelY = entryY - labelHeight / 2
+
+    // Draw label background.
+    ctx.fillStyle = $waveui.colors.primary
+    ctx.beginPath()
+    ctx.roundRect(labelX, labelY, labelWidth, labelHeight, 4)
+    ctx.fill()
+
+    // Draw label text.
+    ctx.fillStyle = $waveui.colors.white
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(labelText, labelX + labelWidth / 2, entryY)
+
+    ctx.restore()
+  }
+})
+
+// Synchronized chart options for each pane.
+const synchronizedLineChartOptions = computed(() => {
+  const plugins = { ...baseSynchronizedOptions.value.plugins }
+  if (props.entryPrice && props.entryPrice > 0) {
+    plugins.entryPriceLine = createEntryPricePlugin()
+  }
+  return {
+    ...baseSynchronizedOptions.value,
+    plugins,
+    scales: {
+      ...baseSynchronizedOptions.value.scales,
+      x: { ...baseSynchronizedOptions.value.scales.x, display: true },
+      y: baseYAxisConfig
     }
   }
-}))
+})
+
+const synchronizedCandlestickChartOptions = computed(() => {
+  const plugins = {
+    ...baseSynchronizedOptions.value.plugins,
+    volumeBand: { height: VOLUME_BAND_HEIGHT } // Reserve space for volume band.
+  }
+  if (props.entryPrice && props.entryPrice > 0) {
+    plugins.entryPriceLine = createEntryPricePlugin()
+  }
+  return {
+    ...baseSynchronizedOptions.value,
+    plugins,
+    scales: {
+      ...baseSynchronizedOptions.value.scales,
+      x: { ...baseSynchronizedOptions.value.scales.x, display: true },
+      y: baseYAxisConfig,
+      yVolume: {
+        position: 'right',
+        display: false,
+        beginAtZero: true,
+        grid: { display: false }
+      }
+    }
+  }
+})
 
 const synchronizedRsiChartOptions = computed(() => ({
   ...baseSynchronizedOptions.value,
