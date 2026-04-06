@@ -2,7 +2,9 @@
 router-view(v-if="$route.name !== 'trading'")
 template(v-else)
   .w-flex.align-center.justify-between.gap3
-    .title1 Stock Trading
+    .w-flex.align-center.gap3
+      trade-deck-logo(size="sm")
+      .title1 TradeDeck
     span.w-flex.align-center.gap1.op5.size--sm.no-grow.mt1
       icon(icon="mdi:clock-outline")
       | Updated {{ lastUpdate }}
@@ -168,6 +170,7 @@ import { useWebSocket } from '@/composables/web-socket'
 import { formatCurrency } from '@/utils/formatters'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
+import TradeDeckLogo from '@/components/tradedeck-logo.vue'
 
 const $waveui = inject('$waveui')
 const stocks = ref([])
