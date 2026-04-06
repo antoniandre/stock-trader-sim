@@ -186,7 +186,7 @@ onUnmounted(() => {
 }
 
 .sidebar {
-  height: 100vh;
+  height: 100%;
   background-color: var(--w-base-bg-color);
   border-right: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
   overflow: hidden;

@@ -1,11 +1,11 @@
 <template lang="pug">
-.w-flex.column.h-screen.app-root
+.w-flex.column.app-root.ovh.h-screen
   trading-mode-banner
-  .w-flex.grow.min-h-0
+  .w-flex.grow.ovh
     sidebar(
       :is-open="sidebarOpen"
       @update:is-open="sidebarOpen = $event")
-    .ova.grow.relative.min-h-0
+    .ova.grow.relative
       .w-flex.justify-end.align-center.gap2.pr2.ovh
         //- Burger Menu Button (shown when sidebar is collapsed or always on mobile)
         w-button.pa0(
@@ -77,4 +77,6 @@ onMounted(() => {
   z-index: 999;
   backdrop-filter: blur(2px);
 }
+
+.mh100vh {min-height: 100vh;}
 </style>

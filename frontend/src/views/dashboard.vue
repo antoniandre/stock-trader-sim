@@ -1,5 +1,5 @@
 <template lang="pug">
-.w-space-xl.dark--bg.w-min-h-screen
+.w-space-xl.dark--bg
   .w-flex.justify-space-between.align-center
     .title1 Portfolio Dashboard
     w-button.mr-2(@click="fetchHistory" text round)

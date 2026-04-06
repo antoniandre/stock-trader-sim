@@ -1,8 +1,5 @@
 <template lang="pug">
-.trading-mode-banner(
-  v-if="banner"
-  :class="banner.tone"
-  role="status")
+.trading-mode-banner(v-if="banner" :class="banner.tone" role="status")
   .banner-inner.w-flex.align-center.justify-center.gap2.py1.px4.text-center
     strong.banner-label {{ banner.label }}
     span.banner-sub.op8 {{ banner.sub }}
@@ -103,13 +100,11 @@ onUnmounted(() => {
 }
 
 .banner-inner {
-  max-width: 56rem;
+  max-width: 70rem;
   margin: 0 auto;
 }
 
 @media (max-width: 600px) {
-  .banner-sub {
-    display: none;
-  }
+  .banner-sub {display: none;}
 }
 </style>
