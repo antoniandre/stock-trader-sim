@@ -1,10 +1,30 @@
-import { AUTH_MODE, AUTH_PROVIDER, DEV_AUTH_USER_ID, DEV_AUTH_EMAIL, DEV_AUTH_NAME, DEV_AUTH_PLAN } from './config.js'
+import { jwtVerify } from 'jose'
+import {
+  AUTH_MODE,
+  AUTH_PROVIDER,
+  AUTH_JWT_SECRET,
+  AUTH_JWT_ISSUER,
+  AUTH_JWT_AUDIENCE,
+  DEV_AUTH_USER_ID,
+  DEV_AUTH_EMAIL,
+  DEV_AUTH_NAME,
+  DEV_AUTH_PLAN
+} from './config.js'
 
 const VALID_PLANS = new Set(['free', 'pro', 'team'])
 
 function normalizePlan(plan) {
   const value = String(plan || 'free').toLowerCase()
   return VALID_PLANS.has(value) ? value : 'free'
+}
+
+function buildEntitlements(plan) {
+  const normalizedPlan = normalizePlan(plan)
+  return {
+    apiAccess: normalizedPlan !== 'free',
+    alerts: normalizedPlan !== 'free',
+    teamSeats: normalizedPlan === 'team'
+  }
 }
 
 function parseMockUserHeader(value) {
@@ -22,17 +42,15 @@ function parseMockUserHeader(value) {
 function normalizeUser(user) {
   if (!user || !user.id) return null
 
+  const plan = normalizePlan(user.plan)
+
   return {
     id: String(user.id),
     email: user.email ? String(user.email) : null,
     name: user.name ? String(user.name) : null,
-    plan: normalizePlan(user.plan),
-    entitlements: {
-      apiAccess: normalizePlan(user.plan) !== 'free',
-      alerts: normalizePlan(user.plan) !== 'free',
-      teamSeats: normalizePlan(user.plan) === 'team'
-    },
-    authProvider: AUTH_PROVIDER
+    plan,
+    entitlements: buildEntitlements(plan),
+    authProvider: user.authProvider || AUTH_PROVIDER
   }
 }
 
@@ -41,7 +59,33 @@ function getDevUser() {
     id: DEV_AUTH_USER_ID || 'dev-user',
     email: DEV_AUTH_EMAIL || 'dev@example.com',
     name: DEV_AUTH_NAME || 'Dev User',
-    plan: DEV_AUTH_PLAN || 'pro'
+    plan: DEV_AUTH_PLAN || 'pro',
+    authProvider: AUTH_PROVIDER
+  })
+}
+
+function getBearerToken(req) {
+  const authHeader = req.headers.authorization || ''
+  if (!authHeader.startsWith('Bearer ')) return null
+  return authHeader.slice('Bearer '.length).trim() || null
+}
+
+async function verifyProviderJwt(token) {
+  if (!AUTH_JWT_SECRET) throw new Error('AUTH_JWT_SECRET is required for AUTH_MODE=provider')
+
+  const secret = new TextEncoder().encode(AUTH_JWT_SECRET)
+  const verifyOptions = {}
+  if (AUTH_JWT_ISSUER) verifyOptions.issuer = AUTH_JWT_ISSUER
+  if (AUTH_JWT_AUDIENCE) verifyOptions.audience = AUTH_JWT_AUDIENCE
+
+  const { payload } = await jwtVerify(token, secret, verifyOptions)
+
+  return normalizeUser({
+    id: payload.sub,
+    email: payload.email,
+    name: payload.name,
+    plan: payload.plan || payload['https://stocktrader.app/plan'] || 'free',
+    authProvider: AUTH_PROVIDER
   })
 }
 
@@ -51,32 +95,35 @@ export function getAuthSummary() {
     mode: AUTH_MODE,
     provider: AUTH_PROVIDER,
     supportsHostedAuth: AUTH_MODE === 'provider',
-    developmentBypass: AUTH_MODE === 'mock'
+    developmentBypass: AUTH_MODE === 'mock',
+    tokenVerification: AUTH_MODE === 'provider' ? 'jwt-hs256' : 'none'
   }
 }
 
-export function attachUser(req, _res, next) {
+export async function attachUser(req, _res, next) {
   req.user = null
 
-  if (AUTH_MODE === 'off') return next()
+  try {
+    if (AUTH_MODE === 'off') return next()
 
-  if (AUTH_MODE === 'mock') {
-    const headerUser = parseMockUserHeader(req.headers['x-dev-auth-user'])
-    req.user = headerUser || getDevUser()
-    return next()
+    if (AUTH_MODE === 'mock') {
+      const headerUser = parseMockUserHeader(req.headers['x-dev-auth-user'])
+      req.user = headerUser || getDevUser()
+      return next()
+    }
+
+    if (AUTH_MODE === 'provider') {
+      const token = getBearerToken(req)
+      if (!token) return next()
+      req.user = await verifyProviderJwt(token)
+      return next()
+    }
+
+    next()
   }
-
-  const providerUserId = req.headers['x-auth-user-id']
-  if (!providerUserId) return next()
-
-  req.user = normalizeUser({
-    id: providerUserId,
-    email: req.headers['x-auth-user-email'],
-    name: req.headers['x-auth-user-name'],
-    plan: req.headers['x-auth-user-plan'] || 'free'
-  })
-
-  next()
+  catch (error) {
+    next(error)
+  }
 }
 
 export function requireUser(req, res, next) {

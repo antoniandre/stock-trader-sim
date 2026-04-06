@@ -108,6 +108,9 @@ pnpm dev
 | `FEATURE_API_ACCESS` | Enable partner/pro API surfaces | `false` |
 | `AUTH_MODE` | Auth behavior: `off`, `mock`, `provider` | `off` |
 | `AUTH_PROVIDER` | Hosted auth provider label for future integration | `mock` |
+| `AUTH_JWT_SECRET` | HS256 JWT secret for provider-token verification mode | unset |
+| `AUTH_JWT_ISSUER` | Expected JWT issuer in provider mode | unset |
+| `AUTH_JWT_AUDIENCE` | Expected JWT audience in provider mode | unset |
 | `DEV_AUTH_USER_ID` | Local mock-auth user id | `dev-user` |
 | `DEV_AUTH_EMAIL` | Local mock-auth email | `dev@example.com` |
 | `DEV_AUTH_NAME` | Local mock-auth display name | `Dev User` |
@@ -223,6 +226,7 @@ Current note:
 - `GET /api/health` exposes `featureFlags` so the frontend and operators can inspect enabled capabilities.
 - `GET /api/health`, `GET /api/agent/snapshot`, and `GET /api/me` now also expose auth/identity metadata for auth-first Phase 6 work.
 - `GET /api/agent/snapshot` is the first route gated by entitlement middleware when auth is enabled.
+- `AUTH_MODE=provider` now supports HS256 bearer JWT verification as a provider bridge, but this is still not a full hosted-auth SDK integration.
 - The current UI fully supports market orders; limit/stop are still intentionally disabled by default.
 
 ## 📈 Scaling Considerations
