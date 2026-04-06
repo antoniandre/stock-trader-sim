@@ -3,6 +3,7 @@
   trading-mode-banner
   .w-flex.grow.ovh
     sidebar(
+      v-if="authState.user"
       :is-open="sidebarOpen"
       @update:is-open="sidebarOpen = $event")
     .ova.grow.relative
@@ -38,6 +39,7 @@
 import Sidebar from '@/components/sidebar.vue'
 import TradingModeBanner from '@/components/trading-mode-banner.vue'
 import { computed, inject, onMounted, ref, watch } from 'vue'
+import { authState } from '@/stores/auth'
 
 const $waveui = inject('$waveui')
 const sidebarOpen = ref(true)

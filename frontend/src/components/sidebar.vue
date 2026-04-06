@@ -31,7 +31,7 @@
           p.text-bold {{ userDisplayName }}
           p.size--sm.grey {{ userSecondaryLine }}
           p.size--xs.op6.mt1(v-if="authModeLabel") {{ authModeLabel }}
-      .w-flex.column.gap2(v-if="showAuthActions")
+      .w-flex.justify-end.gap2(v-if="showAuthActions")
         w-button.align-self-start(sm route="/auth") {{ authActionLabel }}
         w-button.align-self-start(
           v-if="authState.user"
@@ -285,14 +285,6 @@ onUnmounted(() => {
   border-right: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
   overflow: hidden;
 
-  .logo {flex-shrink: 0;}
-  .logo-title {
-    background-clip: text;
-    color: transparent;
-    background-image: linear-gradient(to right, var(--w-primary-color), #90ffb0);
-    white-space: nowrap;
-  }
-
   .user-avatar {
     width: 40px;
     height: 40px;
@@ -314,9 +306,7 @@ onUnmounted(() => {
     }
   }
 
-  .sidebar-footer {
-    margin-top: auto;
-  }
+  .sidebar-footer {margin-top: auto;}
 }
 
 .resize-handle {
@@ -336,9 +326,5 @@ onUnmounted(() => {
     background-color: var(--w-primary-color);
     opacity: 0.8;
   }
-}
-
-:root[data-theme="light"] .logo-title {
-  background-image: linear-gradient(to right, var(--w-primary-color), #24c7a3);
 }
 </style>

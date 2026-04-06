@@ -4,7 +4,7 @@
     icon.w-icon.size--xl.primary(icon="icon-park-outline:increase" style="width: 30px; height: 30px")
     .logo__icon-layers
 
-  .logo__name.title2.logo-title TradeDeck
+  .logo__name.title2 TradeDeck
   .logo__tagline(v-if="!collapsed") The modern trading workspace.
 </template>
 
@@ -21,9 +21,16 @@ const props = defineProps({
   align-items: center;
   gap: 0.65rem;
   padding-bottom: 1.3rem;
+  flex-shrink: 0;
 }
 
-.logo__name {letter-spacing: 0.015em;}
+.logo__name {
+  background-clip: text;
+  color: transparent;
+  background-image: linear-gradient(to right, var(--w-primary-color), #90ffb0);
+  white-space: nowrap;
+  letter-spacing: 0.015em;
+}
 
 .logo__icon {
   position: relative;
@@ -89,5 +96,9 @@ const props = defineProps({
   .logo__tagline {color: #94A3B8;}
   .logo__layer--back {background: rgba(148, 163, 184, 0.12);}
   .logo__layer--mid {background: rgba(148, 163, 184, 0.20);}
+}
+
+:global(:root[data-theme="light"] .logo-title) {
+  background-image: linear-gradient(to right, var(--w-primary-color), #24c7a3);
 }
 </style>

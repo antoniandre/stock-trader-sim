@@ -1,20 +1,10 @@
 <template lang="pug">
 .auth-panel
   .auth-panel__header
-    p.auth-panel__eyebrow TradeDeck access
     h3.auth-panel__title {{ panelTitle }}
     p.auth-panel__copy {{ panelCopy }}
 
-  .auth-panel__signed-in(v-if="authState.user")
-    p.auth-panel__notice You’re signed in as
-      strong  {{ authState.user.email || authState.user.id }}
-    p.auth-panel__copy You can head back into TradeDeck or sign out below.
-
-    .auth-panel__actions
-      w-button(route="/" round) Open dashboard
-      w-button(v-if="showSignOut" type="button" text color="error" @click="handleSignOut") Sign out
-
-  form.auth-panel__form(v-else @submit.prevent="submit")
+  form.auth-panel__form(@submit.prevent="submit")
     w-input(v-model.trim="email" label="Email" type="email" required autocomplete="email")
     w-input(
       v-model="password"
@@ -39,22 +29,14 @@
       w-button(:loading="authState.loading" type="submit") {{ submitLabel }}
       w-button(type="button" text @click="toggleMode")
         | {{ switchLabel }}
-
 </template>
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { authState, signInWithPassword, signOut, signUpWithPassword } from '@/stores/auth'
+import { authState, signInWithPassword, signUpWithPassword } from '@/stores/auth'
 
 const props = defineProps({
-  mode: {
-    type: String,
-    default: 'signin'
-  },
-  showSignOut: {
-    type: Boolean,
-    default: false
-  }
+  mode: { type: String, default: 'signin' }
 })
 
 const emit = defineEmits(['mode-change'])
@@ -86,10 +68,6 @@ function toggleMode() {
   emit('mode-change', nextMode)
 }
 
-async function handleSignOut() {
-  await signOut()
-}
-
 async function submit() {
   localError.value = ''
 
@@ -117,24 +95,11 @@ async function submit() {
 .auth-panel {
   display: grid;
   gap: 1rem;
-  padding: 1.1rem;
-  border: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--w-base-bg-color) 92%, transparent);
 }
 
 .auth-panel__header {
   display: grid;
   gap: 0.25rem;
-}
-
-.auth-panel__eyebrow {
-  margin: 0;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--w-primary-color);
 }
 
 .auth-panel__title,
