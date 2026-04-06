@@ -93,9 +93,9 @@ You are the implementation agent for a **commercializable** trading web app (Vue
 
 ### Phase 7 — Hardening
 
-- Structured logging (pino), request id, redact secrets.
-- E2E smoke: sim mode place order + assert portfolio.
-- Dependency audit; dependabot.
+- [x] Structured logging (pino), request id, redact secrets.
+- [x] E2E smoke: sim mode place order + assert portfolio.
+- [x] Dependency audit; dependabot.
 
 ---
 
