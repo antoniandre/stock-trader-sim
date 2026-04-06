@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { authState, isAuthenticated, rememberAuthRedirect, requiresAuth } from '@/stores/auth'
 
 const routes = [
   {
@@ -9,12 +10,14 @@ const routes = [
   {
     path: '/',
     name: 'dashboard',
-    component: () => import('@/views/dashboard.vue')
+    component: () => import('@/views/dashboard.vue'),
+    meta: { requiresAuth: true }
   },
   {
     path: '/trading',
     name: 'trading',
     component: () => import('@/views/trading.vue'),
+    meta: { requiresAuth: true },
     children: [
       {
         path: 'top-gainers',
@@ -45,6 +48,19 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+router.beforeEach(async to => {
+  if (!to.meta.requiresAuth || !requiresAuth()) return true
+
+  if (!authState.ready) return true
+  if (isAuthenticated()) return true
+
+  rememberAuthRedirect(to.fullPath)
+  return {
+    name: 'auth',
+    query: { mode: 'signin' }
+  }
 })
 
 export default router

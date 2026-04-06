@@ -1,6 +1,8 @@
 import { reactive, readonly } from 'vue'
 import { getSupabaseClient, hasSupabaseConfig } from '@/lib/supabase'
 
+const REDIRECT_STORAGE_KEY = 'tradedeck.auth.redirect'
+
 const state = reactive({
   ready: false,
   enabled: hasSupabaseConfig(),
@@ -96,6 +98,26 @@ export async function getAccessToken() {
   if (!supabase) return ''
   const { data } = await supabase.auth.getSession()
   return data?.session?.access_token || ''
+}
+
+export function requiresAuth() {
+  return state.enabled
+}
+
+export function isAuthenticated() {
+  return Boolean(state.user)
+}
+
+export function rememberAuthRedirect(target) {
+  if (typeof window === 'undefined' || !target) return
+  window.localStorage.setItem(REDIRECT_STORAGE_KEY, target)
+}
+
+export function consumeAuthRedirect() {
+  if (typeof window === 'undefined') return ''
+  const target = window.localStorage.getItem(REDIRECT_STORAGE_KEY) || ''
+  if (target) window.localStorage.removeItem(REDIRECT_STORAGE_KEY)
+  return target
 }
 
 export const authState = readonly(state)

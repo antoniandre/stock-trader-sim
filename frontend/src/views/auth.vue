@@ -19,17 +19,23 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AuthPanel from '@/components/auth-panel.vue'
 import TradeDeckLogo from '@/components/app-logo.vue'
-import { authState, signOut } from '@/stores/auth'
+import { authState, consumeAuthRedirect, signOut } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 
 const mode = computed(() => route.query.mode === 'signup' ? 'signup' : 'signin')
 const heading = computed(() => mode.value === 'signup' ? 'Create your account' : 'Welcome back')
+
+watch(() => authState.user, user => {
+  if (!user) return
+  const redirectTarget = consumeAuthRedirect()
+  router.replace(redirectTarget || '/')
+})
 
 function handleModeChange(nextMode) {
   router.replace({
