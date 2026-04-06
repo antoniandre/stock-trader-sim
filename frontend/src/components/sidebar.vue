@@ -22,7 +22,7 @@
 
     //- User Profile
     .w-divider.no-grow(v-if="!isCollapsed")
-    .w-flex.column.px4.py4.no-grow.pa4.gap3(v-if="!isCollapsed")
+    .w-flex.column.px4.py4.no-grow.pa4.gap3.sidebar-footer(v-if="!isCollapsed")
       .w-flex.align-center
         .user-avatar.w-flex.align-center.justify-center
           icon(v-if="!currentUser" icon="mdi:account-off-outline")
@@ -31,12 +31,14 @@
           p.text-bold {{ userDisplayName }}
           p.size--sm.grey {{ userSecondaryLine }}
           p.size--xs.op6.mt1(v-if="authModeLabel") {{ authModeLabel }}
-      auth-panel(v-if="showAuthPanel")
-      w-button.align-self-start(
-        v-else-if="authState.user"
-        sm
-        text
-        @click="handleSignOut") Sign out
+      .w-flex.column.gap2(v-if="showAuthActions")
+        w-button.align-self-start(sm route="/auth") {{ authActionLabel }}
+        w-button.align-self-start(
+          v-if="authState.user"
+          sm
+          text
+          color="error"
+          @click="handleSignOut") Log out
 
   //- Resize Handle
   .resize-handle(
@@ -49,7 +51,6 @@
 import { ref, onMounted, onUnmounted, watch, inject, computed } from 'vue'
 import { fetchMe, checkHealth } from '@/api'
 import { authState, signOut } from '@/stores/auth'
-import AuthPanel from '@/components/auth-panel.vue'
 import Logo from '@/components/app-logo.vue'
 
 const props = defineProps({
@@ -170,7 +171,8 @@ const authModeLabel = computed(() => {
   return `${provider} · ${(currentUser.value?.plan || 'free').toUpperCase()}`
 })
 
-const showAuthPanel = computed(() => authState.enabled && authSummary.value?.provider === 'supabase' && !authState.user)
+const showAuthActions = computed(() => authState.enabled && authSummary.value?.provider === 'supabase')
+const authActionLabel = computed(() => authState.user ? 'Manage account' : 'Sign in or sign up')
 
 async function handleSignOut() {
   await signOut()
@@ -302,6 +304,10 @@ onUnmounted(() => {
       overflow: hidden;
       text-overflow: ellipsis;
     }
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
   }
 }
 

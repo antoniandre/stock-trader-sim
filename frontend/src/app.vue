@@ -30,7 +30,8 @@
       .sidebar-overlay(v-if="isMobile && sidebarOpen" @click="sidebarOpen = false")
 
       main.px12.mt4.mb6
-        router-view
+        router-view(v-slot="{ Component }")
+          component(:is="Component")
 </template>
 
 <script setup>
