@@ -1,17 +1,18 @@
 <template lang="pug">
-w-image.ticker-logo(
-  :src="`https://financialmodelingprep.com/image-stock/${symbol}.png`"
-  @error="(e, imgWrapEl) => imgWrapEl.querySelector('.hide').classList.remove('hide')"
-  :alt="symbol"
-  :class="sizeClass"
-  :width="sizes[size]"
-  lazy
-  spinner-color="contrast-o3")
-  .logo-placeholder.hide {{ symbol.charAt(0) }}
+.ticker-logo(:class="sizeClass")
+  w-image(
+    v-if="!hasError"
+    :src="logoUrl"
+    @error="onImageError"
+    :alt="symbol"
+    :width="sizes[size]"
+    lazy
+    spinner-color="contrast-o3")
+  .logo-placeholder(v-else) {{ symbol.charAt(0) }}
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   symbol: { type: String, required: true },
@@ -23,6 +24,17 @@ const props = defineProps({
 })
 
 const sizeClass = computed(() => `ticker-logo--${props.size}`)
+const logoUrl = computed(() => `https://financialmodelingprep.com/image-stock/${props.symbol}.png`)
+const hasError = ref(false)
+
+watch(() => props.symbol, () => {
+  hasError.value = false
+})
+
+function onImageError() {
+  hasError.value = true
+}
+
 const sizes = {
   sm: 24,
   md: 32,
