@@ -135,6 +135,20 @@ export async function checkHealth() {
   }
 }
 
+export async function fetchMe() {
+  try {
+    const response = await fetch(`${API_BASE}/me`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    const result = await response.json()
+    return result.data || result
+  }
+  catch (error) {
+    console.error('Fetch me failed:', error)
+    throw error
+  }
+}
+
 export async function fetchTradingHistory(limit = 100) {
   try {
     const response = await fetch(`${API_BASE}/trading-history?limit=${limit}`)

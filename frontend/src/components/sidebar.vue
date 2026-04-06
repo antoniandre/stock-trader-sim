@@ -25,10 +25,13 @@
     //- User Profile
     .w-divider.no-grow(v-if="!isCollapsed")
     .w-flex.align-center.px4.py4.no-grow.pa4(v-if="!isCollapsed")
-      w-image.bdrsr(src="https://i.pravatar.cc/100" alt="User Avatar" width="40")
-      .ml3
-        p.text-bold User
-        p.size--sm.grey user@example.com
+      .user-avatar.w-flex.align-center.justify-center
+        icon(v-if="!currentUser" icon="mdi:account-off-outline")
+        span(v-else) {{ userInitials }}
+      .ml3.user-summary
+        p.text-bold {{ userDisplayName }}
+        p.size--sm.grey {{ userSecondaryLine }}
+        p.size--xs.op6.mt1(v-if="authModeLabel") {{ authModeLabel }}
 
   //- Resize Handle
   .resize-handle(
@@ -39,6 +42,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch, inject, computed } from 'vue'
+import { fetchMe, checkHealth } from '@/api'
 
 const props = defineProps({
   isOpen: { type: Boolean, default: true }
@@ -53,14 +57,16 @@ const MAX_WIDTH = 400
 const sidebarWidth = ref(DEFAULT_WIDTH)
 const isCollapsed = ref(false)
 const isMobile = computed(() => $waveui.breakpoint.sm || $waveui.breakpoint.xs)
-let isResizing = false
+const currentUser = ref(null)
+const authSummary = ref(null)
+const isResizing = ref(false)
 let startX = 0
 let startWidth = 0
 
 const startResize = e => {
-  if (isCollapsed.value) return
+  if (isCollapsed.value || isMobile.value) return
 
-  isResizing = true
+  isResizing.value = true
   startX = e.touches ? e.touches[0].clientX : e.clientX
   startWidth = sidebarWidth.value
 
@@ -73,7 +79,7 @@ const startResize = e => {
 }
 
 const onResize = e => {
-  if (!isResizing) return
+  if (!isResizing.value) return
 
   const clientX = e.touches ? e.touches[0].clientX : e.clientX
   const diff = clientX - startX
@@ -104,7 +110,7 @@ const onResize = e => {
 }
 
 const stopResize = () => {
-  isResizing = false
+  isResizing.value = false
   document.removeEventListener('mousemove', onResize)
   document.removeEventListener('mouseup', stopResize)
   document.removeEventListener('touchmove', onResize)
@@ -121,13 +127,66 @@ watch(() => props.isOpen, newValue => {
 
 // Watch for mobile changes.
 watch(() => isMobile.value, isXs => {
-  if (isXs) isCollapsed.value = true
+  if (isXs) {
+    stopResize()
+    isCollapsed.value = true
+  }
 })
+
+const userDisplayName = computed(() => {
+  if (!currentUser.value) return 'Not signed in'
+  return currentUser.value.name || currentUser.value.email || currentUser.value.id
+})
+
+const userSecondaryLine = computed(() => {
+  if (!currentUser.value) return authSummary.value?.enabled ? 'Authentication required' : 'Auth disabled'
+
+  return currentUser.value.email || `${String(currentUser.value.plan || 'free').toUpperCase()} plan`
+})
+
+const userInitials = computed(() => {
+  const source = userDisplayName.value
+  if (!source || source === 'Not signed in') return '?'
+
+  return source
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(part => part[0]?.toUpperCase() || '')
+    .join('') || '?'
+})
+
+const authModeLabel = computed(() => {
+  if (!authSummary.value?.enabled) return ''
+  const provider = authSummary.value.provider || 'auth'
+  return `${provider} · ${(currentUser.value?.plan || 'free').toUpperCase()}`
+})
+
+async function loadCurrentUser() {
+  try {
+    const me = await fetchMe()
+    currentUser.value = me.user || null
+    authSummary.value = me.auth || null
+  }
+  catch (error) {
+    currentUser.value = null
+
+    try {
+      const health = await checkHealth()
+      authSummary.value = health.data?.auth || health.auth || null
+      currentUser.value = health.data?.currentUser || health.currentUser || null
+    }
+    catch {
+      authSummary.value = null
+    }
+  }
+}
 
 // Lifecycle.
 // --------------------------------------------------------
 // Load saved state from localStorage.
-onMounted(() => {
+
+onMounted(async () => {
   const savedWidth = localStorage.getItem('sidebarWidth')
   const savedCollapsed = localStorage.getItem('sidebarCollapsed')
 
@@ -148,9 +207,15 @@ onMounted(() => {
     isCollapsed.value = true
     emit('update:isOpen', false)
   }
+
+  window.addEventListener('blur', stopResize)
+  document.addEventListener('mouseleave', stopResize)
+  await loadCurrentUser()
 })
 
 onUnmounted(() => {
+  window.removeEventListener('blur', stopResize)
+  document.removeEventListener('mouseleave', stopResize)
   stopResize()
 })
 </script>
@@ -197,6 +262,27 @@ onUnmounted(() => {
     color: transparent;
     background-image: linear-gradient(to right, var(--w-primary-color), #90ffb0);
     white-space: nowrap;
+  }
+
+  .user-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--w-primary-color) 18%, transparent);
+    color: var(--w-primary-color);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .user-summary {
+    min-width: 0;
+
+    p {
+      margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
   }
 }
 
