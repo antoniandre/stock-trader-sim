@@ -6,6 +6,16 @@
     h1.title1.auth-view__title {{ heading }}
     p.auth-view__copy
       | Sign in to manage your portfolio, place trades, and unlock your account workspace.
+    ul.auth-view__benefits
+      li Live portfolio and market views
+      li Auth-aware trading workspace
+      li Fast access to TradeDeck from any signed-in device
+
+  .auth-view__status(v-if="statusMessage")
+    icon(icon="mdi:information-outline")
+    span {{ statusMessage }}
+
+  .auth-view__card
 
   .auth-view__card
     auth-panel(
@@ -30,6 +40,11 @@ const router = useRouter()
 
 const mode = computed(() => route.query.mode === 'signup' ? 'signup' : 'signin')
 const heading = computed(() => mode.value === 'signup' ? 'Create your account' : 'Welcome back')
+const statusMessage = computed(() => {
+  if (authState.user) return 'You are already signed in.'
+  if (mode.value === 'signup') return 'Create an account to unlock the TradeDeck workspace.'
+  return 'Sign in to continue where you left off.'
+})
 
 watch(() => authState.user, user => {
   if (!user) return
@@ -102,6 +117,24 @@ async function handleSignOut() {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.auth-view__benefits {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--w-text-light-color);
+  display: grid;
+  gap: 0.55rem;
+}
+
+.auth-view__status {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--w-primary-color) 10%, transparent);
+  color: var(--w-text-light-color);
 }
 
 @media (max-width: 960px) {

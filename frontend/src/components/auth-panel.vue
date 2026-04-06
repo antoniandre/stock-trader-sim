@@ -5,7 +5,16 @@
     h3.auth-panel__title {{ panelTitle }}
     p.auth-panel__copy {{ panelCopy }}
 
-  form.auth-panel__form(@submit.prevent="submit")
+  .auth-panel__signed-in(v-if="authState.user")
+    p.auth-panel__notice You’re signed in as
+      strong  {{ authState.user.email || authState.user.id }}
+    p.auth-panel__copy You can head back into TradeDeck or sign out below.
+
+    .auth-panel__actions
+      w-button(route="/" round) Open dashboard
+      w-button(v-if="showSignOut" type="button" text color="error" @click="handleSignOut") Sign out
+
+  form.auth-panel__form(v-else @submit.prevent="submit")
     w-input(v-model.trim="email" label="Email" type="email" required autocomplete="email")
     w-input(
       v-model="password"
@@ -22,6 +31,7 @@
       required
       autocomplete="new-password")
 
+    p.auth-panel__hint(v-if="isSignUp") Password should be at least 8 characters.
     p.auth-panel__notice(v-if="authState.notice") {{ authState.notice }}
     p.auth-panel__error(v-if="errorMessage") {{ errorMessage }}
 
@@ -29,7 +39,6 @@
       w-button(:loading="authState.loading" type="submit") {{ submitLabel }}
       w-button(type="button" text @click="toggleMode")
         | {{ switchLabel }}
-      w-button(v-if="showSignOut" type="button" text color="error" @click="handleSignOut") Sign out
 
 </template>
 
@@ -63,7 +72,7 @@ watch(() => props.mode, value => {
 
 const panelTitle = computed(() => isSignUp.value ? 'Create your account' : 'Sign in')
 const panelCopy = computed(() => isSignUp.value
-  ? 'Create a TradeDeck login with your email and password.'
+  ? 'Create a TradeDeck login with your email and password, then jump straight into the app.'
   : 'Sign in with your email and password to continue.')
 const submitLabel = computed(() => isSignUp.value ? 'Create account' : 'Sign in')
 const switchLabel = computed(() => isSignUp.value ? 'Already have an account?' : 'Need an account?')
@@ -83,6 +92,11 @@ async function handleSignOut() {
 
 async function submit() {
   localError.value = ''
+
+  if (isSignUp.value && password.value.length < 8) {
+    localError.value = 'Password must be at least 8 characters.'
+    return
+  }
 
   if (isSignUp.value && password.value !== confirmPassword.value) {
     localError.value = 'Passwords do not match.'
@@ -142,6 +156,16 @@ async function submit() {
 .auth-panel__form {
   display: grid;
   gap: 0.9rem;
+}
+
+.auth-panel__signed-in,
+.auth-panel__hint {
+  color: var(--w-text-light-color);
+}
+
+.auth-panel__hint {
+  margin: -0.2rem 0 0;
+  font-size: 0.85rem;
 }
 
 .auth-panel__actions {
