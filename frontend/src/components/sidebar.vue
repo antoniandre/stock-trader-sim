@@ -5,7 +5,7 @@
   .sidebar.w-flex.column.no-shrink(:class="{ 'sidebar--collapsed': isCollapsed }")
     //- Logo
     .w-flex.align-center.gap4.no-grow.pa4.pr0
-      trade-deck-logo(size="md" :show-wordmark="!isCollapsed")
+      logo(size="md" :collapsed="isCollapsed")
     .w-divider(v-if="!isCollapsed")
 
     //- Navigation
@@ -41,7 +41,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, inject, computed } from 'vue'
 import { fetchMe, checkHealth } from '@/api'
-import TradeDeckLogo from '@/components/tradedeck-logo.vue'
+import Logo from '@/components/app-logo.vue'
 
 const props = defineProps({
   isOpen: { type: Boolean, default: true }
