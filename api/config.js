@@ -17,6 +17,8 @@ export const {
   AUTH_JWT_SECRET,
   AUTH_JWT_ISSUER,
   AUTH_JWT_AUDIENCE,
+  SUPABASE_URL,
+  SUPABASE_JWT_SECRET,
   DEV_AUTH_USER_ID,
   DEV_AUTH_EMAIL,
   DEV_AUTH_NAME,
@@ -44,6 +46,11 @@ export function getTradingEnvironmentLabel() {
 export const HEADERS = {
   'APCA-API-KEY-ID': ALPACA_KEY,
   'APCA-API-SECRET-KEY': ALPACA_SECRET
+}
+
+if (AUTH_PROVIDER === 'supabase') {
+  process.env.AUTH_JWT_ISSUER = process.env.AUTH_JWT_ISSUER || (SUPABASE_URL ? `${SUPABASE_URL}/auth/v1` : '')
+  process.env.AUTH_JWT_AUDIENCE = process.env.AUTH_JWT_AUDIENCE || 'authenticated'
 }
 
 export const FEATURE_FLAGS = {

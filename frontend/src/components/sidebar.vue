@@ -22,14 +22,21 @@
 
     //- User Profile
     .w-divider.no-grow(v-if="!isCollapsed")
-    .w-flex.align-center.px4.py4.no-grow.pa4(v-if="!isCollapsed")
-      .user-avatar.w-flex.align-center.justify-center
-        icon(v-if="!currentUser" icon="mdi:account-off-outline")
-        span(v-else) {{ userInitials }}
-      .ml3.user-summary
-        p.text-bold {{ userDisplayName }}
-        p.size--sm.grey {{ userSecondaryLine }}
-        p.size--xs.op6.mt1(v-if="authModeLabel") {{ authModeLabel }}
+    .w-flex.column.px4.py4.no-grow.pa4.gap3(v-if="!isCollapsed")
+      .w-flex.align-center
+        .user-avatar.w-flex.align-center.justify-center
+          icon(v-if="!currentUser" icon="mdi:account-off-outline")
+          span(v-else) {{ userInitials }}
+        .ml3.user-summary
+          p.text-bold {{ userDisplayName }}
+          p.size--sm.grey {{ userSecondaryLine }}
+          p.size--xs.op6.mt1(v-if="authModeLabel") {{ authModeLabel }}
+      auth-panel(v-if="showAuthPanel")
+      w-button.align-self-start(
+        v-else-if="authState.user"
+        sm
+        text
+        @click="handleSignOut") Sign out
 
   //- Resize Handle
   .resize-handle(
@@ -41,6 +48,8 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, inject, computed } from 'vue'
 import { fetchMe, checkHealth } from '@/api'
+import { authState, signOut } from '@/stores/auth'
+import AuthPanel from '@/components/auth-panel.vue'
 import Logo from '@/components/app-logo.vue'
 
 const props = defineProps({
@@ -161,10 +170,17 @@ const authModeLabel = computed(() => {
   return `${provider} · ${(currentUser.value?.plan || 'free').toUpperCase()}`
 })
 
+const showAuthPanel = computed(() => authState.enabled && authSummary.value?.provider === 'supabase' && !authState.user)
+
+async function handleSignOut() {
+  await signOut()
+  await loadCurrentUser()
+}
+
 async function loadCurrentUser() {
   try {
     const me = await fetchMe()
-    currentUser.value = me.user || null
+    currentUser.value = me.user || authState.user || null
     authSummary.value = me.auth || null
   }
   catch (error) {
@@ -173,7 +189,7 @@ async function loadCurrentUser() {
     try {
       const health = await checkHealth()
       authSummary.value = health.data?.auth || health.auth || null
-      currentUser.value = health.data?.currentUser || health.currentUser || null
+      currentUser.value = health.data?.currentUser || health.currentUser || authState.user || null
     }
     catch {
       authSummary.value = null
@@ -184,6 +200,10 @@ async function loadCurrentUser() {
 // Lifecycle.
 // --------------------------------------------------------
 // Load saved state from localStorage.
+
+watch(() => authState.user, async () => {
+  await loadCurrentUser()
+})
 
 onMounted(async () => {
   const savedWidth = localStorage.getItem('sidebarWidth')

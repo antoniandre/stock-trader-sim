@@ -38,6 +38,7 @@ export function createRestApiRoutes() {
   })
 
   function requireMutationAuth(req, res, next) {
+    if (req.user) return next()
     if (!API_BEARER_TOKEN) return next()
 
     const authHeader = req.headers.authorization || ''

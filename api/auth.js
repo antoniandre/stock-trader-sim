@@ -5,6 +5,7 @@ import {
   AUTH_JWT_SECRET,
   AUTH_JWT_ISSUER,
   AUTH_JWT_AUDIENCE,
+  SUPABASE_JWT_SECRET,
   DEV_AUTH_USER_ID,
   DEV_AUTH_EMAIL,
   DEV_AUTH_NAME,
@@ -71,9 +72,10 @@ function getBearerToken(req) {
 }
 
 async function verifyProviderJwt(token) {
-  if (!AUTH_JWT_SECRET) throw new Error('AUTH_JWT_SECRET is required for AUTH_MODE=provider')
+  const secretValue = AUTH_PROVIDER === 'supabase' ? (SUPABASE_JWT_SECRET || AUTH_JWT_SECRET) : AUTH_JWT_SECRET
+  if (!secretValue) throw new Error('AUTH_JWT_SECRET or SUPABASE_JWT_SECRET is required for AUTH_MODE=provider')
 
-  const secret = new TextEncoder().encode(AUTH_JWT_SECRET)
+  const secret = new TextEncoder().encode(secretValue)
   const verifyOptions = {}
   if (AUTH_JWT_ISSUER) verifyOptions.issuer = AUTH_JWT_ISSUER
   if (AUTH_JWT_AUDIENCE) verifyOptions.audience = AUTH_JWT_AUDIENCE
@@ -96,7 +98,9 @@ export function getAuthSummary() {
     provider: AUTH_PROVIDER,
     supportsHostedAuth: AUTH_MODE === 'provider',
     developmentBypass: AUTH_MODE === 'mock',
-    tokenVerification: AUTH_MODE === 'provider' ? 'jwt-hs256' : 'none'
+    tokenVerification: AUTH_MODE === 'provider'
+      ? (AUTH_PROVIDER === 'supabase' ? 'supabase-jwt' : 'jwt-hs256')
+      : 'none'
   }
 }
 

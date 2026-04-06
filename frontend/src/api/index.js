@@ -1,10 +1,14 @@
 // Dev: use Vite proxy (`/api` → api :3000). Prod: set VITE_API_BASE to your API origin + /api
+import { getAccessToken } from '@/stores/auth'
+
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? '/api' : 'http://127.0.0.1:3000/api')
 const API_BEARER_TOKEN = import.meta.env.VITE_API_BEARER_TOKEN || ''
 
-function getMutationHeaders(extra = {}) {
+async function getAuthHeaders(extra = {}) {
   const headers = { ...extra }
-  if (API_BEARER_TOKEN) headers.Authorization = `Bearer ${API_BEARER_TOKEN}`
+  const accessToken = await getAccessToken()
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+  else if (API_BEARER_TOKEN) headers.Authorization = `Bearer ${API_BEARER_TOKEN}`
   return headers
 }
 
@@ -137,7 +141,9 @@ export async function checkHealth() {
 
 export async function fetchMe() {
   try {
-    const response = await fetch(`${API_BASE}/me`)
+    const response = await fetch(`${API_BASE}/me`, {
+      headers: await getAuthHeaders()
+    })
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
     const result = await response.json()
@@ -206,7 +212,7 @@ export async function cancelOrder(orderId) {
   try {
     const response = await fetch(`${API_BASE}/orders/${orderId}`, {
       method: 'DELETE',
-      headers: getMutationHeaders()
+      headers: await getAuthHeaders()
     })
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
@@ -222,7 +228,7 @@ export async function cancelOrder(orderId) {
 export async function postMarketOrder(symbol, qty, side) {
   const response = await fetch(`${API_BASE}/orders`, {
     method: 'POST',
-    headers: getMutationHeaders({ 'Content-Type': 'application/json' }),
+    headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       symbol: String(symbol).trim().toUpperCase(),
       qty: Number(qty),

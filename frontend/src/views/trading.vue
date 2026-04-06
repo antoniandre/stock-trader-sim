@@ -170,7 +170,7 @@ import { useWebSocket } from '@/composables/web-socket'
 import { formatCurrency } from '@/utils/formatters'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
-import TradeDeckLogo from '@/components/tradedeck-logo.vue'
+import TradeDeckLogo from '@/components/app-logo.vue'
 
 const $waveui = inject('$waveui')
 const stocks = ref([])

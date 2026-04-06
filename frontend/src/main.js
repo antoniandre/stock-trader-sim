@@ -5,6 +5,7 @@ import router from './router'
 import WaveUI from 'wave-ui'
 import 'wave-ui/dist/wave-ui.css'
 import { Icon } from '@iconify/vue'
+import { initAuth } from './stores/auth'
 
 const app = createApp(App)
 app.use(router)
@@ -31,4 +32,5 @@ app.use(WaveUI, {
 })
 app.component('Icon', Icon)
 
+initAuth()
 app.mount('#app')
