@@ -1,5 +1,6 @@
 import express from 'express'
 import { createHttpLogger, logger } from './logger.js'
+import { evaluateDayTradingDecision, RISK_PROFILES } from './day-trading-bot.js'
 import { state, IS_SIMULATION, getTradingEnvironmentLabel, API_BEARER_TOKEN, FEATURE_FLAGS } from './config.js'
 import { attachUser, requireUser, requireEntitlement, getAuthSummary } from './auth.js'
 import { getBrokerIdentity, getBrokerCapabilities } from './services/broker-manager.js'
@@ -58,6 +59,23 @@ export function createRestApiRoutes() {
       user: req.user,
       auth: getAuthSummary()
     }))
+  })
+
+  app.post('/api/bot/day-trading/decision', requireUser, (req, res) => {
+    try {
+      const decision = evaluateDayTradingDecision(req.body || {})
+      res.json(createStandardResponse({
+        decision,
+        availableRiskProfiles: Object.keys(RISK_PROFILES)
+      }))
+    }
+    catch (error) {
+      logger.error({ err: error }, 'failed to evaluate day-trading decision')
+      res.status(400).json({
+        error: 'Bad Request',
+        message: error.message || 'Unable to evaluate day-trading decision.'
+      })
+    }
   })
 
   // Top movers endpoint (gainers/losers).
