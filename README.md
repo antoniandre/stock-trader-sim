@@ -106,6 +106,12 @@ pnpm dev
 | `FEATURE_LIMIT_ORDERS` | Enable limit order flows | `false` |
 | `FEATURE_STOP_ORDERS` | Enable stop order flows | `false` |
 | `FEATURE_API_ACCESS` | Enable partner/pro API surfaces | `false` |
+| `AUTH_MODE` | Auth behavior: `off`, `mock`, `provider` | `off` |
+| `AUTH_PROVIDER` | Hosted auth provider label for future integration | `mock` |
+| `DEV_AUTH_USER_ID` | Local mock-auth user id | `dev-user` |
+| `DEV_AUTH_EMAIL` | Local mock-auth email | `dev@example.com` |
+| `DEV_AUTH_NAME` | Local mock-auth display name | `Dev User` |
+| `DEV_AUTH_PLAN` | Local mock-auth plan: `free\|pro\|team` | `pro` |
 | `FEATURE_ALERTS` | Enable alerts features | `false` |
 | `FEATURE_BOTS` | Enable automation/bot features | `false` |
 | `PORT` | Server port | `3000` |
@@ -129,7 +135,7 @@ pnpm dev
 ### REST API
 - `GET /api/portfolio` — Local/sim portfolio and trade history
 - `GET /api/dashboard` — Account, positions, orders, history (Alpaca path)
-- `GET /api/agent/snapshot` — Compact JSON for scripts / AI assistants
+- `GET /api/agent/snapshot` — Compact JSON for scripts / AI assistants (**requires authenticated Pro/Team entitlement when auth is enabled**)
 - `POST /api/orders` — Place a **market** order (`{ "symbol", "qty", "side": "buy"|"sell", "type": "market" }`)
 - `GET /api/health` — Health check; includes `effectiveSimulation` (matches server logic) and `simulationReason`
 
@@ -215,6 +221,8 @@ FEATURE_BOTS=false
 
 Current note:
 - `GET /api/health` exposes `featureFlags` so the frontend and operators can inspect enabled capabilities.
+- `GET /api/health`, `GET /api/agent/snapshot`, and `GET /api/me` now also expose auth/identity metadata for auth-first Phase 6 work.
+- `GET /api/agent/snapshot` is the first route gated by entitlement middleware when auth is enabled.
 - The current UI fully supports market orders; limit/stop are still intentionally disabled by default.
 
 ## 📈 Scaling Considerations

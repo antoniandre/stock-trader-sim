@@ -1,7 +1,7 @@
 import express from 'express'
 import { createHttpLogger, logger } from './logger.js'
 import { state, IS_SIMULATION, getTradingEnvironmentLabel, API_BEARER_TOKEN, FEATURE_FLAGS } from './config.js'
-import { attachUser, requireUser, getAuthSummary } from './auth.js'
+import { attachUser, requireUser, requireEntitlement, getAuthSummary } from './auth.js'
 import { getBrokerIdentity, getBrokerCapabilities } from './services/broker-manager.js'
 import { getMarketDataIdentity, getMarketDataCapabilities, getMarketDataProvider } from './services/market-data-manager.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
@@ -842,7 +842,9 @@ export function createRestApiRoutes() {
   })
 
   // Compact read-only bundle for local AI agents (OpenClaw, scripts, MCP bridges).
-  app.get('/api/agent/snapshot', async (req, res) => {
+  app.get('/api/agent/snapshot', requireEntitlement('apiAccess', {
+    message: 'API snapshot access requires a Pro or Team plan.'
+  }), async (req, res) => {
     try {
       const baseUrl = process.env.STOCK_TRADER_API_BASE || `http://localhost:${process.env.PORT || 3000}/api`
 

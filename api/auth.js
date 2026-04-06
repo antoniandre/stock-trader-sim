@@ -89,3 +89,27 @@ export function requireUser(req, res, next) {
 
   next()
 }
+
+export function requireEntitlement(entitlement, options = {}) {
+  const { message = 'This feature requires a higher plan.' } = options
+
+  return function entitlementMiddleware(req, res, next) {
+    if (!req.user) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Sign in required.'
+      })
+    }
+
+    if (!req.user.entitlements?.[entitlement]) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message,
+        requiredEntitlement: entitlement,
+        currentPlan: req.user.plan
+      })
+    }
+
+    next()
+  }
+}
