@@ -148,7 +148,11 @@ const userDisplayName = computed(() => {
 })
 
 const userSecondaryLine = computed(() => {
-  if (!currentUser.value) return authState.enabled ? 'Sign in required' : 'Supabase auth unavailable'
+  if (!currentUser.value) {
+    if (!authState.enabled) return 'Supabase auth unavailable'
+    if (!authState.ready) return 'Checking session'
+    return 'Sign in required'
+  }
 
   return currentUser.value.email || `${String(currentUser.value.plan || 'free').toUpperCase()} plan`
 })
@@ -174,7 +178,7 @@ const authModeLabel = computed(() => {
 })
 
 const showAuthActions = computed(() => authState.enabled)
-const authActionLabel = computed(() => authState.user ? 'Manage account' : 'Sign in or sign up')
+const authActionLabel = computed(() => authState.user ? 'Manage account' : 'Sign in to continue')
 
 async function handleSignOut() {
   await signOut()

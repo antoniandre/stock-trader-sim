@@ -39,6 +39,8 @@ const router = useRouter()
 const mode = computed(() => route.query.mode === 'signup' ? 'signup' : 'signin')
 const heading = computed(() => mode.value === 'signup' ? 'Create your account' : 'Welcome back')
 const statusMessage = computed(() => {
+  if (!authState.enabled) return 'Supabase auth is not configured in this frontend environment yet.'
+  if (!authState.ready) return 'Checking your TradeDeck session...'
   if (authState.user) return 'You are already signed in.'
   if (mode.value === 'signup') return 'Create an account to unlock the TradeDeck workspace.'
   return 'Sign in to continue where you left off.'

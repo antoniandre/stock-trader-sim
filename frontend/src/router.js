@@ -53,7 +53,14 @@ const router = createRouter({
 router.beforeEach(async to => {
   if (!to.meta.requiresAuth || !requiresAuth()) return true
 
-  if (!authState.ready) return true
+  if (!authState.ready && to.name !== 'auth') {
+    rememberAuthRedirect(to.fullPath)
+    return {
+      name: 'auth',
+      query: { mode: 'signin' }
+    }
+  }
+
   if (isAuthenticated()) return true
 
   rememberAuthRedirect(to.fullPath)
