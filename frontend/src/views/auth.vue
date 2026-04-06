@@ -11,13 +11,11 @@
       li Auth-aware trading workspace
       li Fast access to TradeDeck from any signed-in device
 
-  .auth-view__status(v-if="statusMessage")
-    icon(icon="mdi:information-outline")
-    span {{ statusMessage }}
-
   .auth-view__card
+    .auth-view__status(v-if="statusMessage")
+      icon(icon="mdi:information-outline")
+      span {{ statusMessage }}
 
-  .auth-view__card
     auth-panel(
       :mode="mode"
       :show-sign-out="Boolean(authState.user)"
@@ -68,9 +66,9 @@ async function handleSignOut() {
 .auth-view {
   min-height: calc(100vh - 8rem);
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 420px);
+  grid-template-columns: minmax(360px, 1.1fr) minmax(320px, 420px);
   gap: 2rem;
-  align-items: center;
+  align-items: start;
 }
 
 .auth-view__hero,
@@ -84,8 +82,7 @@ async function handleSignOut() {
 .auth-view__hero {
   display: grid;
   gap: 1rem;
-  min-height: 100%;
-  align-content: center;
+  align-content: start;
 }
 
 .auth-view__eyebrow {
@@ -111,6 +108,8 @@ async function handleSignOut() {
 .auth-view__card {
   display: grid;
   gap: 1rem;
+  position: sticky;
+  top: 1rem;
 }
 
 .auth-view__footer {

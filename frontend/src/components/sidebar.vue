@@ -148,7 +148,7 @@ const userDisplayName = computed(() => {
 })
 
 const userSecondaryLine = computed(() => {
-  if (!currentUser.value) return authSummary.value?.enabled ? 'Authentication required' : 'Auth disabled'
+  if (!currentUser.value) return authState.enabled ? 'Sign in required' : 'Supabase auth unavailable'
 
   return currentUser.value.email || `${String(currentUser.value.plan || 'free').toUpperCase()} plan`
 })
@@ -166,12 +166,14 @@ const userInitials = computed(() => {
 })
 
 const authModeLabel = computed(() => {
-  if (!authSummary.value?.enabled) return ''
-  const provider = authSummary.value.provider || 'auth'
-  return `${provider} · ${(currentUser.value?.plan || 'free').toUpperCase()}`
+  if (!authState.enabled) return ''
+  const provider = authSummary.value?.provider || 'supabase'
+  return currentUser.value
+    ? `${provider} · ${(currentUser.value?.plan || 'free').toUpperCase()}`
+    : `${provider} auth`
 })
 
-const showAuthActions = computed(() => authState.enabled && authSummary.value?.provider === 'supabase')
+const showAuthActions = computed(() => authState.enabled)
 const authActionLabel = computed(() => authState.user ? 'Manage account' : 'Sign in or sign up')
 
 async function handleSignOut() {
@@ -186,7 +188,7 @@ async function loadCurrentUser() {
     authSummary.value = me.auth || null
   }
   catch (error) {
-    currentUser.value = null
+    currentUser.value = authState.user || null
 
     try {
       const health = await checkHealth()
@@ -194,7 +196,9 @@ async function loadCurrentUser() {
       currentUser.value = health.data?.currentUser || health.currentUser || authState.user || null
     }
     catch {
-      authSummary.value = null
+      authSummary.value = authState.enabled
+        ? { enabled: true, provider: 'supabase' }
+        : null
     }
   }
 }
