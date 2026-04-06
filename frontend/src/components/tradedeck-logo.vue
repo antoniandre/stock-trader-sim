@@ -3,10 +3,15 @@
   .trade-deck-logo__mark
     .trade-deck-logo__layer.trade-deck-logo__layer--back
     .trade-deck-logo__layer.trade-deck-logo__layer--mid
-    .trade-deck-logo__layer.trade-deck-logo__layer--front
-      .trade-deck-logo__glyph
-        .trade-deck-logo__glyph-stem
-        .trade-deck-logo__glyph-accent
+    .trade-deck-logo__disc
+      svg.trade-deck-logo__glyph(viewBox="0 0 64 64" aria-hidden="true")
+        defs
+          linearGradient#tradeDeckGlyphGradient(x1="20" y1="44" x2="44" y2="18" gradientUnits="userSpaceOnUse")
+            stop(offset="0" stop-color="#4F7CFF")
+            stop(offset="1" stop-color="#35D6D0")
+        path.trade-deck-logo__glyph-stroke(d="M24 42L34 28")
+        path.trade-deck-logo__glyph-stroke(d="M24 42H39")
+        circle.trade-deck-logo__glyph-dot(cx="24" cy="42" r="3")
   .trade-deck-logo__wordmark(v-if="showWordmark")
     .trade-deck-logo__name TradeDeck
     .trade-deck-logo__tagline(v-if="showTagline") The modern trading workspace.
@@ -73,11 +78,14 @@ const props = defineProps({
   flex-shrink: 0;
 }
 
-.trade-deck-logo__layer {
+.trade-deck-logo__layer,
+.trade-deck-logo__disc {
   position: absolute;
   inset: 0;
-  border-radius: 999px;
+  border-radius: 100%;
+}
 
+.trade-deck-logo__layer {
   &--back {
     transform: translate(-8px, -8px);
     background: rgba(15, 23, 42, 0.10);
@@ -87,45 +95,32 @@ const props = defineProps({
     transform: translate(-4px, -4px);
     background: rgba(15, 23, 42, 0.16);
   }
+}
 
-  &--front {
-    background: #0F172A;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-  }
+.trade-deck-logo__disc {
+  background: #0F172A;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .trade-deck-logo__glyph {
-  position: relative;
-  width: 58%;
-  height: 58%;
+  width: 60%;
+  height: 60%;
+  overflow: visible;
 }
 
-.trade-deck-logo__glyph-stem,
-.trade-deck-logo__glyph-accent {
-  position: absolute;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #3B82F6 0%, #2DD4BF 100%);
+.trade-deck-logo__glyph-stroke {
+  fill: none;
+  stroke: url(#tradeDeckGlyphGradient);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.trade-deck-logo__glyph-stem {
-  width: 16%;
-  height: 74%;
-  left: 56%;
-  top: 6%;
-  transform: rotate(38deg);
-  transform-origin: top center;
-}
-
-.trade-deck-logo__glyph-accent {
-  width: 38%;
-  height: 14%;
-  left: 18%;
-  top: 48%;
-  transform: rotate(46deg);
-  transform-origin: center;
+.trade-deck-logo__glyph-dot {
+  fill: #4F7CFF;
 }
 
 .trade-deck-logo__wordmark {
