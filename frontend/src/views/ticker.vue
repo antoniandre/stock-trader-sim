@@ -51,6 +51,14 @@
         :has-position="!!currentPosition"
         :initial-side="currentPosition ? 'sell' : 'buy'")
 
+      DayTradingBotPanel.mt4(
+        :decision="botDecision"
+        :loading="botLoading"
+        :error="botError"
+        :selected-risk-profile="selectedRiskProfile"
+        @refresh="refreshBotDecision"
+        @update:risk-profile="onRiskProfileChange")
+
       //- Open Orders
       .glass-box.mt4.pa6.pt4(v-if="openOrders.length")
         .title2.mb4 Open Orders
@@ -166,7 +174,7 @@
 
 <script setup>
 import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
-import { fetchTicker, fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange } from '@/api'
+import { fetchTicker, fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange, fetchDayTradingDecision } from '@/api'
 import { formatPercentage, formatCurrency } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
 import PriceChart from '@/components/price-chart.vue'
@@ -175,6 +183,7 @@ import TradingInterface from '@/components/trading-interface.vue'
 import TickerHeader from '@/components/ticker-header.vue'
 import TickerPrice from '@/components/ticker-price.vue'
 import DraggableTradingInterface from '@/components/draggable-trading-interface.vue'
+import DayTradingBotPanel from '@/components/day-trading-bot-panel.vue'
 
 const props = defineProps({
   symbol: { type: String, required: true }
@@ -217,6 +226,10 @@ const tradingInterfaceSide = ref('buy')
 const isLoadingHistoricalData = ref(false)
 const positions = ref([])
 const orders = ref([])
+const selectedRiskProfile = ref('balanced')
+const botDecision = ref(null)
+const botLoading = ref(false)
+const botError = ref('')
 let marketStatusInterval = null
 
 // Dynamic Loading State
@@ -1589,6 +1602,42 @@ function onToggleTrading(side) {
 
 // Lifecycle
 // --------------------------------------------------------
+async function refreshBotDecision() {
+  if (!stock.symbol || !historicalData.value?.length) return
+
+  botLoading.value = true
+  botError.value = ''
+  try {
+    const closes = historicalData.value.map(item => Number(item?.close)).filter(Number.isFinite)
+    const volumes = historicalData.value.map(item => Number(item?.volume)).filter(Number.isFinite)
+
+    const { decision } = await fetchDayTradingDecision({
+      symbol: stock.symbol,
+      riskProfile: selectedRiskProfile.value,
+      currentPrice: stock.price,
+      prices: closes,
+      volumes,
+      currentVolume: volumes.at(-1),
+      spreadPct: 0.08,
+      positionQty: currentPosition.value ? Number(currentPosition.value.qty || 0) : 0,
+      avgEntryPrice: currentPosition.value ? Number(currentPosition.value.avg_entry_price || currentPosition.value.avgEntryPrice || 0) : 0
+    })
+
+    botDecision.value = decision
+  }
+  catch (error) {
+    botError.value = error.message || 'Unable to generate bot decision.'
+  }
+  finally {
+    botLoading.value = false
+  }
+}
+
+function onRiskProfileChange(value) {
+  selectedRiskProfile.value = value
+  refreshBotDecision()
+}
+
 onMounted(async () => {
   setupWebSocket()
   connect()
@@ -1600,6 +1649,7 @@ onMounted(async () => {
   // Use batch endpoint to fetch stock + position + orders + market status in one call.
   // Market status is included in ticker data, so we don't need a separate call.
   await Promise.all([fetchTickerData(), fetchHistoricalData()])
+  await refreshBotDecision()
   startMarketStatusMonitoring()
 })
 
@@ -1652,9 +1702,15 @@ watch(() => stock.symbol, async (newSymbol, oldSymbol) => {
 
   // Fetch new data using batch endpoint.
   await Promise.all([fetchTickerData(), fetchHistoricalData()])
+  await refreshBotDecision()
 }, { immediate: false })
 
+watch(() => currentPosition.value, () => {
+  refreshBotDecision()
+})
+
 watch(() => historicalData.value.length, (newLength, oldLength) => {
+  if (newLength > 0) refreshBotDecision()
   if (newLength > oldLength) console.log(`📊 Added ${newLength - oldLength} historical data points`)
 })
 </script>
