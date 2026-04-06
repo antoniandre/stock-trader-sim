@@ -8,10 +8,10 @@
     "smoke:sim-order": "node scripts/smoke-sim-order.mjs"
   },
   "dependencies": {
-    "axios": "^1.6.7",
+    "axios": "^1.14.0",
     "dotenv": "^16.4.1",
     "eventsource": "^2.0.2",
-    "express": "^4.19.2",
+    "express": "^4.22.1",
     "pino": "^9.14.0",
     "pino-http": "^10.5.0",
     "ws": "^8.16.0"
