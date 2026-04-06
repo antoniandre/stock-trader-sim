@@ -1,6 +1,7 @@
 import express from 'express'
 import { createHttpLogger, logger } from './logger.js'
 import { state, IS_SIMULATION, getTradingEnvironmentLabel, API_BEARER_TOKEN, FEATURE_FLAGS } from './config.js'
+import { attachUser, requireUser, getAuthSummary } from './auth.js'
 import { getBrokerIdentity, getBrokerCapabilities } from './services/broker-manager.js'
 import { getMarketDataIdentity, getMarketDataCapabilities, getMarketDataProvider } from './services/market-data-manager.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
@@ -22,6 +23,7 @@ export function createRestApiRoutes() {
     res.setHeader('X-Request-Id', req.id)
     next()
   })
+  app.use(attachUser)
 
   // CORS middleware.
   app.use((req, res, next) => {
@@ -49,6 +51,13 @@ export function createRestApiRoutes() {
 
     next()
   }
+
+  app.get('/api/me', requireUser, (req, res) => {
+    res.json(createStandardResponse({
+      user: req.user,
+      auth: getAuthSummary()
+    }))
+  })
 
   // Top movers endpoint (gainers/losers).
   app.get('/api/movers', async (req, res) => {
@@ -766,6 +775,14 @@ export function createRestApiRoutes() {
       marketDataProvider,
       marketDataCapabilities,
       featureFlags: FEATURE_FLAGS,
+      auth: getAuthSummary(),
+      currentUser: req.user
+        ? {
+            id: req.user.id,
+            plan: req.user.plan,
+            authProvider: req.user.authProvider
+          }
+        : null,
       riskNotice:
         tradingEnvironment === 'simulation'
           ? 'Simulation — mock prices and local portfolio only.'
@@ -859,6 +876,14 @@ export function createRestApiRoutes() {
         apiBase: baseUrl,
         mode: IS_SIMULATION ? 'simulation' : 'live',
         tradingEnvironment: getTradingEnvironmentLabel(),
+        auth: getAuthSummary(),
+        currentUser: req.user
+          ? {
+              id: req.user.id,
+              plan: req.user.plan,
+              authProvider: req.user.authProvider
+            }
+          : null,
         server: {
           connectedWebSocketClients: state.wsClients.size,
           tradableStocksLoaded: state.allStocks.length
