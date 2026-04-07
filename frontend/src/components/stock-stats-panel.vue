@@ -55,7 +55,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { formatCurrency, formatVolumeWithSuffixes } from '@/utils/formatters'
+import { formatCurrency, formatPrice, formatVolumeWithSuffixes } from '@/utils/formatters'
 
 const props = defineProps({
   stock: { type: Object, required: true },
@@ -223,56 +223,68 @@ const weekRange = computed(() => {
   }
 })
 
-// Financial calculations organized semantically.
+// Financial calculations from available OHLCV data.
 const financial = computed(() => {
-  const calculateVolume = () => {
-    if (!props.historicalData || props.historicalData.length === 0) return 'N/A'
+  const sym = currencySymbol.value
 
+  const prevClose = (() => {
+    if (!props.historicalData || props.historicalData.length === 0) return 'N/A'
+    const last = props.historicalData[props.historicalData.length - 1]
+    const val = last.close || last.price
+    return val > 0 ? `${sym}${formatPrice(val)}` : 'N/A'
+  })()
+
+  const todayOpen = (() => {
+    const today = new Date().toISOString().split('T')[0]
+    const todayStart = new Date(today).getTime()
+    const todayBars = props.intradayData.filter(item => new Date(item.timestamp).getTime() >= todayStart)
+    if (todayBars.length > 0) {
+      const val = todayBars[0].open || todayBars[0].price || todayBars[0].close
+      return val > 0 ? `${sym}${formatPrice(val)}` : 'N/A'
+    }
+    return 'N/A'
+  })()
+
+  const avgVolume = (() => {
+    if (!props.historicalData || props.historicalData.length === 0) return 'N/A'
     const volumes = props.historicalData
       .filter(item => item.volume && item.volume > 0)
       .map(item => item.volume)
-
     if (volumes.length === 0) return 'N/A'
+    return formatVolumeWithSuffixes(volumes.reduce((sum, v) => sum + v, 0) / volumes.length)
+  })()
 
-    const avgVolume = volumes.reduce((sum, vol) => sum + vol, 0) / volumes.length
-    return formatVolumeWithSuffixes(avgVolume)
-  }
-
-  const calculateMarketCap = () => {
-    return 'N/A'
-  }
-
-  // Calculate volatility from price data.
-  const calculateVolatility = () => {
+  const volatility = (() => {
     if (!props.historicalData || props.historicalData.length < 2) return 'N/A'
+    const prices = props.historicalData.map(item => item.close || item.price).filter(p => p > 0)
+    if (prices.length < 2) return 'N/A'
 
-    const prices = props.historicalData.map(item => item.close || item.price)
     const returns = []
-
     for (let i = 1; i < prices.length; i++) {
-      const dailyReturn = (prices[i] - prices[i-1]) / prices[i-1]
-      returns.push(dailyReturn)
+      returns.push((prices[i] - prices[i - 1]) / prices[i - 1])
     }
+    const avg = returns.reduce((s, r) => s + r, 0) / returns.length
+    const variance = returns.reduce((s, r) => s + (r - avg) ** 2, 0) / returns.length
+    return (Math.sqrt(variance) * Math.sqrt(252) * 100).toFixed(1) + '%'
+  })()
 
-    if (returns.length === 0) return 'N/A'
+  const todayVolume = (() => {
+    const today = new Date().toISOString().split('T')[0]
+    const todayStart = new Date(today).getTime()
+    const todayBars = props.intradayData.filter(item => new Date(item.timestamp).getTime() >= todayStart)
+    const total = todayBars.reduce((sum, bar) => sum + (bar.volume || 0), 0)
+    return total > 0 ? formatVolumeWithSuffixes(total) : 'N/A'
+  })()
 
-    const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length
-    const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length
-    const volatility = Math.sqrt(variance) * Math.sqrt(252) * 100 // Annualized volatility.
-
-    return volatility.toFixed(1) + '%'
-  }
-
-  // Financial metrics with real/calculated data where possible.
   const metrics = [
-    { label: 'VOLATILITY', value: calculateVolatility(), colorClass: '' },
-    { label: 'MARKET CAP', value: calculateMarketCap(), colorClass: '' },
-    { label: 'AVERAGE VOLUME', value: calculateVolume(), colorClass: '' },
-    { label: 'P/E RATIO', value: 'N/A', colorClass: '' },
-    { label: 'DIVIDEND YIELD', value: 'N/A', colorClass: '' }
+    { label: 'PREV CLOSE', value: prevClose, colorClass: '' },
+    { label: 'OPEN', value: todayOpen, colorClass: '' },
+    { label: 'VOLUME', value: todayVolume, colorClass: '' },
+    { label: 'AVG VOLUME', value: avgVolume, colorClass: '' },
+    { label: 'VOLATILITY', value: volatility, colorClass: '' }
   ]
 
-  return { volume: calculateVolume, marketCap: calculateMarketCap, volatility: calculateVolatility, metrics }
+  return { metrics }
 })
 
 // Expose financial metrics for template.
