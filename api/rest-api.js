@@ -67,11 +67,21 @@ export function createRestApiRoutes() {
     }))
   })
 
+  async function safeRecordStrategyRun(event) {
+    try {
+      return await recordStrategyRun(event)
+    }
+    catch (error) {
+      logger.warn({ err: error, type: event?.type, symbol: event?.symbol }, 'strategy run capture failed, continuing without capture')
+      return null
+    }
+  }
+
   app.post('/api/bot/day-trading/decision', async (req, res) => {
     try {
       const input = req.body || {}
       const decision = evaluateDayTradingDecision(input)
-      const capture = await recordStrategyRun({
+      const capture = await safeRecordStrategyRun({
         type: 'day-trading-decision',
         symbol: input.symbol,
         riskProfile: input.riskProfile,
@@ -105,7 +115,7 @@ export function createRestApiRoutes() {
     try {
       const input = req.body || {}
       const backtest = runDayTradingBacktest(input)
-      const capture = await recordStrategyRun({
+      const capture = await safeRecordStrategyRun({
         type: 'day-trading-backtest',
         symbol: input.symbol,
         riskProfile: input.riskProfile,
@@ -138,7 +148,7 @@ export function createRestApiRoutes() {
     try {
       const input = req.body || {}
       const evolution = evolveTradingStrategies(input)
-      const capture = await recordStrategyRun({
+      const capture = await safeRecordStrategyRun({
         type: 'day-trading-evolution',
         symbol: input.symbol,
         riskProfile: input.riskProfile,

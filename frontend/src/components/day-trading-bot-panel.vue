@@ -4,7 +4,7 @@
     div
       .text-upper.size--xs.op6 Trading intelligence
       .title2.mt1 Bot command center
-    w-tag(round sm :bg-color="regimeColor") {{ decision?.marketRegime || 'idle' }}
+    w-tag(round sm :bg-color="statusTone") {{ statusLabel }}
 
   p.mt2.mb1.op7 {{ summaryText }}
   .size--sm.op6(v-if="decision") Profile tuned for {{ selectedRiskProfile }} execution.
@@ -216,12 +216,21 @@ defineEmits(['refresh', 'update:risk-profile', 'run-backtest', 'run-evolution'])
 const riskProfiles = ['conservative', 'balanced', 'aggressive']
 
 const summaryText = computed(() => {
-  if (props.error) return 'The bot could not generate a decision yet.'
+  if (props.loading) return 'Refreshing the latest bot read for this ticker.'
+  if (props.error) return 'Bot signals are temporarily unavailable. You can still trade manually and retry once the API settles.'
   if (!props.decision) return 'Load a decision to see whether the setup looks actionable, defensive, or best left alone.'
   return `Current bias: ${props.decision.action} with ${props.decision.confidence}% confidence.`
 })
 
-const regimeColor = computed(() => {
+const statusLabel = computed(() => {
+  if (props.loading) return 'syncing'
+  if (props.error) return 'degraded'
+  return props.decision?.marketRegime || 'ready'
+})
+
+const statusTone = computed(() => {
+  if (props.loading) return 'info'
+  if (props.error) return 'error'
   const regime = props.decision?.marketRegime
   if (regime === 'trend') return 'success'
   if (regime === 'breakout') return 'warning'

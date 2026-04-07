@@ -1646,7 +1646,8 @@ async function refreshBotDecision() {
     botDecision.value = decision
   }
   catch (error) {
-    botError.value = error.message || 'Unable to generate bot decision.'
+    botDecision.value = null
+    botError.value = formatBotError(error, 'Unable to generate bot decision.')
   }
   finally {
     botLoading.value = false
@@ -1694,7 +1695,9 @@ async function runBacktest() {
     backtestComparisons.value = comparisonResults
   }
   catch (error) {
-    backtestError.value = error.message || 'Unable to run backtest.'
+    backtestResult.value = null
+    backtestComparisons.value = []
+    backtestError.value = formatBotError(error, 'Unable to run backtest.')
   }
   finally {
     backtestLoading.value = false
@@ -1724,11 +1727,24 @@ async function runEvolution() {
     evolutionResult.value = { ...evolution, captureId: capture?.id || null }
   }
   catch (error) {
-    evolutionError.value = error.message || 'Unable to evolve strategies.'
+    evolutionResult.value = null
+    evolutionError.value = formatBotError(error, 'Unable to evolve strategies.')
   }
   finally {
     evolutionLoading.value = false
   }
+}
+
+function formatBotError(error, fallback) {
+  const message = String(error?.message || '').trim()
+  if (!message) return fallback
+  if (message.toLowerCase() === 'internal server error') {
+    return 'The bot service hit a backend error. Please retry in a moment.'
+  }
+  if (message.startsWith('HTTP 5')) {
+    return 'The bot service is temporarily unavailable. Please retry in a moment.'
+  }
+  return message
 }
 
 function onRiskProfileChange(value) {
