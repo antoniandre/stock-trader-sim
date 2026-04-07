@@ -20,7 +20,7 @@ export class SimulationBrokerAdapter extends BrokerAdapter {
       supportsCrypto: false,
       supportsOptions: false,
       supportsMarketOrders: true,
-      supportsLimitOrders: false,
+      supportsLimitOrders: true,
       supportsStopOrders: false,
       supportsFractionalShares: false,
       supportsExtendedHours: false,
@@ -63,7 +63,11 @@ export class SimulationBrokerAdapter extends BrokerAdapter {
 
   async submitOrder(input, _context = null) {
     const service = await getTradingService()
-    const order = await service.placeOrder(input?.symbol, input?.qty ?? input?.quantity, input?.side, 'market', { timeInForce: 'gtc' })
+    const type = input?.type || 'market'
+    const order = await service.placeOrder(input?.symbol, input?.qty ?? input?.quantity, input?.side, type, {
+      timeInForce: input?.time_in_force || input?.timeInForce || 'gtc',
+      limit_price: input?.limit_price ?? input?.limitPrice
+    })
     if (!order) return { success: false, error: 'Order was not accepted (simulation rejected it)' }
     return { success: true, order }
   }

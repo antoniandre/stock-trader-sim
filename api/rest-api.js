@@ -5,14 +5,15 @@ import { runDayTradingBacktest } from './day-trading-backtest.js'
 import { evolveTradingStrategies } from './strategy-evolution.js'
 import { state, IS_SIMULATION, getTradingEnvironmentLabel, API_BEARER_TOKEN, FEATURE_FLAGS } from './config.js'
 import { attachUser, requireUser, requireEntitlement, getAuthSummary } from './auth.js'
-import { getBrokerIdentity, getBrokerCapabilities } from './services/broker-manager.js'
+import { getBrokerAdapter, getBrokerIdentity, getBrokerCapabilities } from './services/broker-manager.js'
 import { getMarketDataIdentity, getMarketDataCapabilities, getMarketDataProvider } from './services/market-data-manager.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
 import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive, getTopMovers, fetchStockTrend, analyzeVolume } from './market-data.js'
-import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, getAlpacaOrders, placeOrder, submitMarketOrder } from './alpaca-account.js'
+import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, getAlpacaOrders, placeOrder } from './alpaca-account.js'
 import { broadcast } from './websocket-server.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse, sleep, withRateLimitBackoff } from './utils.js'
+import { normalizeOrderIntent, validateOrderIntent, estimateOrderNotional } from './domain/order-intent.js'
 
 // Express API Routes.
 // --------------------------------------------------------
@@ -394,24 +395,29 @@ export function createRestApiRoutes() {
       const marketDataProvider = await getMarketDataProvider()
 
       let price
+      let stale = false
       if (fresh === 'true') {
-        // Force fresh price fetch by clearing cache.
         delete state.stockPrices[symbol]
-        price = await marketDataProvider.getPrice(symbol)
-        console.log(`🔄 Fresh price fetch for ${symbol}: $${price.toFixed(2)}`)
-      }
-      else {
-        price = await marketDataProvider.getPrice(symbol)
       }
 
-      // Cache the price for future WebSocket updates.
-      if (price > 0) state.stockPrices[symbol] = price
+      try {
+        price = await marketDataProvider.getPrice(symbol)
+        if (price > 0) {
+          state.stockPrices[symbol] = price
+          if (fresh === 'true') console.log(`🔄 Fresh price fetch for ${symbol}: $${price.toFixed(2)}`)
+        }
+      }
+      catch (error) {
+        price = state.stockPrices[symbol] || 0
+        stale = price > 0
+        if (!stale) throw error
+      }
 
-      // Find stock data to get currency info.
       const stockData = state.allStocks.find(s => s.symbol === symbol)
       res.json(createStandardResponse({
         symbol,
         price,
+        stale,
         currency: stockData?.currency || 'USD',
         currencySymbol: stockData?.currencySymbol || '$'
       }))
@@ -436,8 +442,17 @@ export function createRestApiRoutes() {
           const stock = stocks.find(s => s.symbol === symbol)
           if (!stock) return null
 
-          const price = await marketDataProvider.getPrice(symbol)
-          if (price > 0) state.stockPrices[symbol] = price
+          let price = state.stockPrices[symbol] || 0
+          try {
+            const freshPrice = await marketDataProvider.getPrice(symbol)
+            if (freshPrice > 0) {
+              price = freshPrice
+              state.stockPrices[symbol] = freshPrice
+            }
+          }
+          catch (error) {
+            console.warn(`⚠️ Falling back to cached price for ${symbol}:`, error.message)
+          }
 
           let marketStatus
           try {
@@ -857,42 +872,125 @@ export function createRestApiRoutes() {
     }))
   })
 
-  // Place a market order (simulation or Alpaca paper/live per .env).
+  function buildOrderPayload(result) {
+    const o = result?.order || null
+    if (!o) return null
+
+    const rawQty = o.qty ?? o.filled_qty ?? o.quantity
+    const qtyNum = typeof rawQty === 'string' ? parseFloat(rawQty) : Number(rawQty)
+    const limitPrice = o.limit_price != null ? Number(o.limit_price) : undefined
+    const averagePrice = o.filled_avg_price != null ? Number(o.filled_avg_price) : undefined
+    const referencePrice = averagePrice ?? limitPrice ?? o.price ?? state.stockPrices[o.symbol]
+
+    return {
+      ...o,
+      qty: Number.isFinite(qtyNum) ? qtyNum : rawQty,
+      type: String(o.type || 'market').toLowerCase(),
+      limit_price: Number.isFinite(limitPrice) ? limitPrice : o.limit_price,
+      estimated_notional: Number.isFinite(Number(referencePrice)) && Number.isFinite(qtyNum)
+        ? Number((Number(referencePrice) * qtyNum).toFixed(2))
+        : null
+    }
+  }
+
+  async function getOrderPreview(input) {
+    const orderIntent = normalizeOrderIntent(input)
+    const validation = validateOrderIntent(orderIntent)
+    if (!validation.valid) {
+      return { statusCode: 400, body: { error: 'Invalid order request', details: validation.errors } }
+    }
+
+    const currentPrice = await getPrice(orderIntent.symbol).catch(() => 0)
+    const positions = await getAlpacaPositions().catch(() => [])
+    const position = Array.isArray(positions)
+      ? positions.find((item) => String(item.symbol || '').toUpperCase() === orderIntent.symbol) || null
+      : null
+    const estimatedNotional = estimateOrderNotional(orderIntent, currentPrice)
+
+    return {
+      statusCode: 200,
+      body: createStandardResponse({
+        order: {
+          symbol: orderIntent.symbol,
+          side: orderIntent.side,
+          type: orderIntent.type,
+          qty: orderIntent.qty,
+          limit_price: orderIntent.limitPrice,
+          stop_price: orderIntent.stopPrice,
+          time_in_force: orderIntent.timeInForce,
+          estimated_notional: estimatedNotional,
+          reference_price: currentPrice || null
+        },
+        position: position
+          ? {
+              symbol: position.symbol,
+              qty: Number(position.qty),
+              market_value: position.market_value,
+              current_price: position.current_price
+            }
+          : null
+      })
+    }
+  }
+
+  app.post('/api/orders/preview', requireMutationAuth, async (req, res) => {
+    try {
+      const preview = await getOrderPreview(req.body || {})
+      return res.status(preview.statusCode).json(preview.body)
+    }
+    catch (error) {
+      console.error('POST /api/orders/preview:', error)
+      return res.status(500).json({ error: 'Failed to preview order' })
+    }
+  })
+
+  // Place a market or limit order (simulation or Alpaca paper/live per .env).
   app.post('/api/orders', requireMutationAuth, async (req, res) => {
     try {
-      const { symbol, qty, quantity, side, type = 'market' } = req.body || {}
-      const amount = qty ?? quantity
-      if (String(type).toLowerCase() !== 'market') {
-        return res.status(400).json({ error: 'Only type=market is supported' })
+      const orderIntent = normalizeOrderIntent(req.body || {})
+      const validation = validateOrderIntent(orderIntent)
+      if (!validation.valid) {
+        return res.status(400).json({
+          error: 'Invalid order request',
+          details: validation.errors
+        })
       }
 
-      const result = await submitMarketOrder(symbol, amount, side)
+      const broker = await getBrokerAdapter()
+      const result = await broker.submitOrder({
+        symbol: orderIntent.symbol,
+        qty: orderIntent.qty,
+        side: orderIntent.side,
+        type: orderIntent.type,
+        limit_price: orderIntent.limitPrice,
+        stop_price: orderIntent.stopPrice,
+        time_in_force: orderIntent.timeInForce
+      })
       if (!result.success) {
-        return res.status(400).json(createStandardResponse({ error: result.error }))
+        return res.status(400).json({ error: result.error })
       }
 
-      const o = result.order
-      if (o?.symbol) {
-        const rawQty = o.qty ?? o.filled_qty ?? o.quantity
-        const qtyNum = typeof rawQty === 'string' ? parseFloat(rawQty) : Number(rawQty)
-        const price = o.price ?? o.filled_avg_price ?? state.stockPrices[o.symbol]
+      const payload = buildOrderPayload(result)
+      if (payload?.symbol) {
+        const price = payload.filled_avg_price ?? payload.limit_price ?? payload.price ?? state.stockPrices[payload.symbol]
         if (price != null && Number.isFinite(Number(price))) {
           broadcast({
             type: 'trade',
-            symbol: o.symbol,
-            qty: Number.isFinite(qtyNum) ? qtyNum : undefined,
-            side: String(o.side || req.body?.side || '').toLowerCase(),
+            symbol: payload.symbol,
+            qty: Number.isFinite(Number(payload.qty)) ? Number(payload.qty) : undefined,
+            side: String(payload.side || orderIntent.side || '').toLowerCase(),
+            orderType: payload.type,
             price: Number(price),
-            timestamp: o.timestamp || o.submitted_at || new Date().toISOString()
+            timestamp: payload.timestamp || payload.submitted_at || new Date().toISOString()
           })
         }
       }
 
-      res.json(createStandardResponse({ order: result.order }))
+      res.json(createStandardResponse({ order: payload || result.order }))
     }
     catch (error) {
       console.error('POST /api/orders:', error)
-      res.status(500).json({ error: 'Failed to place order' })
+      res.status(500).json({ error: error.message || 'Failed to place order' })
     }
   })
 
@@ -954,7 +1052,8 @@ export function createRestApiRoutes() {
           dashboard: 'GET /api/dashboard',
           movers: 'GET /api/movers',
           history: 'GET /api/stocks/:symbol/history?period=1D',
-          placeMarketOrder: 'POST /api/orders JSON { symbol, qty, side, type: "market" }'
+          placeOrder: 'POST /api/orders JSON { symbol, qty, side, type: "market" | "limit", limitPrice? }',
+          previewOrder: 'POST /api/orders/preview JSON { symbol, qty, side, type, limitPrice? }'
         }
       }))
     }

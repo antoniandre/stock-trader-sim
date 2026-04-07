@@ -468,20 +468,47 @@ function getGrowthPattern(period, progress, seed, i) {
 
 // Mock Trading Functions
 // --------------------------------------------------------
-export function mockPlaceOrder(symbol, qty, side, price) {
-  console.log(`🧪 [SIM] ${side.toUpperCase()} ${qty} ${symbol} @ $${price.toFixed(2)}`)
-  return recordTrade(symbol, qty, side, price)
+export function mockPlaceOrder(symbol, qty, side, orderConfig = {}) {
+  const type = String(orderConfig.type || 'market').toLowerCase()
+  const marketPrice = Number(orderConfig.price)
+  const limitPrice = orderConfig.limitPrice != null ? Number(orderConfig.limitPrice) : null
+
+  if (!Number.isFinite(marketPrice) || marketPrice <= 0) return null
+
+  const existingQty = Number(state.portfolio[symbol]?.qty || 0)
+  if (side === 'sell' && existingQty < qty) {
+    throw new Error(`Cannot sell ${qty} ${symbol} in simulation, only ${existingQty} shares available`)
+  }
+
+  if (type === 'limit') {
+    if (!Number.isFinite(limitPrice) || limitPrice <= 0) throw new Error('Limit price must be greater than 0 for limit orders')
+
+    const marketable = (side === 'buy' && limitPrice >= marketPrice) || (side === 'sell' && limitPrice <= marketPrice)
+    if (!marketable) {
+      throw new Error(`Simulation only fills immediately marketable limit orders. Current price is $${marketPrice.toFixed(2)}.`)
+    }
+  }
+
+  const executionPrice = type === 'limit' && Number.isFinite(limitPrice) ? limitPrice : marketPrice
+  console.log(`🧪 [SIM] ${side.toUpperCase()} ${qty} ${symbol} ${type.toUpperCase()} @ $${executionPrice.toFixed(2)}`)
+  return recordTrade(symbol, qty, side, executionPrice, {
+    type,
+    limit_price: Number.isFinite(limitPrice) ? limitPrice : undefined,
+    time_in_force: orderConfig.timeInForce || 'gtc',
+    status: 'filled'
+  })
 }
 
-export function recordTrade(symbol, qty, side, price) {
+export function recordTrade(symbol, qty, side, price, extra = {}) {
   const timestamp = new Date().toISOString()
 
   if (!state.portfolio[symbol]) state.portfolio[symbol] = { qty: 0, history: [] }
   if (side === 'buy') state.portfolio[symbol].qty += qty
   else if (side === 'sell') state.portfolio[symbol].qty -= qty
 
-  state.portfolio[symbol].history.push({ side, qty, price, timestamp })
-  return { side, symbol, qty, price, timestamp }
+  const tradeRecord = { side, symbol, qty, price, timestamp, ...extra }
+  state.portfolio[symbol].history.push(tradeRecord)
+  return tradeRecord
 }
 
 // Simulation Trading Logic

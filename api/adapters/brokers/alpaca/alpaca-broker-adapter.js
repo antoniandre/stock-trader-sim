@@ -31,14 +31,14 @@ export class AlpacaBrokerAdapter extends BrokerAdapter {
       supportsCrypto: false,
       supportsOptions: false,
       supportsMarketOrders: true,
-      supportsLimitOrders: false,
+      supportsLimitOrders: true,
       supportsStopOrders: false,
       supportsFractionalShares: false,
       supportsExtendedHours: false,
       supportsStreamingOrders: false,
       notes: [
-        'Current product wiring supports market orders only.',
-        'Additional order types should be exposed only after backend support is implemented.'
+        'Market and limit orders are supported in the current product wiring.',
+        'Stop orders remain hidden until backend and UX validation are implemented.'
       ]
     }
   }
@@ -79,6 +79,8 @@ export class AlpacaBrokerAdapter extends BrokerAdapter {
     const qty = Number(input?.qty ?? input?.quantity)
     const side = String(input?.side || '').toLowerCase()
     const type = String(input?.type || 'market').toLowerCase()
+    const limitPrice = Number(input?.limit_price ?? input?.limitPrice)
+    const timeInForce = input?.time_in_force || input?.timeInForce || 'gtc'
 
     if (!sym || !Number.isFinite(qty) || qty <= 0) {
       return { success: false, error: 'Invalid symbol or quantity' }
@@ -86,13 +88,19 @@ export class AlpacaBrokerAdapter extends BrokerAdapter {
     if (side !== 'buy' && side !== 'sell') {
       return { success: false, error: 'side must be buy or sell' }
     }
-    if (type !== 'market') {
-      return { success: false, error: 'Only type=market is supported' }
+    if (type !== 'market' && type !== 'limit') {
+      return { success: false, error: 'Only type=market and type=limit are supported' }
+    }
+    if (type === 'limit' && (!Number.isFinite(limitPrice) || limitPrice <= 0)) {
+      return { success: false, error: 'Limit price must be greater than 0 for limit orders' }
     }
 
     try {
       const service = await getTradingService()
-      const order = await service.placeOrder(sym, qty, side, 'market', { timeInForce: 'gtc' })
+      const order = await service.placeOrder(sym, qty, side, type, {
+        timeInForce,
+        limit_price: type === 'limit' ? limitPrice : undefined
+      })
       if (!order) {
         return { success: false, error: 'Order was not accepted (no price or broker rejection)' }
       }

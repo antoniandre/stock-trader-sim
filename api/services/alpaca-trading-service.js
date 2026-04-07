@@ -83,7 +83,12 @@ export class AlpacaTradingService extends TradingService {
     if (IS_SIMULATION) {
       const price = await getPriceImpl(symbol)
       if (!price) return null
-      return mockPlaceOrder(symbol, Math.abs(quantity), side, price)
+      return mockPlaceOrder(symbol, Math.abs(quantity), side, {
+        type,
+        price,
+        limitPrice: options.limit_price ?? options.limitPrice ?? null,
+        timeInForce: options.timeInForce || 'gtc'
+      })
     }
 
     try {

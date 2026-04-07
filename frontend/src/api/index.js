@@ -287,27 +287,51 @@ export async function cancelOrder(orderId) {
   }
 }
 
-/** Market order only; simulation or Alpaca per backend .env */
-export async function postMarketOrder(symbol, qty, side) {
-  const response = await fetch(`${API_BASE}/orders`, {
+function getErrorMessage(payload, fallback = 'Order failed') {
+  if (!payload) return fallback
+  if (typeof payload.error === 'string') return payload.error
+  if (typeof payload.message === 'string') return payload.message
+  if (Array.isArray(payload.details) && payload.details.length) return payload.details.join(', ')
+  if (typeof payload.data?.error === 'string') return payload.data.error
+  return fallback
+}
+
+export async function previewOrder(order) {
+  const response = await fetch(`${API_BASE}/orders/preview`, {
     method: 'POST',
     headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({
-      symbol: String(symbol).trim().toUpperCase(),
-      qty: Number(qty),
-      side: String(side).toLowerCase(),
-      type: 'market'
-    })
+    body: JSON.stringify(order)
   })
 
   const payload = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    const err = payload.error || payload.data?.error || payload.message || response.statusText
-    throw new Error(typeof err === 'string' ? err : 'Order failed')
+  if (!response.ok) throw new Error(getErrorMessage(payload, response.statusText))
+  return payload.data || payload
+}
+
+export async function postOrder(order) {
+  const normalized = {
+    symbol: String(order.symbol).trim().toUpperCase(),
+    qty: Number(order.qty ?? order.quantity),
+    side: String(order.side).toLowerCase(),
+    type: String(order.type || 'market').toLowerCase(),
+    limitPrice: order.limitPrice != null ? Number(order.limitPrice) : undefined,
+    timeInForce: order.timeInForce || 'gtc'
   }
 
-  if (payload.order) return payload.order
-  return payload.data ?? payload
+  const response = await fetch(`${API_BASE}/orders`, {
+    method: 'POST',
+    headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(normalized)
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(getErrorMessage(payload, response.statusText))
+  return payload.data?.order || payload.order || payload.data || payload
+}
+
+/** Backward-compatible market order helper */
+export async function postMarketOrder(symbol, qty, side) {
+  return postOrder({ symbol, qty, side, type: 'market' })
 }
 
 // Market Data.

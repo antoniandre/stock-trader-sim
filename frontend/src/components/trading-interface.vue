@@ -1,6 +1,5 @@
 <template lang="pug">
 .trading-interface
-  //- Trading Form
   .glass-box.pa6.order-panel(:class="`order-panel--${orderForm.side}`")
     .title2.mb4.w-flex.gap2
       a#buy
@@ -14,7 +13,6 @@
           span.size--lg.ml2.mr1.pb2 {{ item.label }}
       | Order
 
-    //- No Price Data Warning
     w-alert.pa3.bdrs2(v-if="!stock.price" error)
       | Trading disabled: No current market data available
 
@@ -22,96 +20,45 @@
       strong {{ marketGate.title }}
       div.mt1 {{ marketGate.message }}
 
-    //- Quick Actions
     .quick-actions.glass-box.pa4
       .mb2.text-upper.op6.body Quick Actions
       .w-flex.align-center.gap2
-        w-button(
-          @click="setQuickQuantity(1)"
-          round
-          tooltip="1 Share"
-          width="28"
-          height="28")
+        w-button(@click="setQuickQuantity(1)" round tooltip="1 Share" width="28" height="28")
           strong.size--xl 1
-        w-button(
-          @click="setQuickQuantity(10)"
-          round
-          tooltip="10 Shares"
-          width="33"
-          height="33")
+        w-button(@click="setQuickQuantity(10)" round tooltip="10 Shares" width="33" height="33")
           strong.size--xl 10
-        w-button(
-          @click="setQuickQuantity(100)"
-          round
-          tooltip="100 Shares"
-          width="37"
-          height="37")
+        w-button(@click="setQuickQuantity(100)" round tooltip="100 Shares" width="37" height="37")
           strong.size--lg 100
-        w-button(
-          @click="setQuickQuantity(1000)"
-          round
-          tooltip="1000 Shares"
-          width="42"
-          height="42")
+        w-button(@click="setQuickQuantity(1000)" round tooltip="1000 Shares" width="42" height="42")
           strong.size--md 1000
         span Shares
 
     .w-flex.gap4.wrap(:class="{ op3: !stock.price }")
       .grow
-        //- Quantity Input
         .mb4
           label.size--sm.op7.mb2 Quantity
-          w-input(
-            v-model.number="orderForm.quantity"
-            type="number"
-            min="0"
-            placeholder="Number of shares"
-            outline)
+          w-input(v-model.number="orderForm.quantity" type="number" min="0" placeholder="Number of shares" outline)
 
-        //- Limit Price (only for limit orders)
         .mb4(v-if="orderForm.type === 'limit'")
           label.size--sm.op7.mb2 Limit Price
-          w-input(
-            v-model.number="orderForm.limitPrice"
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Price per share"
-            outline)
+          w-input(v-model.number="orderForm.limitPrice" type="number" step="0.01" min="0" placeholder="Price per share" outline)
 
-        //- Stop Loss (optional)
         .mb4
           label.size--sm.op7.mb2 Stop Loss (Optional)
-          w-input(
-            v-model.number="orderForm.stopLoss"
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Stop loss price"
-            outline)
+          w-input(v-model.number="orderForm.stopLoss" type="number" step="0.01" min="0" placeholder="Stop loss price" outline disabled)
 
-        //- Order Value Display
         .mt4(v-if="orderValue > 0 && stock.price > 0")
           .w-flex.justify-between.gap2
             span.op7.text-right.grow Estimated Notional:
             strong(v-html="formatCurrency(orderValue, stock.currency, 2, false)")
 
-    //- Buy/Sell Buttons
     .w-flex.gap4.mt4.gap12(v-if="stock.price")
-      button.grow.buy(
-        @click="openOrderConfirmation('buy')"
-        :disabled="!canSubmitOrder")
+      button.grow.buy(@click="openOrderConfirmation('buy')" :disabled="!canSubmitOrder")
         strong BUY
-
-      button.grow.sell(
-        @click="openOrderConfirmation('sell')"
-        :disabled="!canSubmitOrder")
+      button.grow.sell(@click="openOrderConfirmation('sell')" :disabled="!canSubmitOrder")
         strong SELL
 
-  w-modal(
-    v-model="showOrderConfirmation"
-    title="Confirm market order"
-    width="520")
+  w-modal(v-model="showOrderConfirmation" :title="confirmationTitle" width="520")
     .confirmation-copy(v-if="pendingOrder")
       w-alert.pa3.bdrs2.mb4(:success="marketGate.reason === 'open'" :warning="marketGate.reason !== 'open'")
         strong {{ pendingEnvironmentLabel }}
@@ -126,32 +73,30 @@
           span.op7 Side
           strong(:class="pendingOrder.side === 'buy' ? 'success' : 'error'") {{ pendingOrder.side.toUpperCase() }}
         .confirmation-row
+          span.op7 Order type
+          strong {{ pendingOrder.type.toUpperCase() }}
+        .confirmation-row
           span.op7 Quantity
           strong {{ pendingOrder.quantity }} shares
+        .confirmation-row(v-if="pendingOrder.limitPrice")
+          span.op7 Limit price
+          strong(v-html="formatCurrency(pendingOrder.limitPrice, stock.currency, 2, false)")
         .confirmation-row
           span.op7 Estimated notional
           strong(v-html="formatCurrency(pendingOrder.estimatedNotional, stock.currency, 2, false)")
 
-      p.size--sm.op7.mt4
-        | Market orders fill at the best available price and can move before execution.
+      p.size--sm.op7.mt4(v-if="pendingOrder.type === 'market'") Market orders fill at the best available price and can move before execution.
+      p.size--sm.op7.mt4(v-else) Limit orders only execute at your limit price or better. In simulation, only immediately marketable limits are filled.
 
       .w-flex.justify-end.gap2.mt5
         w-button(@click="showOrderConfirmation = false" text round) Cancel
-        w-button(
-          @click="confirmOrder"
-          :disabled="submittingOrder || marketGate.reason !== 'open'"
-          :loading="submittingOrder"
-          :color="pendingOrder.side === 'buy' ? 'success' : 'error'"
-          round)
+        w-button(@click="confirmOrder" :disabled="submittingOrder || marketGate.reason !== 'open'" :loading="submittingOrder" :color="pendingOrder.side === 'buy' ? 'success' : 'error'" round)
           | Confirm {{ pendingOrder.side.toUpperCase() }}
 
-  //- Recent Trades for this symbol
   .glass-box.pa6.mt4(v-if="recentTrades.length")
     .title3.mb4 Recent Trades
     .ova
-      .trade-item.w-flex.justify-between.align-center.py2(
-        v-for="trade in recentTrades.slice(0, 5)"
-        :key="trade.timestamp")
+      .trade-item.w-flex.justify-between.align-center.py2(v-for="trade in recentTrades.slice(0, 5)" :key="trade.timestamp")
         .w-flex.align-center.gap2
           w-tag(:class="trade.side === 'buy' ? 'success--bg' : 'error--bg'" xs)
             | {{ trade.side.toUpperCase() }}
@@ -164,17 +109,14 @@
 <script setup>
 import { ref, computed, inject, watch, onMounted, onUnmounted } from 'vue'
 import { formatCurrency } from '@/utils/formatters'
-import { postMarketOrder, fetchMarketStatus, checkHealth } from '@/api/index.js'
+import { postOrder, fetchMarketStatus, checkHealth } from '@/api/index.js'
 
 const props = defineProps({
   symbol: { type: String, required: true },
   stock: {
     type: Object,
     required: true,
-    default: () => ({
-      price: 0,
-      currencySymbol: '$'
-    })
+    default: () => ({ price: 0, currencySymbol: '$' })
   },
   recentTrades: { type: Array, default: () => [] },
   hasPosition: { type: Boolean, default: false },
@@ -189,8 +131,6 @@ const pendingOrder = ref(null)
 const submittingOrder = ref(false)
 let refreshTimer = null
 
-// Trading Form
-// --------------------------------------------------------
 const defaultSide = computed(() => props.hasPosition ? 'sell' : props.initialSide)
 
 const orderForm = ref({
@@ -211,17 +151,12 @@ const orderTypes = [
   { label: 'Limit', value: 'limit' }
 ]
 
-// Trading Computed Properties
-// --------------------------------------------------------
 const orderValue = computed(() => {
   if (!props.stock.price || !orderForm.value.quantity) return 0
-
-  let pricePerShare = props.stock.price
-  if (orderForm.value.type === 'limit' && orderForm.value.limitPrice > 0) {
-    pricePerShare = orderForm.value.limitPrice
-  }
-
-  return pricePerShare * orderForm.value.quantity
+  const referencePrice = orderForm.value.type === 'limit' && orderForm.value.limitPrice > 0
+    ? orderForm.value.limitPrice
+    : props.stock.price
+  return referencePrice * orderForm.value.quantity
 })
 
 const isOrderValid = computed(() => {
@@ -230,6 +165,8 @@ const isOrderValid = computed(() => {
   if (orderForm.value.type === 'limit' && (!orderForm.value.limitPrice || orderForm.value.limitPrice <= 0)) return false
   return true
 })
+
+const canSubmitOrder = computed(() => isOrderValid.value)
 
 const pendingEnvironmentLabel = computed(() => {
   const env = health.value?.tradingEnvironment || (health.value?.effectiveSimulation ? 'simulation' : 'live')
@@ -244,18 +181,17 @@ const providerSummary = computed(() => {
   return `Execution: ${broker} • Data: ${dataProvider}`
 })
 
+const confirmationTitle = computed(() => {
+  const type = pendingOrder.value?.type || orderForm.value.type || 'market'
+  return `Confirm ${type} order`
+})
+
 const marketGate = computed(() => {
   const payload = marketStatus.value?.data || marketStatus.value || {}
   const status = String(payload.status || payload.marketState || '').toLowerCase()
   const isOpen = payload.isOpen === true || status === 'open'
 
-  if (isOpen) {
-    return {
-      reason: 'open',
-      title: 'Market open',
-      message: payload.message || 'Orders can be submitted now.'
-    }
-  }
+  if (isOpen) return { reason: 'open', title: 'Market open', message: payload.message || 'Orders can be submitted now.' }
 
   const nextOpen = payload.nextOpen ? new Date(payload.nextOpen).toLocaleString() : null
   return {
@@ -265,18 +201,9 @@ const marketGate = computed(() => {
   }
 })
 
-const canSubmitOrder = computed(() => {
-  if (!isOrderValid.value) return false
-  if (orderForm.value.type !== 'market') return false
-  return true
-})
-
 async function refreshTradingContext() {
   try {
-    const [healthPayload, marketPayload] = await Promise.all([
-      checkHealth(),
-      fetchMarketStatus()
-    ])
+    const [healthPayload, marketPayload] = await Promise.all([checkHealth(), fetchMarketStatus()])
     health.value = healthPayload.data || healthPayload
     marketStatus.value = marketPayload.data || marketPayload
   }
@@ -286,16 +213,13 @@ async function refreshTradingContext() {
 }
 
 function openOrderConfirmation(side) {
-  if (orderForm.value.type !== 'market') {
-    $waveui.notify('Only market orders are supported by the API right now. Switch order type to Market.', 'warning')
-    return
-  }
   if (!isOrderValid.value) return
-
   pendingOrder.value = {
     symbol: String(props.symbol).toUpperCase(),
     side,
+    type: orderForm.value.type,
     quantity: Number(orderForm.value.quantity),
+    limitPrice: orderForm.value.type === 'limit' ? Number(orderForm.value.limitPrice) : null,
     estimatedNotional: orderValue.value
   }
   showOrderConfirmation.value = true
@@ -310,10 +234,16 @@ async function confirmOrder() {
 
   submittingOrder.value = true
   try {
-    await postMarketOrder(pendingOrder.value.symbol, pendingOrder.value.quantity, pendingOrder.value.side)
+    await postOrder({
+      symbol: pendingOrder.value.symbol,
+      qty: pendingOrder.value.quantity,
+      side: pendingOrder.value.side,
+      type: pendingOrder.value.type,
+      limitPrice: pendingOrder.value.limitPrice
+    })
 
-    const confirmationText = `Market ${pendingOrder.value.side.toUpperCase()} ${pendingOrder.value.quantity} ${pendingOrder.value.symbol}`
-    $waveui.notify(`Order placed: ${confirmationText}`, 'success')
+    const typeLabel = pendingOrder.value.type.toUpperCase()
+    $waveui.notify(`Order placed: ${typeLabel} ${pendingOrder.value.side.toUpperCase()} ${pendingOrder.value.quantity} ${pendingOrder.value.symbol}`, 'success')
     showOrderConfirmation.value = false
     pendingOrder.value = null
     orderForm.value.quantity = 1
@@ -439,4 +369,3 @@ onUnmounted(() => {
   }
 }
 </style>
-

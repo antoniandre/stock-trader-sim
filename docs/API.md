@@ -159,13 +159,14 @@ Cancels an order.
 
 ### `POST /api/orders`
 
-Submits a market order.
+Submits a market or limit order.
 
 #### Supported today
 
-- `type=market` only
+- `type=market|limit`
 - `side=buy|sell`
 - quantity via `qty` or `quantity`
+- limit orders accept `limitPrice` or `limit_price`
 
 #### Example
 
@@ -173,6 +174,11 @@ Submits a market order.
 curl -sS -X POST http://localhost:3000/api/orders \
   -H 'Content-Type: application/json' \
   -d '{"symbol":"AAPL","qty":1,"side":"buy","type":"market"}'
+
+# limit
+curl -sS -X POST http://localhost:3000/api/orders \
+  -H 'Content-Type: application/json' \
+  -d '{"symbol":"AAPL","qty":1,"side":"buy","type":"limit","limitPrice":185.5}'
 ```
 
 #### Request body
@@ -182,7 +188,8 @@ curl -sS -X POST http://localhost:3000/api/orders \
   "symbol": "AAPL",
   "qty": 1,
   "side": "buy",
-  "type": "market"
+  "type": "market",
+  "limitPrice": 185.5
 }
 ```
 
@@ -217,6 +224,18 @@ or:
 - frontend should show explicit confirmation before submit
 - live trading should never be silent or ambiguous
 - this route should require bearer auth before commercial launch
+
+### `POST /api/orders/preview`
+
+Validates and previews an order without sending it to the broker. Useful for confirmation UX and future draft-order bots.
+
+#### Example
+
+```bash
+curl -sS -X POST http://localhost:3000/api/orders/preview \
+  -H 'Content-Type: application/json' \
+  -d '{"symbol":"AAPL","qty":2,"side":"sell","type":"limit","limitPrice":210}'
+```
 
 ---
 
