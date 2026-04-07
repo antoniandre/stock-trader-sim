@@ -54,6 +54,29 @@
       .size--sm.text-bold.mb2 Why it thinks that
       ul
         li(v-for="reason in decision.reasons" :key="reason") {{ reason }}
+
+    .day-trading-bot-panel__backtest
+      .w-flex.align-center.justify-space-between.gap2.wrap.mb3
+        .size--sm.text-bold Backtest snapshot
+        w-button(xs round text :loading="backtestLoading" @click="$emit('run-backtest')") Run backtest
+
+      .day-trading-bot-panel__error(v-if="backtestError") {{ backtestError }}
+      template(v-else-if="backtest")
+        .w-flex.wrap.gap3.mb3
+          .bot-stat
+            .size--xs.op6 Return
+            .title3.mt1(:class="backtest.totalReturnPct >= 0 ? 'currency-positive' : 'currency-negative'") {{ backtest.totalReturnPct }}%
+          .bot-stat
+            .size--xs.op6 Drawdown
+            .title3.mt1 {{ backtest.maxDrawdownPct }}%
+          .bot-stat
+            .size--xs.op6 Trades
+            .title3.mt1 {{ backtest.tradeCount }}
+          .bot-stat
+            .size--xs.op6 Equity
+            .title3.mt1 {{ backtest.endingEquity }}
+
+        .size--sm.op7(v-if="comparisonSummary.length") Profile comparison: {{ comparisonSummary }}
 </template>
 
 <script setup>
@@ -75,10 +98,26 @@ const props = defineProps({
   selectedRiskProfile: {
     type: String,
     default: 'balanced'
+  },
+  backtest: {
+    type: Object,
+    default: null
+  },
+  backtestLoading: {
+    type: Boolean,
+    default: false
+  },
+  backtestError: {
+    type: String,
+    default: ''
+  },
+  backtestComparisons: {
+    type: Array,
+    default: () => []
   }
 })
 
-defineEmits(['refresh', 'update:risk-profile'])
+defineEmits(['refresh', 'update:risk-profile', 'run-backtest'])
 
 const riskProfiles = ['conservative', 'balanced', 'aggressive']
 
@@ -94,6 +133,13 @@ const regimeColor = computed(() => {
   if (regime === 'breakout') return 'warning'
   if (regime === 'chop') return 'error'
   return ''
+})
+
+const comparisonSummary = computed(() => {
+  if (!props.backtestComparisons.length) return ''
+  return props.backtestComparisons
+    .map(item => `${item.riskProfile}: ${item.totalReturnPct}%`)
+    .join(' • ')
 })
 </script>
 
@@ -115,6 +161,11 @@ const regimeColor = computed(() => {
   padding-left: 1rem;
   display: grid;
   gap: 0.4rem;
+}
+
+.day-trading-bot-panel__backtest {
+  border-top: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
+  padding-top: 1rem;
 }
 
 .day-trading-bot-panel__error {

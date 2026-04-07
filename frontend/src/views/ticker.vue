@@ -56,7 +56,12 @@
         :loading="botLoading"
         :error="botError"
         :selected-risk-profile="selectedRiskProfile"
+        :backtest="backtestResult"
+        :backtest-loading="backtestLoading"
+        :backtest-error="backtestError"
+        :backtest-comparisons="backtestComparisons"
         @refresh="refreshBotDecision"
+        @run-backtest="runBacktest"
         @update:risk-profile="onRiskProfileChange")
 
       //- Open Orders
@@ -174,7 +179,7 @@
 
 <script setup>
 import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
-import { fetchTicker, fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange, fetchDayTradingDecision } from '@/api'
+import { fetchTicker, fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange, fetchDayTradingDecision, runDayTradingBacktest } from '@/api'
 import { formatPercentage, formatCurrency } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
 import PriceChart from '@/components/price-chart.vue'
@@ -230,6 +235,10 @@ const selectedRiskProfile = ref('balanced')
 const botDecision = ref(null)
 const botLoading = ref(false)
 const botError = ref('')
+const backtestResult = ref(null)
+const backtestLoading = ref(false)
+const backtestError = ref('')
+const backtestComparisons = ref([])
 let marketStatusInterval = null
 
 // Dynamic Loading State
@@ -1633,9 +1642,55 @@ async function refreshBotDecision() {
   }
 }
 
+async function runBacktest() {
+  if (!stock.symbol || !historicalData.value?.length) return
+
+  backtestLoading.value = true
+  backtestError.value = ''
+  try {
+    const candles = historicalData.value
+      .map(item => ({
+        close: Number(item?.close),
+        volume: Number(item?.volume || 0),
+        timestamp: item?.timestamp || item?.time || item?.date
+      }))
+      .filter(item => Number.isFinite(item.close))
+
+    const profiles = ['conservative', 'balanced', 'aggressive']
+    const comparisonResults = []
+
+    for (const profile of profiles) {
+      const { backtest } = await runDayTradingBacktest({
+        symbol: stock.symbol,
+        riskProfile: profile,
+        candles
+      })
+      comparisonResults.push({
+        riskProfile: profile,
+        totalReturnPct: backtest.totalReturnPct,
+        maxDrawdownPct: backtest.maxDrawdownPct,
+        tradeCount: backtest.tradeCount
+      })
+
+      if (profile === selectedRiskProfile.value) {
+        backtestResult.value = backtest
+      }
+    }
+
+    backtestComparisons.value = comparisonResults
+  }
+  catch (error) {
+    backtestError.value = error.message || 'Unable to run backtest.'
+  }
+  finally {
+    backtestLoading.value = false
+  }
+}
+
 function onRiskProfileChange(value) {
   selectedRiskProfile.value = value
   refreshBotDecision()
+  if (backtestComparisons.value.length) runBacktest()
 }
 
 onMounted(async () => {
@@ -1650,6 +1705,7 @@ onMounted(async () => {
   // Market status is included in ticker data, so we don't need a separate call.
   await Promise.all([fetchTickerData(), fetchHistoricalData()])
   await refreshBotDecision()
+  await runBacktest()
   startMarketStatusMonitoring()
 })
 
