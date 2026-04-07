@@ -15,7 +15,7 @@
         .position-info.w-flex.align-center
           ticker-logo.mr3(:symbol="position.symbol")
           div
-            router-link.symbol.title3.mb1.text-bold.hover-underline(:to="`/trading/${position.symbol}`") {{ position.symbol }}
+            router-link.symbol.title3.mb1.text-bold.hover-underline(:to="tradingTickerPath(position.symbol)") {{ position.symbol }}
             .qty.size--sm.op7 {{ position.qty }} share{{ position.qty > 1 ? 's' : '' }}
 
         .position-values
@@ -49,6 +49,7 @@
 import { ref, onMounted } from 'vue'
 import { fetchPositions } from '@/api'
 import { formatNumber, formatPercentage, formatCurrency } from '@/utils/formatters'
+import { tradingTickerPath } from '@/utils/trading-routes'
 import TickerLogo from './ticker-logo.vue'
 
 const positions = ref([])

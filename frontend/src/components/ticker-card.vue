@@ -1,5 +1,5 @@
 <template lang="pug">
-.ticker-card.gradient-card.gradient-card--tall(@click="$router.push(`/trading/${stock.symbol}`)")
+.ticker-card.gradient-card.gradient-card--tall(@click="$router.push(tradingTickerPath(stock.symbol, market))")
   .gradient-card__wrap.pb3
     .w-flex.justify-between.align-center.gap1
       .w-flex.align-center
@@ -16,7 +16,7 @@
           .title2.text-bold {{ stock.symbol }}
       w-button.text-bold.mla.bd1.bdrsr.px2.py1.size--xs(
         @click.stop
-        :route="`/trading/${stock.symbol}#buy`"
+        :route="`${tradingTickerPath(stock.symbol, market)}#buy`"
         :class="(stock.lastSide || 'buy') === 'buy' ? 'success--bg' : 'error--bg'")
         | {{ (stock.lastSide || 'buy').toUpperCase() }}
 
@@ -50,9 +50,11 @@ import { fetchStockTrend } from '@/api'
 import TickerLogo from './ticker-logo.vue'
 import MiniTrendChart from './mini-trend-chart.vue'
 import { formatCurrency } from '@/utils/formatters'
+import { tradingTickerPath } from '@/utils/trading-routes'
 
 const props = defineProps({
   stock: { type: Object, required: true },
+  market: { type: String, default: 'stocks' },
   showPercentageChange: { type: Boolean, default: false }, // Show percentage change for top movers.
   hideEmptyTrends: { type: Boolean, default: false } // Hide trend chart completely when no data (for trading view).
 })

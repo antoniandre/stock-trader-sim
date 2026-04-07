@@ -1,6 +1,6 @@
 <template lang="pug">
 .ticker-view.mt6
-  w-button.mt2.ml8.pl2(@click="$router.push('/trading')" text round absolute left)
+  w-button.mt2.ml8.pl2(@click="$router.push(tradingOverviewPath(market))" text round absolute left)
     icon.w-icon.mr2(icon="mdi:arrow-left")
     | Back to Trading
 
@@ -193,9 +193,11 @@ import TickerHeader from '@/components/ticker-header.vue'
 import TickerPrice from '@/components/ticker-price.vue'
 import DraggableTradingInterface from '@/components/draggable-trading-interface.vue'
 import DayTradingBotPanel from '@/components/day-trading-bot-panel.vue'
+import { tradingOverviewPath } from '@/utils/trading-routes'
 
 const props = defineProps({
-  symbol: { type: String, required: true }
+  symbol: { type: String, required: true },
+  market: { type: String, default: 'stocks' }
 })
 
 const $waveui = inject('$waveui')

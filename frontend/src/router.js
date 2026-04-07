@@ -15,29 +15,67 @@ const routes = [
   },
   {
     path: '/trading',
-    name: 'trading',
     component: () => import('@/views/trading.vue'),
     meta: { requiresAuth: true },
     children: [
       {
-        path: 'top-gainers',
-        name: 'top-gainers',
-        component: () => import('@/views/top-gainers.vue')
+        path: '',
+        redirect: { name: 'trading-stocks' }
       },
       {
-        path: 'top-losers',
-        name: 'top-losers',
-        component: () => import('@/views/top-losers.vue')
+        path: 'stocks',
+        name: 'trading-stocks',
+        component: () => import('@/views/trading-market.vue'),
+        props: { market: 'stocks' }
+      },
+      {
+        path: 'crypto',
+        name: 'trading-crypto',
+        component: () => import('@/views/trading-market.vue'),
+        props: { market: 'crypto' }
+      },
+      {
+        path: 'stocks/top-gainers',
+        name: 'trading-stocks-top-gainers',
+        component: () => import('@/views/top-movers-view.vue'),
+        props: { type: 'gainers', market: 'stocks' }
+      },
+      {
+        path: 'stocks/top-losers',
+        name: 'trading-stocks-top-losers',
+        component: () => import('@/views/top-movers-view.vue'),
+        props: { type: 'losers', market: 'stocks' }
+      },
+      {
+        path: 'crypto/top-gainers',
+        name: 'trading-crypto-top-gainers',
+        component: () => import('@/views/top-movers-view.vue'),
+        props: { type: 'gainers', market: 'crypto' }
+      },
+      {
+        path: 'crypto/top-losers',
+        name: 'trading-crypto-top-losers',
+        component: () => import('@/views/top-movers-view.vue'),
+        props: { type: 'losers', market: 'crypto' }
+      },
+      {
+        path: 'stocks/:symbol',
+        name: 'trading-stocks-ticker',
+        component: () => import('@/views/ticker.vue'),
+        props: route => ({ symbol: route.params.symbol, market: 'stocks' })
+      },
+      {
+        path: 'crypto/:symbol',
+        name: 'trading-crypto-ticker',
+        component: () => import('@/views/ticker.vue'),
+        props: route => ({ symbol: route.params.symbol, market: 'crypto' })
       },
       {
         path: ':symbol',
-        name: 'ticker',
-        component: () => import('@/views/ticker.vue'),
-        props: true
-      },
+        redirect: to => ({ name: 'trading-stocks-ticker', params: { symbol: to.params.symbol } })
+      }
     ]
   },
-
   {
     path: '/:pathMatch(.*)',
     name: 'not-found',

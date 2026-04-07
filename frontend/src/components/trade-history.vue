@@ -12,7 +12,7 @@
             td.px1.text-bold
               .w-flex.align-center
                 ticker-logo.mr3(:symbol="item.symbol" size="sm")
-                router-link.text-bold.hover-underline(:to="`/trading/${item.symbol}`") {{ item.symbol }}
+                router-link.text-bold.hover-underline(:to="tradingTickerPath(item.symbol)") {{ item.symbol }}
             td.px1.text-center
               w-tag.px2.py1.text-bold(:class="item.side === 'buy' ? 'success--bg' : 'error--bg'" round xs)
                 | {{ item.side.toUpperCase() }}
@@ -41,6 +41,7 @@
 import { computed } from 'vue'
 import TickerLogo from './ticker-logo.vue'
 import { formatCurrency } from '@/utils/formatters'
+import { tradingTickerPath } from '@/utils/trading-routes'
 
 const props = defineProps({
   history: { type: Array, required: true },

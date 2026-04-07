@@ -1,6 +1,6 @@
 <template lang="pug">
 .top-movers-view
-  w-button.mt2.ml8.pl2(@click="$router.push('/trading')" text round absolute left)
+  w-button.mt2.ml8.pl2(@click="$router.push(tradingOverviewPath(market))" text round absolute left)
     icon.w-icon.mr2(icon="mdi:arrow-left")
     | Back to Trading
 
@@ -114,8 +114,9 @@
         v-for="stock in filteredStocks"
         :key="stock.symbol"
         :stock="stock"
+        :market="market"
         show-percentage-change
-        @click="$router.push(`/trading/${stock.symbol}`)")
+        @click="$router.push(tradingTickerPath(stock.symbol, market))")
 
     //- Empty State
     .w-flex.column.py12.align-center.justify-center(v-if="!loading && filteredStocks.length === 0")
@@ -131,6 +132,7 @@ import { fetchTopMovers, fetchBatchTrends } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { formatPercentage } from '@/utils/formatters'
 import TickerCard from '@/components/ticker-card.vue'
+import { tradingOverviewPath, tradingTickerPath } from '@/utils/trading-routes'
 
 // Props.
 const props = defineProps({
@@ -138,17 +140,22 @@ const props = defineProps({
     type: String,
     required: true,
     validator: value => ['gainers', 'losers'].includes(value)
+  },
+  market: {
+    type: String,
+    default: 'stocks',
+    validator: value => ['stocks', 'crypto'].includes(value)
   }
 })
 
 // Computed properties based on type.
 const isPositive = computed(() => props.type === 'gainers')
-const title = computed(() => `Top ${props.type === 'gainers' ? 'Gainers' : 'Losers'}`)
+const title = computed(() => `${props.market === 'crypto' ? 'Crypto' : 'Stock'} ${props.type === 'gainers' ? 'Gainers' : 'Losers'}`)
 const loadingText = computed(() => `top ${props.type}`)
 const emptyStateIcon = computed(() => isPositive.value ? 'wi-trending-up' : 'wi-trending-down')
 const emptyStateTitle = computed(() => `No ${props.type === 'gainers' ? 'Gainers' : 'Losers'} Found`)
 const emptyStateMessage = computed(() =>
-  `No stocks are showing ${isPositive.value ? 'gains' : 'losses'} at the moment.`
+  `No ${props.market === 'crypto' ? 'crypto pairs' : 'stocks'} are showing ${isPositive.value ? 'gains' : 'losses'} at the moment.`
 )
 
 // State.
@@ -288,8 +295,8 @@ const topStock = computed(() => {
 // Incremental update: merge new data into existing stocks without full reload.
 async function updateMoversIncremental() {
   try {
-    console.log(`🔄 Incremental update for ${props.type}...`)
-    const response = await fetchTopMovers(selectedCount.value, 'stocks')
+    console.log(`🔄 Incremental update for ${props.market} ${props.type}...`)
+    const response = await fetchTopMovers(selectedCount.value, props.market)
 
     if (response && (response.gainers || response.losers)) {
       const allMovers = [...(response.gainers || []), ...(response.losers || [])]
@@ -380,7 +387,7 @@ async function loadMovers(initialLoad = false) {
     }
 
     console.log('📡 Making API call to fetchTopMovers...')
-    const response = await fetchTopMovers(selectedCount.value, 'stocks')
+    const response = await fetchTopMovers(selectedCount.value, props.market)
     console.log('✅ API response received:', response)
 
     // The API returns { gainers: [...], losers: [...], timestamp: "..." }

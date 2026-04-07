@@ -15,7 +15,7 @@
         icon.size--xl.w-icon.mr3(icon="material-symbols-light:dashboard-outline-rounded")
         .title3 Dashboard
 
-      router-link.w-flex.align-center.px4.py2(to="/trading" active-class="primary")
+      router-link.w-flex.align-center.px4.py2(to="/trading/stocks" active-class="primary")
         //- Trading Icon
         icon.size--xl.w-icon.mr2(icon="hugeicons:trade-up")
         .title3 Trading
