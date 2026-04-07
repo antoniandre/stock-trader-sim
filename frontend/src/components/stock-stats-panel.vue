@@ -10,8 +10,8 @@
         .w-flex
           .range-visualization
             .range-track
-              .range-bar(:style="{ height: dayRange.barWidth + '%', backgroundColor: '#22C55E' }")
-              .current-position(:style="{ top: dayRange.position + '%' }")
+              .range-fill(:style="{ height: dayRange.fill + '%', backgroundColor: '#22C55E' }")
+              .current-position(:style="{ top: (100 - dayRange.fill) + '%' }")
           .range-values
             .range-high
               .size--xs.op6 High
@@ -27,8 +27,8 @@
         .w-flex
           .range-visualization
             .range-track
-              .range-bar(:style="{ height: weekRange.barWidth + '%', backgroundColor: '#EF4444' }")
-              .current-position(:style="{ top: weekRange.position + '%' }")
+              .range-fill(:style="{ height: weekRange.fill + '%', backgroundColor: '#EF4444' }")
+              .current-position(:style="{ top: (100 - weekRange.fill) + '%' }")
           .range-values
             .range-high
               .size--xs.op6 High
@@ -55,7 +55,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { formatCurrency, formatMarketCap, formatVolumeWithSuffixes } from '@/utils/formatters'
+import { formatCurrency, formatVolumeWithSuffixes } from '@/utils/formatters'
 
 const props = defineProps({
   stock: { type: Object, required: true },
@@ -99,14 +99,6 @@ const dayRange = computed(() => {
 
     // Combine intraday + real-time data.
     const allTodayData = [...todayIntradayData, ...todayRealTime]
-
-    console.log(`📊 Stats Panel Debug:`, {
-      todayIntradayData: todayIntradayData.length,
-      todayRealTime: todayRealTime.length,
-      allTodayData: allTodayData.length,
-      totalIntradayData: props.intradayData.length,
-      totalPriceHistory: props.priceHistory.length
-    })
 
     // If no data available, try to get at least some recent data from any source.
     if (allTodayData.length === 0) {
@@ -167,19 +159,14 @@ const dayRange = computed(() => {
   const high = stats.high
   const low = stats.low
 
-  // Calculate position percentage for indicator.
   const range = high - low
-  const position = range === 0 ? 50 : ((currentPrice.value.value - low) / range) * 100
-
-  // Calculate bar width (how much of the range is filled).
-  const barWidth = high > 0 ? (range / high) * 100 : 0
+  const fill = range === 0 ? 50 : Math.max(0, Math.min(100, ((currentPrice.value.value - low) / range) * 100))
 
   return {
     stats,
     high: { value: high, currency: currency.value, currencySymbol: currencySymbol.value },
     low: { value: low, currency: currency.value, currencySymbol: currencySymbol.value },
-    position,
-    barWidth
+    fill
   }
 })
 
@@ -225,95 +212,34 @@ const weekRange = computed(() => {
   const high = stats.high
   const low = stats.low
 
-  // Calculate position percentage for indicator.
   const range = high - low
-  const position = range === 0 ? 50 : ((currentPrice.value.value - low) / range) * 100
-
-  // Calculate bar width (how much of the range is filled).
-  const barWidth = high > 0 ? (range / high) * 100 : 0
+  const fill = range === 0 ? 50 : Math.max(0, Math.min(100, ((currentPrice.value.value - low) / range) * 100))
 
   return {
     stats,
     high: { value: high, currency: currency.value, currencySymbol: currencySymbol.value },
     low: { value: low, currency: currency.value, currencySymbol: currencySymbol.value },
-    position,
-    barWidth
+    fill
   }
 })
 
 // Financial calculations organized semantically.
 const financial = computed(() => {
-  // Calculate actual volume from historical data.
   const calculateVolume = () => {
-    let volumeValue
+    if (!props.historicalData || props.historicalData.length === 0) return 'N/A'
 
-    if (!props.historicalData || props.historicalData.length === 0) {
-      // Use symbol hash for consistent fallback volume estimate.
-      const symbol = props.stock.symbol || 'UNKNOWN'
-      let hash = 0
-      for (let i = 0; i < symbol.length; i++) {
-        hash = ((hash << 5) - hash) + symbol.charCodeAt(i)
-        hash = hash & hash
-      }
+    const volumes = props.historicalData
+      .filter(item => item.volume && item.volume > 0)
+      .map(item => item.volume)
 
-      const hashMod = Math.abs(hash) % 50
-      volumeValue = (hashMod * 100000) + 1000000 // 1M-6M consistent fallback.
-    }
-    else {
-      // Get average volume from historical data.
-      const volumes = props.historicalData
-        .filter(item => item.volume && item.volume > 0)
-        .map(item => item.volume)
+    if (volumes.length === 0) return 'N/A'
 
-      if (volumes.length === 0) {
-        // Same consistent fallback as above.
-        const symbol = props.stock.symbol || 'UNKNOWN'
-        let hash = 0
-        for (let i = 0; i < symbol.length; i++) {
-          hash = ((hash << 5) - hash) + symbol.charCodeAt(i)
-          hash = hash & hash
-        }
-
-        const hashMod = Math.abs(hash) % 50
-        volumeValue = (hashMod * 100000) + 1000000
-      }
-      else {
-        volumeValue = volumes.reduce((sum, vol) => sum + vol, 0) / volumes.length
-      }
-    }
-
-    return formatVolumeWithSuffixes(volumeValue)
+    const avgVolume = volumes.reduce((sum, vol) => sum + vol, 0) / volumes.length
+    return formatVolumeWithSuffixes(avgVolume)
   }
 
-  // Calculate approximate market cap.
   const calculateMarketCap = () => {
-    const price = currentPrice.value.value
-    const priceCurrency = currentPrice.value.currency
-    if (price === 0) return 'N/A'
-
-    // Use symbol hash for consistent shares estimate (no blinking).
-    const symbol = props.stock.symbol || 'UNKNOWN'
-    let hash = 0
-    for (let i = 0; i < symbol.length; i++) {
-      hash = ((hash << 5) - hash) + symbol.charCodeAt(i)
-      hash = hash & hash // Convert to 32-bit integer.
-    }
-
-    // Generate consistent estimated shares based on symbol hash.
-    let estimatedShares
-    const hashMod = Math.abs(hash) % 100
-
-    // High-price stocks typically have fewer shares.
-    if (price > 100) estimatedShares = (hashMod * 1000000) + 10000000  // 10M-110M.
-
-    // Mid-price stocks.
-    else if (price > 10) estimatedShares = (hashMod * 5000000) + 50000000  // 50M-550M.
-
-    // Low-price stocks often have many shares.
-    else estimatedShares = (hashMod * 10000000) + 100000000  // 100M-1.1B.
-
-    const marketCap = price * estimatedShares
-    return formatMarketCap(marketCap, priceCurrency)
+    return 'N/A'
   }
 
   // Calculate volatility from price data.
@@ -378,10 +304,12 @@ const financialMetrics = computed(() => financial.value.metrics)
         left: 2px;
       }
 
-      .range-bar {
+      .range-fill {
+        position: absolute;
+        bottom: 0;
         width: 6px;
         border-radius: 3px;
-        transition: all 0.3s ease;
+        transition: height 0.3s ease;
       }
 
       .current-position {
