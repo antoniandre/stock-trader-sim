@@ -113,6 +113,7 @@ import { postOrder, fetchMarketStatus, checkHealth } from '@/api/index.js'
 
 const props = defineProps({
   symbol: { type: String, required: true },
+  market: { type: String, default: 'stocks' },
   stock: {
     type: Object,
     required: true,
@@ -176,9 +177,10 @@ const pendingEnvironmentLabel = computed(() => {
 })
 
 const providerSummary = computed(() => {
-  const broker = health.value?.broker?.label || 'Unknown broker'
-  const dataProvider = health.value?.marketDataProvider?.label || 'Unknown data provider'
-  return `Execution: ${broker} • Data: ${dataProvider}`
+  const environment = pendingEnvironmentLabel.value
+  const broker = health.value?.broker?.label || 'Broker routing active'
+  const dataProvider = health.value?.marketDataProvider?.label || 'Market data active'
+  return `${environment} • ${broker} • ${dataProvider}`
 })
 
 const confirmationTitle = computed(() => {
@@ -187,6 +189,14 @@ const confirmationTitle = computed(() => {
 })
 
 const marketGate = computed(() => {
+  if (props.market === 'crypto') {
+    return {
+      reason: 'open',
+      title: 'Crypto market available',
+      message: 'Crypto orders are available continuously. Review the ticket carefully before sending.'
+    }
+  }
+
   const payload = marketStatus.value?.data || marketStatus.value || {}
   const status = String(payload.status || payload.marketState || '').toLowerCase()
   const isOpen = payload.isOpen === true || status === 'open'

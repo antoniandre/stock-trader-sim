@@ -46,6 +46,7 @@
     aside.side-panel
       TradingInterface(
         :symbol="stock.symbol"
+        :market="market"
         :stock="stock"
         :recent-trades="recentTrades"
         :has-position="!!currentPosition"
@@ -175,6 +176,7 @@
       v-if="showTradingInterface"
       :visible="showTradingInterface"
       :symbol="stock.symbol"
+      :market="market"
       :stock="stock"
       :recent-trades="recentTrades"
       :initial-side="tradingInterfaceSide"
@@ -1190,7 +1192,7 @@ async function fetchTickerData() {
   if (!stock.symbol) return
 
   try {
-    const data = await fetchTicker(stock.symbol, 'open', 100)
+    const data = await fetchTicker(stock.symbol, 'open', 100, props.market)
 
     // Update stock data.
     if (data.stock) {
@@ -1580,7 +1582,7 @@ async function refreshPrice() {
 async function refreshMarketStatus() {
   try {
     // Use ticker batch endpoint which includes market status.
-    const data = await fetchTicker(stock.symbol)
+    const data = await fetchTicker(stock.symbol, 'open', 100, props.market)
     if (data.stock) {
       Object.assign(stock, {
         marketState: data.stock.marketState || 'closed',

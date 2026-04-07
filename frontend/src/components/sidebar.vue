@@ -15,10 +15,18 @@
         icon.size--xl.w-icon.mr3(icon="material-symbols-light:dashboard-outline-rounded")
         .title3 Dashboard
 
-      router-link.w-flex.align-center.px4.py2(to="/trading/stocks" active-class="primary")
-        //- Trading Icon
-        icon.size--xl.w-icon.mr2(icon="hugeicons:trade-up")
-        .title3 Trading
+      .nav-group
+        router-link.w-flex.align-center.px4.py2(to="/trading/stocks" active-class="primary")
+          //- Trading Icon
+          icon.size--xl.w-icon.mr2(icon="hugeicons:trade-up")
+          .title3 Trading
+        .nav-submenu
+          router-link.nav-submenu__item.w-flex.align-center.px4.py2(to="/trading/stocks" active-class="primary")
+            icon.size--lg.w-icon.mr2(icon="mdi:chart-line")
+            span Stocks
+          router-link.nav-submenu__item.w-flex.align-center.px4.py2(to="/trading/crypto" active-class="primary")
+            icon.size--lg.w-icon.mr2(icon="mdi:bitcoin")
+            span Crypto
 
     //- User Profile
     .w-divider.no-grow(v-if="!isCollapsed")
@@ -149,12 +157,12 @@ const userDisplayName = computed(() => {
 
 const userSecondaryLine = computed(() => {
   if (!currentUser.value) {
-    if (!authState.enabled) return 'Supabase auth unavailable'
+    if (!authState.enabled) return 'Authentication unavailable'
     if (!authState.ready) return 'Checking session'
     return 'Sign in required'
   }
 
-  return currentUser.value.email || `${String(currentUser.value.plan || 'free').toUpperCase()} plan`
+  return currentUser.value.email || 'Account ready'
 })
 
 const userInitials = computed(() => {
@@ -171,14 +179,11 @@ const userInitials = computed(() => {
 
 const authModeLabel = computed(() => {
   if (!authState.enabled) return ''
-  const provider = authSummary.value?.provider || 'supabase'
-  return currentUser.value
-    ? `${provider} · ${(currentUser.value?.plan || 'free').toUpperCase()}`
-    : `${provider} auth`
+  return currentUser.value ? 'Secure session' : 'Secure sign-in'
 })
 
 const showAuthActions = computed(() => authState.enabled)
-const authActionLabel = computed(() => authState.user ? 'Manage account' : 'Sign in to continue')
+const authActionLabel = computed(() => authState.user ? 'Manage account' : 'Sign in')
 
 async function handleSignOut() {
   await signOut()
@@ -201,7 +206,7 @@ async function loadCurrentUser() {
     }
     catch {
       authSummary.value = authState.enabled
-        ? { enabled: true, provider: 'supabase' }
+        ? { enabled: true, provider: 'managed-auth' }
         : null
     }
   }
@@ -307,6 +312,26 @@ onUnmounted(() => {
   }
 
   .sidebar-footer {margin-top: auto;}
+
+  .nav-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .nav-submenu {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding-left: 0.9rem;
+  }
+
+  .nav-submenu__item {
+    color: color-mix(in srgb, var(--w-text-color) 80%, transparent);
+    border-left: 1px solid color-mix(in srgb, var(--w-primary-color) 18%, transparent);
+    margin-left: 1rem;
+    padding-left: 1rem;
+  }
 }
 
 .resize-handle {

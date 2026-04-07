@@ -259,7 +259,9 @@ export async function fetchPositions() {
 
 export async function fetchOrders(status = 'open', limit = 100) {
   try {
-    const params = new URLSearchParams({ status, limit: limit.toString() })
+    const params = new URLSearchParams()
+    if (status != null && status !== '') params.append('status', status)
+    params.append('limit', limit.toString())
     const response = await fetch(`${API_BASE}/orders?${params}`)
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
@@ -357,8 +359,8 @@ export async function fetchAllStocks(page = 1, limit = 50, search = '', market =
 }
 
 // Batch endpoint for ticker - fetches stock + position + orders + market status in one call.
-export async function fetchTicker(symbol, ordersStatus = 'open', ordersLimit = 100) {
-  const params = { ordersStatus, ordersLimit: ordersLimit.toString() }
+export async function fetchTicker(symbol, ordersStatus = 'open', ordersLimit = 100, market = 'stocks') {
+  const params = { ordersStatus, ordersLimit: ordersLimit.toString(), market }
   const cacheKey = getCacheKey(`${API_BASE}/ticker/${symbol}`, params)
 
   // Check cache first (shorter TTL for ticker data since it changes frequently).

@@ -438,13 +438,16 @@ export function createRestApiRoutes() {
   app.get('/api/ticker/:symbol', async (req, res) => {
     try {
       const { symbol } = req.params
-      const { ordersStatus = 'open', ordersLimit = 100 } = req.query
+      const { ordersStatus = 'open', ordersLimit = 100, market = 'stocks' } = req.query
       const marketDataProvider = await getMarketDataProvider()
+      const normalizedMarket = String(market).toLowerCase() === 'crypto' ? 'crypto' : 'stocks'
 
       // Fetch all data in parallel for maximum speed.
       const [stockData, positions, orders, marketStatusData] = await Promise.all([
         (async () => {
-          const stocks = await marketDataProvider.getAllTradableStocks()
+          const stocks = normalizedMarket === 'crypto'
+            ? await AlpacaClient.getAssets('active', 'crypto')
+            : await marketDataProvider.getAllTradableStocks()
           const stock = stocks.find(s => s.symbol === symbol)
           if (!stock) return null
 
