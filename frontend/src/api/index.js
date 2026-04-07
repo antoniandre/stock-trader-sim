@@ -197,6 +197,27 @@ export async function runDayTradingBacktest(payload) {
   }
 }
 
+export async function evolveDayTradingStrategies(payload) {
+  try {
+    const response = await fetch(`${API_BASE}/bot/day-trading/evolve`, {
+      method: 'POST',
+      headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload)
+    })
+
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(result.message || result.error || `HTTP ${response.status}: ${response.statusText}`)
+    }
+
+    return result.data || result
+  }
+  catch (error) {
+    console.error('Evolve day-trading strategies failed:', error)
+    throw error
+  }
+}
+
 export async function fetchTradingHistory(limit = 100) {
   try {
     const response = await fetch(`${API_BASE}/trading-history?limit=${limit}`)

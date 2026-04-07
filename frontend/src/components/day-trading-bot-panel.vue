@@ -77,6 +77,42 @@
             .title3.mt1 {{ backtest.endingEquity }}
 
         .size--sm.op7(v-if="comparisonSummary.length") Profile comparison: {{ comparisonSummary }}
+
+    .day-trading-bot-panel__backtest
+      .w-flex.align-center.justify-space-between.gap2.wrap.mb3
+        .size--sm.text-bold Strategy evolution
+        w-button(xs round text :loading="evolutionLoading" @click="$emit('run-evolution')") Evolve
+
+      .day-trading-bot-panel__error(v-if="evolutionError") {{ evolutionError }}
+      template(v-else-if="evolution")
+        .size--sm.op7.mb3 Evaluated {{ evolution.evaluatedCount }} strategies, kept {{ evolution.survivors.length }} survivors.
+
+        .day-trading-bot-panel__section
+          .size--sm.text-bold.mb2 Survivors
+          .day-trading-bot-panel__strategy-list
+            .bot-strategy-card(v-for="item in evolution.survivors" :key="item.id")
+              .w-flex.align-center.justify-space-between.gap2
+                strong {{ item.id }}
+                span.size--xs.op6 {{ item.family }}
+              .size--sm.mt1 Score {{ item.score }} · Return {{ item.backtestSummary.totalReturnPct }}%
+
+        .day-trading-bot-panel__section(v-if="evolution.pruned?.length")
+          .size--sm.text-bold.mb2 Pruned
+          .day-trading-bot-panel__strategy-list
+            .bot-strategy-card.bot-strategy-card--muted(v-for="item in evolution.pruned" :key="item.id")
+              .w-flex.align-center.justify-space-between.gap2
+                strong {{ item.id }}
+                span.size--xs.op6 {{ item.family }}
+              .size--sm.mt1 Score {{ item.score }} · Return {{ item.backtestSummary.totalReturnPct }}%
+
+        .day-trading-bot-panel__section(v-if="evolution.nextGeneration?.length")
+          .size--sm.text-bold.mb2 Next generation
+          .day-trading-bot-panel__strategy-list
+            .bot-strategy-card(v-for="item in evolution.nextGeneration" :key="item.id")
+              .w-flex.align-center.justify-space-between.gap2
+                strong {{ item.id }}
+                span.size--xs.op6 {{ item.family }}
+              .size--sm.mt1 {{ item.description }}
 </template>
 
 <script setup>
@@ -114,10 +150,22 @@ const props = defineProps({
   backtestComparisons: {
     type: Array,
     default: () => []
+  },
+  evolution: {
+    type: Object,
+    default: null
+  },
+  evolutionLoading: {
+    type: Boolean,
+    default: false
+  },
+  evolutionError: {
+    type: String,
+    default: ''
   }
 })
 
-defineEmits(['refresh', 'update:risk-profile', 'run-backtest'])
+defineEmits(['refresh', 'update:risk-profile', 'run-backtest', 'run-evolution'])
 
 const riskProfiles = ['conservative', 'balanced', 'aggressive']
 
@@ -166,6 +214,25 @@ const comparisonSummary = computed(() => {
 .day-trading-bot-panel__backtest {
   border-top: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
   padding-top: 1rem;
+}
+
+.day-trading-bot-panel__section {
+  margin-top: 0.75rem;
+}
+
+.day-trading-bot-panel__strategy-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.bot-strategy-card {
+  padding: 0.8rem 0.9rem;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--w-contrast-bg-color) 6%, transparent);
+}
+
+.bot-strategy-card--muted {
+  opacity: 0.72;
 }
 
 .day-trading-bot-panel__error {

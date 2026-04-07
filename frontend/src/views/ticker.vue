@@ -60,8 +60,12 @@
         :backtest-loading="backtestLoading"
         :backtest-error="backtestError"
         :backtest-comparisons="backtestComparisons"
+        :evolution="evolutionResult"
+        :evolution-loading="evolutionLoading"
+        :evolution-error="evolutionError"
         @refresh="refreshBotDecision"
         @run-backtest="runBacktest"
+        @run-evolution="runEvolution"
         @update:risk-profile="onRiskProfileChange")
 
       //- Open Orders
@@ -179,7 +183,7 @@
 
 <script setup>
 import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
-import { fetchTicker, fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange, fetchDayTradingDecision, runDayTradingBacktest } from '@/api'
+import { fetchTicker, fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange, fetchDayTradingDecision, runDayTradingBacktest, evolveDayTradingStrategies } from '@/api'
 import { formatPercentage, formatCurrency } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
 import PriceChart from '@/components/price-chart.vue'
@@ -239,6 +243,9 @@ const backtestResult = ref(null)
 const backtestLoading = ref(false)
 const backtestError = ref('')
 const backtestComparisons = ref([])
+const evolutionResult = ref(null)
+const evolutionLoading = ref(false)
+const evolutionError = ref('')
 let marketStatusInterval = null
 
 // Dynamic Loading State
@@ -1687,10 +1694,41 @@ async function runBacktest() {
   }
 }
 
+async function runEvolution() {
+  if (!stock.symbol || !historicalData.value?.length) return
+
+  evolutionLoading.value = true
+  evolutionError.value = ''
+  try {
+    const candles = historicalData.value
+      .map(item => ({
+        close: Number(item?.close),
+        volume: Number(item?.volume || 0),
+        timestamp: item?.timestamp || item?.time || item?.date
+      }))
+      .filter(item => Number.isFinite(item.close))
+
+    const { evolution } = await evolveDayTradingStrategies({
+      symbol: stock.symbol,
+      riskProfile: selectedRiskProfile.value,
+      candles
+    })
+
+    evolutionResult.value = evolution
+  }
+  catch (error) {
+    evolutionError.value = error.message || 'Unable to evolve strategies.'
+  }
+  finally {
+    evolutionLoading.value = false
+  }
+}
+
 function onRiskProfileChange(value) {
   selectedRiskProfile.value = value
   refreshBotDecision()
   if (backtestComparisons.value.length) runBacktest()
+  if (evolutionResult.value) runEvolution()
 }
 
 onMounted(async () => {
@@ -1706,6 +1744,7 @@ onMounted(async () => {
   await Promise.all([fetchTickerData(), fetchHistoricalData()])
   await refreshBotDecision()
   await runBacktest()
+  await runEvolution()
   startMarketStatusMonitoring()
 })
 
