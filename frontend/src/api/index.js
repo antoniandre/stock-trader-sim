@@ -176,6 +176,27 @@ export async function fetchDayTradingDecision(payload) {
   }
 }
 
+export async function runDayTradingBacktest(payload) {
+  try {
+    const response = await fetch(`${API_BASE}/bot/day-trading/backtest`, {
+      method: 'POST',
+      headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload)
+    })
+
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(result.message || result.error || `HTTP ${response.status}: ${response.statusText}`)
+    }
+
+    return result.data || result
+  }
+  catch (error) {
+    console.error('Run day-trading backtest failed:', error)
+    throw error
+  }
+}
+
 export async function fetchTradingHistory(limit = 100) {
   try {
     const response = await fetch(`${API_BASE}/trading-history?limit=${limit}`)

@@ -1,6 +1,7 @@
 import express from 'express'
 import { createHttpLogger, logger } from './logger.js'
 import { evaluateDayTradingDecision, RISK_PROFILES } from './day-trading-bot.js'
+import { runDayTradingBacktest } from './day-trading-backtest.js'
 import { state, IS_SIMULATION, getTradingEnvironmentLabel, API_BEARER_TOKEN, FEATURE_FLAGS } from './config.js'
 import { attachUser, requireUser, requireEntitlement, getAuthSummary } from './auth.js'
 import { getBrokerIdentity, getBrokerCapabilities } from './services/broker-manager.js'
@@ -74,6 +75,23 @@ export function createRestApiRoutes() {
       res.status(400).json({
         error: 'Bad Request',
         message: error.message || 'Unable to evaluate day-trading decision.'
+      })
+    }
+  })
+
+  app.post('/api/bot/day-trading/backtest', requireUser, (req, res) => {
+    try {
+      const backtest = runDayTradingBacktest(req.body || {})
+      res.json(createStandardResponse({
+        backtest,
+        availableRiskProfiles: Object.keys(RISK_PROFILES)
+      }))
+    }
+    catch (error) {
+      logger.error({ err: error }, 'failed to run day-trading backtest')
+      res.status(400).json({
+        error: 'Bad Request',
+        message: error.message || 'Unable to run day-trading backtest.'
       })
     }
   })
