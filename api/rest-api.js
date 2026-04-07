@@ -10,6 +10,7 @@ import { getMarketDataIdentity, getMarketDataCapabilities, getMarketDataProvider
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
 import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive, getTopMovers, fetchStockTrend, analyzeVolume } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, getAlpacaOrders, placeOrder } from './alpaca-account.js'
+import * as AlpacaClient from './clients/alpaca-client.js'
 import { broadcast } from './websocket-server.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse, sleep, withRateLimitBackoff } from './utils.js'
@@ -64,7 +65,7 @@ export function createRestApiRoutes() {
     }))
   })
 
-  app.post('/api/bot/day-trading/decision', requireUser, (req, res) => {
+  app.post('/api/bot/day-trading/decision', (req, res) => {
     try {
       const decision = evaluateDayTradingDecision(req.body || {})
       res.json(createStandardResponse({
@@ -81,7 +82,7 @@ export function createRestApiRoutes() {
     }
   })
 
-  app.post('/api/bot/day-trading/backtest', requireUser, (req, res) => {
+  app.post('/api/bot/day-trading/backtest', (req, res) => {
     try {
       const backtest = runDayTradingBacktest(req.body || {})
       res.json(createStandardResponse({
@@ -98,7 +99,7 @@ export function createRestApiRoutes() {
     }
   })
 
-  app.post('/api/bot/day-trading/evolve', requireUser, (req, res) => {
+  app.post('/api/bot/day-trading/evolve', (req, res) => {
     try {
       const evolution = evolveTradingStrategies(req.body || {})
       res.json(createStandardResponse({
@@ -289,8 +290,11 @@ export function createRestApiRoutes() {
   app.get('/api/stocks', async (req, res) => {
     try {
       const marketDataProvider = await getMarketDataProvider()
-      const stocks = await marketDataProvider.getAllTradableStocks()
-      const { search, page = 1, limit = 50 } = req.query
+      const { search, page = 1, limit = 50, market = 'stocks' } = req.query
+      const normalizedMarket = String(market).toLowerCase() === 'crypto' ? 'crypto' : 'stocks'
+      const stocks = normalizedMarket === 'crypto'
+        ? await AlpacaClient.getAssets('active', 'crypto')
+        : await marketDataProvider.getAllTradableStocks()
 
       let filteredStocks = stocks
 
@@ -343,6 +347,7 @@ export function createRestApiRoutes() {
             tradable: stock.tradable,
             price,
             lastSide: 'buy',
+            assetClass: stock.class || normalizedMarket,
             currency: stock.currency || 'USD',
             currencySymbol: stock.currencySymbol || '$',
             marketState: marketStatus.status,
@@ -361,6 +366,7 @@ export function createRestApiRoutes() {
             tradable: stock.tradable,
             price: 0,
             lastSide: 'buy',
+            assetClass: stock.class || normalizedMarket,
             currency: stock.currency || 'USD',
             currencySymbol: stock.currencySymbol || '$',
             marketState: 'closed',

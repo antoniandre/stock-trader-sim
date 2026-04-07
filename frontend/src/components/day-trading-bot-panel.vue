@@ -2,90 +2,125 @@
 .glass-box.pa6.day-trading-bot-panel
   .w-flex.align-center.justify-space-between.gap3.wrap
     div
-      .text-upper.size--xs.op6 Day-trading bot
-      .title2.mt1 Strategy assistant
+      .text-upper.size--xs.op6 Trading intelligence
+      .title2.mt1 Bot command center
     w-tag(round sm :bg-color="regimeColor") {{ decision?.marketRegime || 'idle' }}
 
-  p.mt3.mb4.op7 {{ summaryText }}
+  p.mt2.mb1.op7 {{ summaryText }}
+  .size--sm.op6(v-if="decision") Profile tuned for {{ selectedRiskProfile }} execution.
 
-  .w-flex.align-center.gap2.wrap.mb4
-    span.size--sm.op6 Risk profile
-    w-button(
-      v-for="option in riskProfiles"
-      :key="option"
-      xs
-      round
-      :outline="option !== selectedRiskProfile"
-      @click="$emit('update:risk-profile', option)") {{ option }}
-    w-button.ml-auto(xs round text :loading="loading" @click="$emit('refresh')") Refresh
+  .day-trading-bot-panel__toolbar
+    .w-flex.align-center.gap2.wrap
+      span.size--sm.op6 Risk profile
+      w-button(
+        v-for="option in riskProfiles"
+        :key="option"
+        xs
+        round
+        :outline="option !== selectedRiskProfile"
+        @click="$emit('update:risk-profile', option)") {{ option }}
+    w-button(xs round text :loading="loading" @click="$emit('refresh')") Refresh
 
   .day-trading-bot-panel__error(v-if="error") {{ error }}
 
   template(v-else-if="decision")
-    .w-flex.wrap.gap3.mb4
-      .bot-stat
-        .size--xs.op6 Action
-        .title3.mt1 {{ decision.action }}
-      .bot-stat
-        .size--xs.op6 Confidence
-        .title3.mt1 {{ decision.confidence }}
-      .bot-stat
-        .size--xs.op6 Risk
-        .title3.mt1 {{ decision.scores.risk }}
-      .bot-stat
-        .size--xs.op6 Size
-        .title3.mt1 {{ decision.executionPlan.positionSizePct }}%
+    .day-trading-bot-panel__hero
+      .day-trading-bot-panel__hero-main
+        .size--xs.op6 Recommended action
+        .day-trading-bot-panel__action(:class="actionToneClass") {{ decision.action }}
+        .size--sm.op7 Confidence {{ decision.confidence }}% · Entry {{ decision.scores.entry }} · Risk {{ decision.scores.risk }}
+      .day-trading-bot-panel__hero-plan
+        .bot-pill
+          .size--xs.op6 Size
+          strong {{ decision.executionPlan.positionSizePct }}%
+        .bot-pill
+          .size--xs.op6 Stop
+          strong {{ decision.executionPlan.stopLossPct }}%
+        .bot-pill
+          .size--xs.op6 Trail
+          strong {{ decision.executionPlan.trailingStopPct }}%
+        .bot-pill
+          .size--xs.op6 Target
+          strong {{ decision.executionPlan.rewardTargetPct }}%
 
-    .w-flex.wrap.gap3.mb4
+    .day-trading-bot-panel__grid
       .bot-stat
-        .size--xs.op6 Stop
-        .title3.mt1 {{ decision.executionPlan.stopLossPct }}%
+        .size--xs.op6 Short trend
+        .title3.mt1 {{ formatPct(decision.metrics.shortTrendPct) }}%
       .bot-stat
-        .size--xs.op6 Trail
-        .title3.mt1 {{ decision.executionPlan.trailingStopPct }}%
+        .size--xs.op6 Medium trend
+        .title3.mt1 {{ formatPct(decision.metrics.mediumTrendPct) }}%
       .bot-stat
-        .size--xs.op6 Target
-        .title3.mt1 {{ decision.executionPlan.rewardTargetPct }}%
+        .size--xs.op6 Volume ratio
+        .title3.mt1 {{ formatNumber(decision.metrics.volumeRatio) }}x
+      .bot-stat
+        .size--xs.op6 Volatility
+        .title3.mt1 {{ formatPct(decision.metrics.realizedVolatilityPct) }}%
       .bot-stat(v-if="decision.executionPlan.trimFraction")
-        .size--xs.op6 Trim
+        .size--xs.op6 Trim size
         .title3.mt1 {{ Math.round(decision.executionPlan.trimFraction * 100) }}%
+      .bot-stat
+        .size--xs.op6 Unrealized P/L
+        .title3.mt1 {{ formatPct(decision.metrics.unrealizedPnLPct) }}%
 
-    .day-trading-bot-panel__reasons
-      .size--sm.text-bold.mb2 Why it thinks that
-      ul
+    .day-trading-bot-panel__section
+      .w-flex.align-center.justify-space-between.gap2.wrap.mb2
+        .size--sm.text-bold Why the bot leans this way
+        .size--xs.op6 Live decision factors
+      ul.day-trading-bot-panel__reason-list
         li(v-for="reason in decision.reasons" :key="reason") {{ reason }}
 
-    .day-trading-bot-panel__backtest
+    .day-trading-bot-panel__section
       .w-flex.align-center.justify-space-between.gap2.wrap.mb3
         .size--sm.text-bold Backtest snapshot
         w-button(xs round text :loading="backtestLoading" @click="$emit('run-backtest')") Run backtest
 
       .day-trading-bot-panel__error(v-if="backtestError") {{ backtestError }}
       template(v-else-if="backtest")
-        .w-flex.wrap.gap3.mb3
+        .day-trading-bot-panel__grid.mb3
           .bot-stat
             .size--xs.op6 Return
-            .title3.mt1(:class="backtest.totalReturnPct >= 0 ? 'currency-positive' : 'currency-negative'") {{ backtest.totalReturnPct }}%
+            .title3.mt1(:class="backtest.totalReturnPct >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatPct(backtest.totalReturnPct) }}%
           .bot-stat
             .size--xs.op6 Drawdown
-            .title3.mt1 {{ backtest.maxDrawdownPct }}%
+            .title3.mt1 {{ formatPct(backtest.maxDrawdownPct) }}%
           .bot-stat
             .size--xs.op6 Trades
             .title3.mt1 {{ backtest.tradeCount }}
           .bot-stat
-            .size--xs.op6 Equity
-            .title3.mt1 {{ backtest.endingEquity }}
+            .size--xs.op6 Ending equity
+            .title3.mt1 {{ formatCurrency(backtest.endingEquity) }}
 
-        .size--sm.op7(v-if="comparisonSummary.length") Profile comparison: {{ comparisonSummary }}
+        .day-trading-bot-panel__comparison(v-if="backtestComparisons.length")
+          .size--xs.op6.mb2 Risk profile comparison
+          .day-trading-bot-panel__comparison-list
+            .bot-comparison-card(
+              v-for="item in rankedComparisons"
+              :key="item.riskProfile"
+              :class="{ 'bot-comparison-card--active': item.riskProfile === selectedRiskProfile }")
+              .w-flex.align-center.justify-space-between.gap2
+                strong {{ item.riskProfile }}
+                span.size--xs.op6 {{ item.tradeCount }} trades
+              .size--sm.mt1(:class="item.totalReturnPct >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatPct(item.totalReturnPct) }}%
+              .size--xs.op6 Drawdown {{ formatPct(item.maxDrawdownPct) }}%
 
-    .day-trading-bot-panel__backtest
+    .day-trading-bot-panel__section
       .w-flex.align-center.justify-space-between.gap2.wrap.mb3
-        .size--sm.text-bold Strategy evolution
+        .size--sm.text-bold Strategy evolution lab
         w-button(xs round text :loading="evolutionLoading" @click="$emit('run-evolution')") Evolve
 
       .day-trading-bot-panel__error(v-if="evolutionError") {{ evolutionError }}
       template(v-else-if="evolution")
-        .size--sm.op7.mb3 Evaluated {{ evolution.evaluatedCount }} strategies, kept {{ evolution.survivors.length }} survivors.
+        .day-trading-bot-panel__evolution-summary.mb3
+          .bot-pill
+            .size--xs.op6 Evaluated
+            strong {{ evolution.evaluatedCount }}
+          .bot-pill
+            .size--xs.op6 Survivors
+            strong {{ evolution.survivors.length }}
+          .bot-pill(v-if="bestSurvivor")
+            .size--xs.op6 Best score
+            strong {{ bestSurvivor.score }}
 
         .day-trading-bot-panel__section
           .size--sm.text-bold.mb2 Survivors
@@ -94,19 +129,20 @@
               .w-flex.align-center.justify-space-between.gap2
                 strong {{ item.id }}
                 span.size--xs.op6 {{ item.family }}
-              .size--sm.mt1 Score {{ item.score }} · Return {{ item.backtestSummary.totalReturnPct }}%
+              .size--sm.mt1 {{ item.description }}
+              .size--sm.mt2 Score {{ item.score }} · Return {{ formatPct(item.backtestSummary.totalReturnPct) }}% · DD {{ formatPct(item.backtestSummary.maxDrawdownPct) }}%
 
         .day-trading-bot-panel__section(v-if="evolution.pruned?.length")
-          .size--sm.text-bold.mb2 Pruned
+          .size--sm.text-bold.mb2 Pruned candidates
           .day-trading-bot-panel__strategy-list
             .bot-strategy-card.bot-strategy-card--muted(v-for="item in evolution.pruned" :key="item.id")
               .w-flex.align-center.justify-space-between.gap2
                 strong {{ item.id }}
                 span.size--xs.op6 {{ item.family }}
-              .size--sm.mt1 Score {{ item.score }} · Return {{ item.backtestSummary.totalReturnPct }}%
+              .size--sm.mt2 Score {{ item.score }} · Return {{ formatPct(item.backtestSummary.totalReturnPct) }}%
 
         .day-trading-bot-panel__section(v-if="evolution.nextGeneration?.length")
-          .size--sm.text-bold.mb2 Next generation
+          .size--sm.text-bold.mb2 Next generation ideas
           .day-trading-bot-panel__strategy-list
             .bot-strategy-card(v-for="item in evolution.nextGeneration" :key="item.id")
               .w-flex.align-center.justify-space-between.gap2
@@ -171,7 +207,7 @@ const riskProfiles = ['conservative', 'balanced', 'aggressive']
 
 const summaryText = computed(() => {
   if (props.error) return 'The bot could not generate a decision yet.'
-  if (!props.decision) return 'Load a decision to see whether the setup looks like a buy, trim, hold, or exit.'
+  if (!props.decision) return 'Load a decision to see whether the setup looks actionable, defensive, or best left alone.'
   return `Current bias: ${props.decision.action} with ${props.decision.confidence}% confidence.`
 })
 
@@ -183,52 +219,124 @@ const regimeColor = computed(() => {
   return ''
 })
 
-const comparisonSummary = computed(() => {
-  if (!props.backtestComparisons.length) return ''
-  return props.backtestComparisons
-    .map(item => `${item.riskProfile}: ${item.totalReturnPct}%`)
-    .join(' • ')
-})
+const actionToneClass = computed(() => `day-trading-bot-panel__action--${props.decision?.action || 'hold'}`)
+
+const rankedComparisons = computed(() => [...props.backtestComparisons].sort((a, b) => b.totalReturnPct - a.totalReturnPct))
+const bestSurvivor = computed(() => props.evolution?.survivors?.[0] || null)
+
+function formatPct(value) {
+  return Number.isFinite(Number(value)) ? Math.round((Number(value) + Number.EPSILON) * 100) / 100 : '--'
+}
+
+function formatNumber(value) {
+  return Number.isFinite(Number(value)) ? Math.round((Number(value) + Number.EPSILON) * 100) / 100 : '--'
+}
+
+function formatCurrency(value) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '--'
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0
+  }).format(amount)
+}
 </script>
 
 <style lang="scss" scoped>
 .day-trading-bot-panel {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.9rem;
 }
 
-.bot-stat {
-  min-width: 96px;
-  padding: 0.8rem 0.9rem;
+.day-trading-bot-panel__toolbar,
+.day-trading-bot-panel__hero,
+.day-trading-bot-panel__comparison-list,
+.day-trading-bot-panel__evolution-summary {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.day-trading-bot-panel__toolbar,
+.day-trading-bot-panel__hero {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.day-trading-bot-panel__hero {
+  padding: 1rem;
+  border-radius: 18px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--w-primary-color) 18%, transparent), color-mix(in srgb, var(--w-base-bg-color) 86%, transparent));
+}
+
+.day-trading-bot-panel__hero-main {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.day-trading-bot-panel__hero-plan,
+.day-trading-bot-panel__grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+.day-trading-bot-panel__action {
+  font-size: 1.6rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.day-trading-bot-panel__action--buy,
+.day-trading-bot-panel__action--add {
+  color: var(--w-success-color);
+}
+
+.day-trading-bot-panel__action--trim,
+.day-trading-bot-panel__action--wait {
+  color: var(--w-warning-color);
+}
+
+.day-trading-bot-panel__action--exit {
+  color: var(--w-error-color);
+}
+
+.day-trading-bot-panel__action--hold {
+  color: var(--w-primary-color);
+}
+
+.bot-stat,
+.bot-pill,
+.bot-strategy-card,
+.bot-comparison-card {
+  padding: 0.85rem 0.95rem;
   border-radius: 16px;
   background: color-mix(in srgb, var(--w-contrast-bg-color) 6%, transparent);
 }
 
-.day-trading-bot-panel__reasons ul {
-  margin: 0;
-  padding-left: 1rem;
-  display: grid;
-  gap: 0.4rem;
+.bot-pill {
+  min-width: 100px;
 }
 
-.day-trading-bot-panel__backtest {
+.day-trading-bot-panel__section {
   border-top: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
   padding-top: 1rem;
 }
 
-.day-trading-bot-panel__section {
-  margin-top: 0.75rem;
-}
-
+.day-trading-bot-panel__reason-list,
 .day-trading-bot-panel__strategy-list {
   display: grid;
   gap: 0.6rem;
+  margin: 0;
 }
 
-.bot-strategy-card {
-  padding: 0.8rem 0.9rem;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--w-contrast-bg-color) 6%, transparent);
+.day-trading-bot-panel__reason-list {
+  padding-left: 1rem;
+}
+
+.bot-comparison-card--active {
+  outline: 1px solid color-mix(in srgb, var(--w-primary-color) 45%, transparent);
 }
 
 .bot-strategy-card--muted {

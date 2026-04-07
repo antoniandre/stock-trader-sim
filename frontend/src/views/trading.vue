@@ -68,15 +68,23 @@ template(v-else)
           round)
           span.mb2.mt-1.size--xl ...
 
-  w-input.w-input.light.my4.h-auto(
-    v-model="searchQuery"
-    @input="handleSearchChange"
-    outline
-    round
-    placeholder="Search for a stock..."
-    input-class="py4 px6")
-    template(#icon-left)
-      w-icon.ml4.mr-4(size="1.5rem") wi-search
+  .w-flex.align-center.gap2.wrap.my4
+    w-button(
+      v-for="option in marketOptions"
+      :key="option.value"
+      xs
+      round
+      :outline="selectedMarket !== option.value"
+      @click="setSelectedMarket(option.value)") {{ option.label }}
+    w-input.w-input.light.h-auto.grow(
+      v-model="searchQuery"
+      @input="handleSearchChange"
+      outline
+      round
+      :placeholder="selectedMarket === 'crypto' ? 'Search crypto pairs...' : 'Search for a stock...'"
+      input-class="py4 px6")
+      template(#icon-left)
+        w-icon.ml4.mr-4(size="1.5rem") wi-search
 
   //- Ticker Cards
   w-grid.gap4(:columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }" )
@@ -157,7 +165,8 @@ template(v-else)
         span Page {{ currentPage }} of {{ totalPages }}
         w-button(:disabled="currentPage === totalPages" @click="nextPage") Next
       .w-flex.align-center.gap2
-        span.op5.size--sm Showing {{ stocks.length }} of {{ totalStocks }} stocks
+        span.op5.size--sm Showing {{ stocks.length }} of {{ totalStocks }} {{ selectedMarket === 'crypto' ? 'crypto pairs' : 'stocks' }}
+        span.op5.size--sm • Market: {{ selectedMarketLabel }}
         span.op5.size--sm(v-if="searchQuery") • Filtered by "{{ searchQuery }}"
 </template>
 
@@ -172,6 +181,11 @@ import TickerLogo from '@/components/ticker-logo.vue'
 const $waveui = inject('$waveui')
 const stocks = ref([])
 const searchQuery = ref('')
+const marketOptions = [
+  { label: 'Stocks', value: 'stocks' },
+  { label: 'Crypto', value: 'crypto' }
+]
+const selectedMarket = ref('stocks')
 const loading = ref(true)
 const error = ref(null)
 const currentPage = ref(1)
@@ -180,6 +194,8 @@ const totalStocks = ref(0)
 const totalPages = ref(1)
 const fetchingPrices = ref(false)
 let searchTimeout = null
+
+const selectedMarketLabel = computed(() => marketOptions.find(option => option.value === selectedMarket.value)?.label || 'Stocks')
 
 // Top movers state - consolidated into single object.
 const topMovers = ref({
@@ -225,7 +241,7 @@ function extractPercent(rec) {
 async function loadMovers() {
   try {
     const top = topMovers.value.count
-    const payload = await fetchTopMovers(top, 'stocks')
+    const payload = await fetchTopMovers(top, selectedMarket.value)
     const data = payload?.data || payload
 
     // Normalize into gainers/losers arrays.
@@ -311,7 +327,7 @@ async function fetchStocks(resetPage = false) {
     loading.value = true
     fetchingPrices.value = true
 
-    const data = await fetchAllStocks(currentPage.value, itemsPerPage, searchQuery.value)
+    const data = await fetchAllStocks(currentPage.value, itemsPerPage, searchQuery.value, selectedMarket.value)
 
     // Ensure all stocks have proper market status.
     const processedStocks = (data.stocks || []).map(stock => ({
@@ -330,8 +346,8 @@ async function fetchStocks(resetPage = false) {
     fetchingPrices.value = false
     lastUpdate.value = new Date().toLocaleTimeString()
 
-    console.log(`✅ Loaded ${stocks.value.length} stocks for page ${currentPage.value}/${totalPages.value}`)
-    console.log(`💰 Stocks with prices: ${stocks.value.filter(s => s.price > 0).length}/${stocks.value.length}`)
+    console.log(`✅ Loaded ${stocks.value.length} ${selectedMarket.value} instruments for page ${currentPage.value}/${totalPages.value}`)
+    console.log(`💰 Instruments with prices: ${stocks.value.filter(s => s.price > 0).length}/${stocks.value.length}`)
 
     // Log market status distribution for debugging.
     const statusCounts = stocks.value.reduce((acc, stock) => {
@@ -357,6 +373,16 @@ function onSearchInput() {
 // Watch for search changes
 function handleSearchChange() {
   onSearchInput()
+}
+
+async function setSelectedMarket(value) {
+  if (value === selectedMarket.value) return
+  selectedMarket.value = value
+  searchQuery.value = ''
+  currentPage.value = 1
+  topMovers.value.gainersDisplayCount = 5
+  topMovers.value.losersDisplayCount = 5
+  await Promise.all([fetchStocks(true), loadMovers()])
 }
 
 // Page navigation functions

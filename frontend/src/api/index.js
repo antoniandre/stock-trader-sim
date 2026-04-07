@@ -336,12 +336,13 @@ export async function postMarketOrder(symbol, qty, side) {
 
 // Market Data.
 // --------------------------------------------------------
-export async function fetchAllStocks(page = 1, limit = 50, search = '') {
+export async function fetchAllStocks(page = 1, limit = 50, search = '', market = 'stocks') {
   try {
     const params = new URLSearchParams()
     if (page) params.append('page', page.toString())
     if (limit) params.append('limit', limit.toString())
     if (search) params.append('search', search)
+    if (market) params.append('market', market)
 
     const queryString = params.toString() ? `?${params.toString()}` : ''
     const response = await fetch(`${API_BASE}/stocks${queryString}`)
