@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { authState, isAuthenticated, rememberAuthRedirect, requiresAuth } from '@/stores/auth'
+import { isAuthenticated, rememberAuthRedirect, requiresAuth, whenReady } from '@/stores/auth'
 
 const routes = [
   {
@@ -53,13 +53,7 @@ const router = createRouter({
 router.beforeEach(async to => {
   if (!to.meta.requiresAuth || !requiresAuth()) return true
 
-  if (!authState.ready && to.name !== 'auth') {
-    rememberAuthRedirect(to.fullPath)
-    return {
-      name: 'auth',
-      query: { mode: 'signin' }
-    }
-  }
+  await whenReady()
 
   if (isAuthenticated()) return true
 

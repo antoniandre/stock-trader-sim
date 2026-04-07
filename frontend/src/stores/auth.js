@@ -13,12 +13,24 @@ const state = reactive({
   notice: ''
 })
 
+let _readyPromise = null
+
 function applySession(session) {
   state.session = session || null
   state.user = session?.user || null
 }
 
-export async function initAuth() {
+export function initAuth() {
+  if (_readyPromise) return _readyPromise
+  _readyPromise = _doInitAuth()
+  return _readyPromise
+}
+
+export function whenReady() {
+  return _readyPromise || Promise.resolve()
+}
+
+async function _doInitAuth() {
   const supabase = getSupabaseClient()
   state.enabled = hasSupabaseConfig()
 
