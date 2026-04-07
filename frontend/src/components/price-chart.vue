@@ -1651,7 +1651,7 @@ const baseSynchronizedOptions = computed(() => ({
       zoom: {
         wheel: {
           enabled: true,
-          speed: 0.08
+          speed: 0.03
         },
         pinch: { enabled: true },
         mode: 'x',
