@@ -519,6 +519,21 @@ export async function fetchTopMovers(top = 10, market = 'stocks') {
   }
 }
 
+export async function fetchTradeCandidates(limit = 8, market = 'stocks') {
+  try {
+    const params = new URLSearchParams({ limit: String(limit), market })
+    const response = await fetch(`${API_BASE}/screener/candidates?${params}`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    const payload = await response.json()
+    return payload.data || payload
+  }
+  catch (error) {
+    console.error('Trade screener API Error:', error)
+    throw error
+  }
+}
+
 export async function fetchStockTrend(symbol, points = 20) {
   try {
     const response = await fetch(`${API_BASE}/stocks/${symbol}/trend?points=${points}`)

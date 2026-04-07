@@ -17,6 +17,7 @@ import { createStandardResponse, sleep, withRateLimitBackoff } from './utils.js'
 import { normalizeOrderIntent, validateOrderIntent, estimateOrderNotional } from './domain/order-intent.js'
 import { recordStrategyRun } from './services/strategy-run-recorder.js'
 import { normalizeBrokerError } from './services/broker-error.js'
+import { getTradeCandidates } from './services/trade-screener-service.js'
 
 // Express API Routes.
 // --------------------------------------------------------
@@ -205,6 +206,18 @@ export function createRestApiRoutes() {
     catch (error) {
       console.error('Error fetching top movers:', error)
       res.status(500).json({ error: 'Failed to fetch top movers.' })
+    }
+  })
+
+  app.get('/api/screener/candidates', async (req, res) => {
+    try {
+      const { market = 'stocks', limit = '8' } = req.query
+      const payload = await getTradeCandidates({ market, limit })
+      res.json(createStandardResponse(payload))
+    }
+    catch (error) {
+      logger.error({ err: error, market: req.query?.market }, 'failed to build trade screener candidates')
+      res.status(500).json({ error: 'Failed to build trade screener candidates.' })
     }
   })
 

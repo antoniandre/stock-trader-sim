@@ -22,6 +22,44 @@
         :color="market === option.value ? 'primary' : undefined"
         @click="$router.push(tradingOverviewPath(option.value))") {{ option.label }}
 
+  .glass-box.pa4.mt4
+    .w-flex.align-center.justify-between.gap3.wrap
+      .w-flex.column.gap1
+        .title3 Best potential trades
+        p.op6.mb0 Ranked {{ selectedMarketLabel.toLowerCase() }} candidates with quick reasons, so the desk has somewhere to start.
+      .w-flex.align-center.gap2.no-grow
+        w-tag(v-if="tradeCandidatesUsedFallback" round sm color="warning") Fallback data
+        w-button(@click="loadTradeCandidates" :loading="tradeCandidatesLoading" text xs round) Refresh
+    .w-flex.column.py8.align-center.justify-center(v-if="tradeCandidatesLoading && !tradeCandidates.length")
+      w-progress(circle)
+      p.op5.mt3 Building the screener...
+    .w-grid.gap3.mt4(v-else-if="tradeCandidates.length" :columns="{ xs: 1, md: 2, xl: 4 }")
+      .glass-box.pa4.screener-card(v-for="candidate in tradeCandidates" :key="candidate.symbol")
+        .w-flex.align-center.justify-between.gap2
+          .w-flex.column.gap1
+            strong.title3 {{ candidate.symbol }}
+            span.size--sm.op6 {{ candidate.name }}
+          w-tag(round sm :color="candidate.side === 'buy' ? 'success' : 'error'") {{ candidate.side.toUpperCase() }}
+        .w-flex.align-center.justify-between.mt3.gap2.wrap
+          .w-flex.column
+            span.size--xs.op6 Score
+            strong {{ candidate.score }}
+          .w-flex.column
+            span.size--xs.op6 Move
+            strong(:class="candidate.changePct >= 0 ? 'currency-positive' : 'currency-negative'") {{ candidate.changePct >= 0 ? '+' : '' }}{{ candidate.changePct }}%
+          .w-flex.column(v-if="candidate.price")
+            span.size--xs.op6 Price
+            strong(v-html="formatCurrency(candidate.price, 'USD', 2, false)")
+        ul.screener-reasons.mt3.mb0.pl4
+          li.size--sm(v-for="reason in candidate.reasons" :key="`${candidate.symbol}-${reason}`") {{ reason }}
+        p.size--sm.op7.mt3.mb0 {{ candidate.thesis }}
+        .w-flex.justify-between.align-center.mt4.gap2.wrap
+          w-tag(round sm) {{ candidate.confidence.toUpperCase() }} confidence
+          w-button(@click="$router.push(tradingTickerPath(candidate.symbol, market))" text xs round) Open {{ candidate.symbol }}
+    .w-flex.column.py8.align-center.justify-center(v-else)
+      w-icon(color="info" size="3rem") wi-info-circle
+      p.op6.mt3.mb0 No ranked candidates yet. Try refreshing once market data settles.
+
   .my4.w-flex.wrap.gap3
     .w-flex.column.gap1
       .w-flex.align-center.gap2
@@ -155,8 +193,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed, inject } from 'vue'
-import { fetchAllStocks, fetchTopMovers, fetchBatchTrends, postOrder, fetchMarketStatus, checkHealth } from '@/api'
+import { ref, onMounted, onBeforeUnmount, computed, inject, watch } from 'vue'
+import { fetchAllStocks, fetchTopMovers, fetchBatchTrends, fetchTradeCandidates, postOrder, fetchMarketStatus, checkHealth } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { formatCurrency } from '@/utils/formatters'
 import TickerCard from '@/components/ticker-card.vue'
@@ -208,9 +246,13 @@ const topMovers = ref({
   gainersDisplayCount: 5,
   losersDisplayCount: 5
 })
+const tradeCandidates = ref([])
+const tradeCandidatesLoading = ref(false)
+const tradeCandidatesMeta = ref(null)
 
 const { wsConnected, wsReconnecting, wsStatusLabel, lastUpdate, connect, addMessageHandler } = useWebSocket()
 const paginatedStocks = computed(() => stocks.value)
+const tradeCandidatesUsedFallback = computed(() => !!tradeCandidatesMeta.value?.usedFallback)
 
 const tableHeaders = [
   { key: 'symbol', label: 'Symbol' },
@@ -280,6 +322,23 @@ async function refreshTradingContext() {
   }
   catch (contextError) {
     console.error('Failed to refresh trading context:', contextError)
+  }
+}
+
+async function loadTradeCandidates() {
+  tradeCandidatesLoading.value = true
+  try {
+    const payload = await fetchTradeCandidates(8, props.market)
+    tradeCandidates.value = payload?.candidates || []
+    tradeCandidatesMeta.value = payload || null
+  }
+  catch (candidateError) {
+    console.error('Failed to load trade candidates:', candidateError)
+    tradeCandidates.value = []
+    tradeCandidatesMeta.value = null
+  }
+  finally {
+    tradeCandidatesLoading.value = false
   }
 }
 
@@ -489,7 +548,7 @@ function connectWebSocket() {
 onMounted(async () => {
   loading.value = true
   try {
-    await Promise.all([fetchStocks(), loadMovers(), refreshTradingContext()])
+    await Promise.all([fetchStocks(), loadMovers(), loadTradeCandidates(), refreshTradingContext()])
     setupWebSocket()
     connectWebSocket()
   }
@@ -497,6 +556,12 @@ onMounted(async () => {
     console.error('Error during trading desk initialization:', mountedError)
     loading.value = false
   }
+})
+
+watch(() => props.market, async () => {
+  searchQuery.value = ''
+  currentPage.value = 1
+  await Promise.all([fetchStocks(true), loadMovers(), loadTradeCandidates(), refreshTradingContext()])
 })
 
 onBeforeUnmount(() => {
@@ -527,6 +592,15 @@ onBeforeUnmount(() => {
   gap: 1rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   padding-bottom: 0.5rem;
+}
+
+.screener-card {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.screener-reasons {
+  display: grid;
+  gap: 0.35rem;
 }
 
 :deep(.no-data .w-table__cell) {background: none;}
