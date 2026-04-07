@@ -64,6 +64,7 @@ export const RISK_PROFILES = {
 export function evaluateDayTradingDecision(input = {}) {
   const profileName = input.riskProfile in RISK_PROFILES ? input.riskProfile : 'balanced'
   const profile = RISK_PROFILES[profileName]
+  const strategyParams = input.strategyParams || {}
 
   const prices = Array.isArray(input.prices) ? input.prices.filter(Number.isFinite) : []
   const volumes = Array.isArray(input.volumes) ? input.volumes.filter(Number.isFinite) : []
@@ -92,7 +93,7 @@ export function evaluateDayTradingDecision(input = {}) {
   const unrealizedPnLPct = positionQty > 0 ? percentChange(avgEntryPrice, currentPrice) : 0
   const marketRegime = input.marketRegime || inferMarketRegime({ shortTrendPct, mediumTrendPct, longTrendPct, realizedVolatilityPct })
 
-  let entryScore = 50
+  let entryScore = 50 + Number(strategyParams.entryBias || 0)
   if (shortTrendPct > 0.35) entryScore += 12
   if (mediumTrendPct > 0.8) entryScore += 10
   if (longTrendPct > 1.5) entryScore += 8
@@ -105,7 +106,7 @@ export function evaluateDayTradingDecision(input = {}) {
   if (shortTrendPct < -0.5) entryScore -= 16
   entryScore = clamp(entryScore, 0, 100)
 
-  let riskScore = 18
+  let riskScore = 18 + Number(strategyParams.riskBias || 0)
   riskScore += clamp(spreadPct * 12, 0, 20)
   riskScore += clamp(realizedVolatilityPct * 7, 0, 28)
   if (volumeRatio < 0.75) riskScore += 12
@@ -166,7 +167,7 @@ export function evaluateDayTradingDecision(input = {}) {
   }
 
   const positionSizePct = clamp(
-    profile.basePositionSizePct + ((confidence - 50) / 100) * profile.basePositionSizePct,
+    profile.basePositionSizePct + ((confidence - 50) / 100) * profile.basePositionSizePct + Number(strategyParams.sizeBias || 0),
     0.02,
     profile.maxPositionSizePct
   )
@@ -195,10 +196,10 @@ export function evaluateDayTradingDecision(input = {}) {
     },
     executionPlan: {
       positionSizePct: round(positionSizePct * 100),
-      stopLossPct: profile.stopLossPct,
+      stopLossPct: round(profile.stopLossPct + Number(strategyParams.stopLossAdj || 0)),
       trailingStopPct: profile.trailingStopPct,
       trimFraction: profile.trimFraction,
-      rewardTargetPct: profile.rewardTargetPct
+      rewardTargetPct: round(profile.rewardTargetPct + Number(strategyParams.rewardAdj || 0))
     },
     reasons
   }

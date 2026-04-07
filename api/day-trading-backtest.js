@@ -29,6 +29,7 @@ export function runDayTradingBacktest(input = {}) {
     const currentPrice = Number(current.close)
     if (!Number.isFinite(currentPrice) || currentPrice <= 0) continue
 
+    const strategyParams = input.strategyParams || {}
     const decision = evaluateDayTradingDecision({
       symbol: input.symbol,
       riskProfile,
@@ -38,7 +39,8 @@ export function runDayTradingBacktest(input = {}) {
       volumes,
       spreadPct: Number(input.spreadPct ?? 0.08),
       positionQty,
-      avgEntryPrice
+      avgEntryPrice,
+      strategyParams
     })
 
     const equity = cash + positionQty * currentPrice
