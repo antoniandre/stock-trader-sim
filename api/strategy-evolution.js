@@ -35,7 +35,8 @@ function scoreBacktest(backtest) {
   const returnWeight = backtest.totalReturnPct * 1.4
   const drawdownPenalty = backtest.maxDrawdownPct * 1.1
   const activityPenalty = backtest.tradeCount < 2 ? 8 : 0
-  return round(returnWeight - drawdownPenalty - activityPenalty)
+  const qualityBonus = (backtest.winRatePct || 0) * 0.08
+  return round(returnWeight - drawdownPenalty - activityPenalty + qualityBonus)
 }
 
 function mutateStrategy(strategy, index) {
@@ -85,6 +86,11 @@ export function evolveTradingStrategies(input = {}) {
         totalReturnPct: backtest.totalReturnPct,
         maxDrawdownPct: backtest.maxDrawdownPct,
         tradeCount: backtest.tradeCount,
+        closingTradeCount: backtest.closingTradeCount,
+        winRatePct: backtest.winRatePct,
+        realizedPnL: backtest.realizedPnL,
+        profitFactor: backtest.profitFactor,
+        expectancyPerTrade: backtest.expectancyPerTrade,
         endingEquity: backtest.endingEquity
       },
       score: scoreBacktest(backtest)
@@ -99,6 +105,7 @@ export function evolveTradingStrategies(input = {}) {
   return {
     symbol: input.symbol || null,
     riskProfile,
+    cohort: BASE_STRATEGIES.slice(0, 3).map(strategy => strategy.id),
     evaluatedCount: ranked.length,
     survivors: survivors.map(strategy => ({
       id: strategy.id,

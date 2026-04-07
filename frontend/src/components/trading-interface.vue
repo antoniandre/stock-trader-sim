@@ -44,8 +44,9 @@
           w-input(v-model.number="orderForm.limitPrice" type="number" step="0.01" min="0" placeholder="Price per share" outline)
 
         .mb4
-          label.size--sm.op7.mb2 Stop Loss (Optional)
-          w-input(v-model.number="orderForm.stopLoss" type="number" step="0.01" min="0" placeholder="Stop loss price" outline disabled)
+          label.size--sm.op7.mb2 Stop Loss
+          w-input(type="number" step="0.01" min="0" placeholder="Not available with current broker wiring" outline disabled)
+          .size--xs.op6.mt1 Stop orders are not live yet in this build, so this field stays disabled to avoid false promises.
 
         .mt4(v-if="orderValue > 0 && stock.price > 0")
           .w-flex.justify-between.gap2

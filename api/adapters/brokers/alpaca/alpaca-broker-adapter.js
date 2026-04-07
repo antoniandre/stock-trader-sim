@@ -2,16 +2,7 @@ import { BrokerAdapter } from '../base/broker-adapter.js'
 import { getTradingService } from '../../../services/trading-service.js'
 import { IS_SIMULATION, getTradingEnvironmentLabel } from '../../../config.js'
 import { getMockAccountData } from '../../../simulation.js'
-
-function brokerErrorMessage(error) {
-  const d = error.response?.data
-  if (!d) return error.message || 'Order failed'
-  if (typeof d.message === 'string') return d.message
-  if (Array.isArray(d.errors)) {
-    return d.errors.map((e) => (typeof e === 'string' ? e : e?.message || JSON.stringify(e))).join('; ')
-  }
-  return error.message || 'Order failed'
-}
+import { normalizeBrokerError } from '../../../services/broker-error.js'
 
 export class AlpacaBrokerAdapter extends BrokerAdapter {
   getIdentity() {
@@ -108,13 +99,18 @@ export class AlpacaBrokerAdapter extends BrokerAdapter {
     }
     catch (error) {
       console.error('AlpacaBrokerAdapter.submitOrder:', error.message)
-      return { success: false, error: brokerErrorMessage(error) }
+      return { success: false, error: normalizeBrokerError(error, 'Order failed') }
     }
   }
 
   async cancelOrder(orderId, _context = null) {
-    const AlpacaClient = await import('../../../clients/alpaca-client.js')
-    await AlpacaClient.cancelOrder(orderId)
-    return { success: true }
+    try {
+      const AlpacaClient = await import('../../../clients/alpaca-client.js')
+      await AlpacaClient.cancelOrder(orderId)
+      return { success: true }
+    }
+    catch (error) {
+      return { success: false, error: normalizeBrokerError(error, 'Failed to cancel order') }
+    }
   }
 }

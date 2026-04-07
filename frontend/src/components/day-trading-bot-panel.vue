@@ -88,8 +88,15 @@
             .size--xs.op6 Trades
             .title3.mt1 {{ backtest.tradeCount }}
           .bot-stat
+            .size--xs.op6 Win rate
+            .title3.mt1 {{ formatPct(backtest.winRatePct) }}%
+          .bot-stat
+            .size--xs.op6 Realized P/L
+            .title3.mt1(:class="backtest.realizedPnL >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatCurrency(backtest.realizedPnL) }}
+          .bot-stat
             .size--xs.op6 Ending equity
             .title3.mt1 {{ formatCurrency(backtest.endingEquity) }}
+        .size--xs.op6.mb2(v-if="backtest.captureId") Capture {{ backtest.captureId }}
 
         .day-trading-bot-panel__comparison(v-if="backtestComparisons.length")
           .size--xs.op6.mb2 Risk profile comparison
@@ -102,7 +109,7 @@
                 strong {{ item.riskProfile }}
                 span.size--xs.op6 {{ item.tradeCount }} trades
               .size--sm.mt1(:class="item.totalReturnPct >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatPct(item.totalReturnPct) }}%
-              .size--xs.op6 Drawdown {{ formatPct(item.maxDrawdownPct) }}%
+              .size--xs.op6 Drawdown {{ formatPct(item.maxDrawdownPct) }}% · Win {{ formatPct(item.winRatePct) }}%
 
     .day-trading-bot-panel__section
       .w-flex.align-center.justify-space-between.gap2.wrap.mb3
@@ -121,6 +128,9 @@
           .bot-pill(v-if="bestSurvivor")
             .size--xs.op6 Best score
             strong {{ bestSurvivor.score }}
+          .bot-pill(v-if="evolution.captureId")
+            .size--xs.op6 Capture
+            strong {{ evolution.captureId }}
 
         .day-trading-bot-panel__section
           .size--sm.text-bold.mb2 Survivors
@@ -130,7 +140,7 @@
                 strong {{ item.id }}
                 span.size--xs.op6 {{ item.family }}
               .size--sm.mt1 {{ item.description }}
-              .size--sm.mt2 Score {{ item.score }} · Return {{ formatPct(item.backtestSummary.totalReturnPct) }}% · DD {{ formatPct(item.backtestSummary.maxDrawdownPct) }}%
+              .size--sm.mt2 Score {{ item.score }} · Return {{ formatPct(item.backtestSummary.totalReturnPct) }}% · DD {{ formatPct(item.backtestSummary.maxDrawdownPct) }}% · Win {{ formatPct(item.backtestSummary.winRatePct) }}%
 
         .day-trading-bot-panel__section(v-if="evolution.pruned?.length")
           .size--sm.text-bold.mb2 Pruned candidates
@@ -139,7 +149,7 @@
               .w-flex.align-center.justify-space-between.gap2
                 strong {{ item.id }}
                 span.size--xs.op6 {{ item.family }}
-              .size--sm.mt2 Score {{ item.score }} · Return {{ formatPct(item.backtestSummary.totalReturnPct) }}%
+              .size--sm.mt2 Score {{ item.score }} · Return {{ formatPct(item.backtestSummary.totalReturnPct) }}% · Win {{ formatPct(item.backtestSummary.winRatePct) }}%
 
         .day-trading-bot-panel__section(v-if="evolution.nextGeneration?.length")
           .size--sm.text-bold.mb2 Next generation ideas

@@ -15,6 +15,8 @@ import { broadcast } from './websocket-server.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse, sleep, withRateLimitBackoff } from './utils.js'
 import { normalizeOrderIntent, validateOrderIntent, estimateOrderNotional } from './domain/order-intent.js'
+import { recordStrategyRun } from './services/strategy-run-recorder.js'
+import { normalizeBrokerError } from './services/broker-error.js'
 
 // Express API Routes.
 // --------------------------------------------------------
@@ -65,11 +67,28 @@ export function createRestApiRoutes() {
     }))
   })
 
-  app.post('/api/bot/day-trading/decision', (req, res) => {
+  app.post('/api/bot/day-trading/decision', async (req, res) => {
     try {
-      const decision = evaluateDayTradingDecision(req.body || {})
+      const input = req.body || {}
+      const decision = evaluateDayTradingDecision(input)
+      const capture = await recordStrategyRun({
+        type: 'day-trading-decision',
+        symbol: input.symbol,
+        riskProfile: input.riskProfile,
+        metrics: {
+          action: decision.action,
+          confidence: decision.confidence,
+          marketRegime: decision.marketRegime
+        },
+        details: {
+          reasons: decision.reasons,
+          executionPlan: decision.executionPlan,
+          scores: decision.scores
+        }
+      })
       res.json(createStandardResponse({
         decision,
+        capture,
         availableRiskProfiles: Object.keys(RISK_PROFILES)
       }))
     }
@@ -82,11 +101,27 @@ export function createRestApiRoutes() {
     }
   })
 
-  app.post('/api/bot/day-trading/backtest', (req, res) => {
+  app.post('/api/bot/day-trading/backtest', async (req, res) => {
     try {
-      const backtest = runDayTradingBacktest(req.body || {})
+      const input = req.body || {}
+      const backtest = runDayTradingBacktest(input)
+      const capture = await recordStrategyRun({
+        type: 'day-trading-backtest',
+        symbol: input.symbol,
+        riskProfile: input.riskProfile,
+        summary: backtest,
+        metrics: {
+          candleCount: Array.isArray(input.candles) ? input.candles.length : 0,
+          strategyId: input.strategyId || null
+        },
+        details: {
+          cohort: input.cohort || null,
+          strategyParams: input.strategyParams || null
+        }
+      })
       res.json(createStandardResponse({
         backtest,
+        capture,
         availableRiskProfiles: Object.keys(RISK_PROFILES)
       }))
     }
@@ -99,11 +134,28 @@ export function createRestApiRoutes() {
     }
   })
 
-  app.post('/api/bot/day-trading/evolve', (req, res) => {
+  app.post('/api/bot/day-trading/evolve', async (req, res) => {
     try {
-      const evolution = evolveTradingStrategies(req.body || {})
+      const input = req.body || {}
+      const evolution = evolveTradingStrategies(input)
+      const capture = await recordStrategyRun({
+        type: 'day-trading-evolution',
+        symbol: input.symbol,
+        riskProfile: input.riskProfile,
+        cohort: evolution.cohort,
+        metrics: {
+          evaluatedCount: evolution.evaluatedCount,
+          survivorCount: evolution.survivors.length
+        },
+        details: {
+          survivors: evolution.survivors,
+          pruned: evolution.pruned,
+          nextGeneration: evolution.nextGeneration
+        }
+      })
       res.json(createStandardResponse({
         evolution,
+        capture,
         availableRiskProfiles: Object.keys(RISK_PROFILES)
       }))
     }
@@ -130,7 +182,15 @@ export function createRestApiRoutes() {
         return res.status(500).json({ error: response.message || 'Failed to fetch top movers.' })
       }
 
-      res.json(createStandardResponse(response.data))
+      const movers = response.data && !Array.isArray(response.data)
+        ? response.data
+        : { gainers: [], losers: [] }
+
+      res.json(createStandardResponse({
+        gainers: movers.gainers || [],
+        losers: movers.losers || [],
+        isFallbackData: !!response.isFallbackData
+      }))
     }
     catch (error) {
       console.error('Error fetching top movers:', error)
@@ -276,13 +336,16 @@ export function createRestApiRoutes() {
   app.delete('/api/orders/:orderId', requireMutationAuth, async (req, res) => {
     try {
       const { orderId } = req.params
-      const AlpacaClient = await import('./clients/alpaca-client.js')
-      await AlpacaClient.cancelOrder(orderId)
-      res.json({ success: true })
+      const broker = await getBrokerAdapter()
+      const result = await broker.cancelOrder(orderId)
+      if (!result?.success) {
+        return res.status(400).json({ error: result?.error || 'Failed to cancel order' })
+      }
+      res.json(createStandardResponse({ success: true }))
     }
     catch (error) {
       console.error('Error cancelling order:', error)
-      res.status(500).json({ error: 'Failed to cancel order' })
+      res.status(500).json({ error: normalizeBrokerError(error, 'Failed to cancel order') })
     }
   })
 

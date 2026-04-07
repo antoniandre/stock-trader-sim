@@ -4,6 +4,11 @@ function round(value) {
   return Math.round((value + Number.EPSILON) * 100) / 100
 }
 
+function safeDivide(numerator, denominator) {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return 0
+  return numerator / denominator
+}
+
 export function runDayTradingBacktest(input = {}) {
   const candles = Array.isArray(input.candles) ? input.candles : []
   const riskProfile = input.riskProfile || 'balanced'
@@ -20,6 +25,11 @@ export function runDayTradingBacktest(input = {}) {
   let maxDrawdownPct = 0
   const trades = []
   const equityCurve = []
+  let grossProfit = 0
+  let grossLoss = 0
+  let realizedPnL = 0
+  let winCount = 0
+  let lossCount = 0
 
   for (let index = 20; index < candles.length; index += 1) {
     const window = candles.slice(Math.max(0, index - 30), index + 1)
@@ -75,15 +85,26 @@ export function runDayTradingBacktest(input = {}) {
       const trimFraction = decision.action === 'exit' ? 1 : decision.executionPlan.trimFraction
       const qtyToSell = Math.max(1, Math.floor(positionQty * trimFraction))
       const proceeds = qtyToSell * currentPrice
+      const pnl = (currentPrice - avgEntryPrice) * qtyToSell
       cash += proceeds
       positionQty -= qtyToSell
       if (positionQty === 0) avgEntryPrice = 0
+      realizedPnL += pnl
+      if (pnl > 0) {
+        grossProfit += pnl
+        winCount += 1
+      }
+      else if (pnl < 0) {
+        grossLoss += Math.abs(pnl)
+        lossCount += 1
+      }
       trades.push({
         side: decision.action,
         price: round(currentPrice),
         qty: qtyToSell,
         confidence: decision.confidence,
-        timestamp: current.timestamp || index
+        timestamp: current.timestamp || index,
+        realizedPnL: round(pnl)
       })
     }
 
@@ -97,6 +118,10 @@ export function runDayTradingBacktest(input = {}) {
   const endingEquity = cash + positionQty * endingPrice
   const totalReturnPct = startingCapital > 0 ? ((endingEquity - startingCapital) / startingCapital) * 100 : 0
   const closedTrades = trades.filter(trade => trade.side === 'trim' || trade.side === 'exit')
+  const closedTradeCount = closedTrades.length
+  const winRatePct = closedTradeCount > 0 ? safeDivide(winCount, closedTradeCount) * 100 : 0
+  const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? null : 0)
+  const expectancyPerTrade = closedTradeCount > 0 ? realizedPnL / closedTradeCount : 0
 
   return {
     symbol: input.symbol || null,
@@ -106,7 +131,15 @@ export function runDayTradingBacktest(input = {}) {
     totalReturnPct: round(totalReturnPct),
     maxDrawdownPct: round(maxDrawdownPct),
     tradeCount: trades.length,
-    closingTradeCount: closedTrades.length,
+    closingTradeCount: closedTradeCount,
+    winCount,
+    lossCount,
+    winRatePct: round(winRatePct),
+    grossProfit: round(grossProfit),
+    grossLoss: round(grossLoss),
+    realizedPnL: round(realizedPnL),
+    profitFactor: profitFactor === null ? null : round(profitFactor),
+    expectancyPerTrade: round(expectancyPerTrade),
     openPositionQty: positionQty,
     trades,
     equityCurve

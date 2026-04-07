@@ -1,6 +1,7 @@
 import { BrokerAdapter } from '../base/broker-adapter.js'
 import { getTradingService } from '../../../services/trading-service.js'
 import { getMockAccountData } from '../../../simulation.js'
+import { normalizeBrokerError } from '../../../services/broker-error.js'
 
 export class SimulationBrokerAdapter extends BrokerAdapter {
   getIdentity() {
@@ -62,17 +63,34 @@ export class SimulationBrokerAdapter extends BrokerAdapter {
   }
 
   async submitOrder(input, _context = null) {
-    const service = await getTradingService()
-    const type = input?.type || 'market'
-    const order = await service.placeOrder(input?.symbol, input?.qty ?? input?.quantity, input?.side, type, {
-      timeInForce: input?.time_in_force || input?.timeInForce || 'gtc',
-      limit_price: input?.limit_price ?? input?.limitPrice
-    })
-    if (!order) return { success: false, error: 'Order was not accepted (simulation rejected it)' }
-    return { success: true, order }
+    try {
+      const service = await getTradingService()
+      const type = input?.type || 'market'
+      const order = await service.placeOrder(input?.symbol, input?.qty ?? input?.quantity, input?.side, type, {
+        timeInForce: input?.time_in_force || input?.timeInForce || 'gtc',
+        limit_price: input?.limit_price ?? input?.limitPrice
+      })
+      if (!order) return { success: false, error: 'Order was not accepted (simulation rejected it)' }
+      return { success: true, order }
+    }
+    catch (error) {
+      return { success: false, error: normalizeBrokerError(error, 'Simulation order failed') }
+    }
   }
 
-  async cancelOrder(_orderId, _context = null) {
-    return { success: false, error: 'Cancel order is not implemented for simulation mode yet' }
+  async cancelOrder(orderId, _context = null) {
+    try {
+      const service = await getTradingService()
+      if (typeof service.cancelOrder !== 'function') {
+        return { success: false, error: 'Cancel order is not available in the current simulation service yet' }
+      }
+
+      const result = await service.cancelOrder(orderId)
+      if (result === false) return { success: false, error: 'Failed to cancel order' }
+      return { success: true }
+    }
+    catch (error) {
+      return { success: false, error: normalizeBrokerError(error, 'Failed to cancel order') }
+    }
   }
 }

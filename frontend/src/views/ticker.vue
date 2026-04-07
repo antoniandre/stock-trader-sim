@@ -1671,20 +1671,23 @@ async function runBacktest() {
     const comparisonResults = []
 
     for (const profile of profiles) {
-      const { backtest } = await runDayTradingBacktest({
+      const { backtest, capture } = await runDayTradingBacktest({
         symbol: stock.symbol,
         riskProfile: profile,
-        candles
+        candles,
+        cohort: ['trend-rider', 'breakout-surfer', 'pullback-prober']
       })
       comparisonResults.push({
         riskProfile: profile,
         totalReturnPct: backtest.totalReturnPct,
         maxDrawdownPct: backtest.maxDrawdownPct,
-        tradeCount: backtest.tradeCount
+        tradeCount: backtest.tradeCount,
+        winRatePct: backtest.winRatePct,
+        realizedPnL: backtest.realizedPnL
       })
 
       if (profile === selectedRiskProfile.value) {
-        backtestResult.value = backtest
+        backtestResult.value = { ...backtest, captureId: capture?.id || null }
       }
     }
 
@@ -1712,13 +1715,13 @@ async function runEvolution() {
       }))
       .filter(item => Number.isFinite(item.close))
 
-    const { evolution } = await evolveDayTradingStrategies({
+    const { evolution, capture } = await evolveDayTradingStrategies({
       symbol: stock.symbol,
       riskProfile: selectedRiskProfile.value,
       candles
     })
 
-    evolutionResult.value = evolution
+    evolutionResult.value = { ...evolution, captureId: capture?.id || null }
   }
   catch (error) {
     evolutionError.value = error.message || 'Unable to evolve strategies.'

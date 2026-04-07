@@ -165,7 +165,7 @@ export async function fetchDayTradingDecision(payload) {
 
     const result = await response.json().catch(() => ({}))
     if (!response.ok) {
-      throw new Error(result.message || result.error || `HTTP ${response.status}: ${response.statusText}`)
+      throw new Error(getErrorMessage(result, `HTTP ${response.status}: ${response.statusText}`))
     }
 
     return result.data || result
@@ -186,7 +186,7 @@ export async function runDayTradingBacktest(payload) {
 
     const result = await response.json().catch(() => ({}))
     if (!response.ok) {
-      throw new Error(result.message || result.error || `HTTP ${response.status}: ${response.statusText}`)
+      throw new Error(getErrorMessage(result, `HTTP ${response.status}: ${response.statusText}`))
     }
 
     return result.data || result
@@ -207,7 +207,7 @@ export async function evolveDayTradingStrategies(payload) {
 
     const result = await response.json().catch(() => ({}))
     if (!response.ok) {
-      throw new Error(result.message || result.error || `HTTP ${response.status}: ${response.statusText}`)
+      throw new Error(getErrorMessage(result, `HTTP ${response.status}: ${response.statusText}`))
     }
 
     return result.data || result
@@ -279,9 +279,10 @@ export async function cancelOrder(orderId) {
       method: 'DELETE',
       headers: await getAuthHeaders()
     })
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(getErrorMessage(payload, `HTTP ${response.status}: ${response.statusText}`))
 
-    return await response.json()
+    return payload.data || payload
   }
   catch (error) {
     console.error('API Error:', error)
