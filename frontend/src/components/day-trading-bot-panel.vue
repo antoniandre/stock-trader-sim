@@ -26,9 +26,10 @@
   template(v-else-if="decision")
     .day-trading-bot-panel__hero
       .day-trading-bot-panel__hero-main
-        .size--xs.op6 Recommended action
-        .day-trading-bot-panel__action(:class="actionToneClass") {{ decision.action }}
+        .size--xs.op6 Live ticker recommendation
+        .day-trading-bot-panel__action(:class="actionToneClass") {{ recommendationLabel }}
         .size--sm.op7 Confidence {{ decision.confidence }}% · Entry {{ decision.scores.entry }} · Risk {{ decision.scores.risk }}
+        .size--sm.mt2 {{ recommendationDetail }}
       .day-trading-bot-panel__hero-plan
         .bot-pill
           .size--xs.op6 Size
@@ -219,7 +220,7 @@ const summaryText = computed(() => {
   if (props.loading) return 'Refreshing the latest bot read for this ticker.'
   if (props.error) return 'Bot signals are temporarily unavailable. You can still trade manually and retry once the API settles.'
   if (!props.decision) return 'Load a decision to see whether the setup looks actionable, defensive, or best left alone.'
-  return `Current bias: ${props.decision.action} with ${props.decision.confidence}% confidence.`
+  return `${recommendationLabel.value} · ${props.decision.confidence}% confidence.`
 })
 
 const statusLabel = computed(() => {
@@ -239,6 +240,8 @@ const statusTone = computed(() => {
 })
 
 const actionToneClass = computed(() => `day-trading-bot-panel__action--${props.decision?.action || 'hold'}`)
+const recommendationLabel = computed(() => props.decision?.recommendation?.label || props.decision?.action || 'No recommendation for now')
+const recommendationDetail = computed(() => props.decision?.recommendation?.detail || 'The bot is reading the latest ticker state and scoring risk in real time.')
 
 const rankedComparisons = computed(() => [...props.backtestComparisons].sort((a, b) => b.totalReturnPct - a.totalReturnPct))
 const bestSurvivor = computed(() => props.evolution?.survivors?.[0] || null)

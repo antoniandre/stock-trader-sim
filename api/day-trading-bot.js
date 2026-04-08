@@ -172,6 +172,14 @@ export function evaluateDayTradingDecision(input = {}) {
     profile.maxPositionSizePct
   )
 
+  const executionPlan = {
+    positionSizePct: round(positionSizePct * 100),
+    stopLossPct: round(profile.stopLossPct + Number(strategyParams.stopLossAdj || 0)),
+    trailingStopPct: profile.trailingStopPct,
+    trimFraction: profile.trimFraction,
+    rewardTargetPct: round(profile.rewardTargetPct + Number(strategyParams.rewardAdj || 0))
+  }
+
   return {
     symbol: input.symbol || null,
     riskProfile: profileName,
@@ -194,15 +202,104 @@ export function evaluateDayTradingDecision(input = {}) {
       realizedVolatilityPct: round(realizedVolatilityPct),
       unrealizedPnLPct: round(unrealizedPnLPct)
     },
-    executionPlan: {
-      positionSizePct: round(positionSizePct * 100),
-      stopLossPct: round(profile.stopLossPct + Number(strategyParams.stopLossAdj || 0)),
-      trailingStopPct: profile.trailingStopPct,
-      trimFraction: profile.trimFraction,
-      rewardTargetPct: round(profile.rewardTargetPct + Number(strategyParams.rewardAdj || 0))
-    },
+    executionPlan,
+    recommendation: buildRecommendation({
+      action,
+      confidence,
+      currentPrice,
+      spreadPct,
+      momentumPct,
+      positionQty,
+      executionPlan,
+      marketRegime
+    }),
     reasons
   }
+}
+
+function buildRecommendation({ action, confidence, currentPrice, spreadPct, momentumPct, positionQty, executionPlan, marketRegime }) {
+  const safePrice = Number.isFinite(currentPrice) ? currentPrice : 0
+  const safeSpreadPct = Number.isFinite(spreadPct) ? spreadPct : 0
+  const limitBuyPrice = safePrice > 0
+    ? round(safePrice * (1 - clamp(Math.max(safeSpreadPct / 100, 0.0005), 0.0005, 0.004)))
+    : null
+  const stopPrice = safePrice > 0
+    ? round(safePrice * (1 - ((Number(executionPlan?.stopLossPct) || 0) / 100)))
+    : null
+  const targetPrice = safePrice > 0
+    ? round(safePrice * (1 + ((Number(executionPlan?.rewardTargetPct) || 0) / 100)))
+    : null
+
+  if (action === 'exit') {
+    return {
+      label: 'Sell now',
+      orderType: 'market',
+      side: 'sell',
+      price: safePrice || null,
+      stopPrice,
+      targetPrice: null,
+      detail: positionQty > 0
+        ? 'The bot wants out of the current position and would prioritize speed over price improvement.'
+        : 'The bot would avoid fresh exposure and flatten any open position immediately.'
+    }
+  }
+
+  if (action === 'trim') {
+    return {
+      label: 'Sell now',
+      orderType: 'market',
+      side: 'sell',
+      price: safePrice || null,
+      stopPrice,
+      targetPrice,
+      detail: `The bot would trim about ${Math.round((Number(executionPlan?.trimFraction) || 0) * 100)}% to lock gains while the move cools.`
+    }
+  }
+
+  if (action === 'buy' || action === 'add') {
+    const prefersImmediate = marketRegime === 'breakout' || Number(momentumPct) > 0.2 || confidence >= 80
+    return {
+      label: prefersImmediate && safePrice > 0
+        ? `Buy now near ${formatPrice(safePrice)}`
+        : limitBuyPrice
+          ? `Limit buy now at ${formatPrice(limitBuyPrice)}`
+          : 'Buy now',
+      orderType: prefersImmediate ? 'marketable-limit' : 'limit',
+      side: 'buy',
+      price: prefersImmediate ? safePrice || null : limitBuyPrice,
+      stopPrice,
+      targetPrice,
+      detail: prefersImmediate
+        ? 'Momentum is strong enough that the bot would accept immediate execution with a tight price guard.'
+        : 'The bot prefers price discipline and would lean on a limit entry instead of chasing.'
+    }
+  }
+
+  if (action === 'wait') {
+    return {
+      label: 'Wait',
+      orderType: null,
+      side: null,
+      price: null,
+      stopPrice,
+      targetPrice,
+      detail: 'The setup is not clean enough yet, so the bot would stay patient and keep monitoring.'
+    }
+  }
+
+  return {
+    label: 'No recommendation for now',
+    orderType: null,
+    side: null,
+    price: null,
+    stopPrice,
+    targetPrice,
+    detail: 'There is no actionable edge right now based on the latest read.'
+  }
+}
+
+function formatPrice(value) {
+  return `$${Number(value).toFixed(2)}`
 }
 
 function inferMarketRegime({ shortTrendPct, mediumTrendPct, longTrendPct, realizedVolatilityPct }) {
