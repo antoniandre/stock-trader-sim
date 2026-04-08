@@ -43,7 +43,7 @@
 
     //- Right Column: Stats, Positions and Trading Interface
     .spacer.ma3.no-grow
-    aside.side-panel
+    aside.side-panel.w-flex.lgu-column.basis-zero.gap6
       TradingInterface(
         :symbol="stock.symbol"
         :market="market"
@@ -52,7 +52,7 @@
         :has-position="!!currentPosition"
         :initial-side="currentPosition ? 'sell' : 'buy'")
 
-      DayTradingBotPanel.mt4(
+      DayTradingBotPanel(
         :decision="botDecision"
         :loading="botLoading"
         :error="botError"
@@ -70,7 +70,7 @@
         @update:risk-profile="onRiskProfileChange")
 
       //- Open Orders
-      .glass-box.mt4.pa6.pt4(v-if="openOrders.length")
+      .glass-box.pa6.pt4(v-if="openOrders.length")
         .title2.mb4 Open Orders
         .orders-list
           .order-item.w-flex.justify-space-between.align-center.gap3.bdrs2.bd1.my1.pa2(
@@ -1840,10 +1840,7 @@ watch(() => historicalData.value.length, (newLength, oldLength) => {
     line-height: 1;
   }
 
-  .side-panel {
-    width: 25%;
-    min-width: 300px;
-  }
+  .side-panel {min-width: 300px;}
 
   div.order-item {
     border: 1px solid transparent;
