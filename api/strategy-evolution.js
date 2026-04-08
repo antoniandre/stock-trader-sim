@@ -34,9 +34,11 @@ function round(value) {
 function scoreBacktest(backtest) {
   const returnWeight = backtest.totalReturnPct * 1.4
   const drawdownPenalty = backtest.maxDrawdownPct * 1.1
-  const activityPenalty = backtest.tradeCount < 2 ? 8 : 0
+  const lowActivityPenalty = backtest.tradeCount < 2 ? 8 : backtest.tradeCount < 4 ? 4 : 0
+  const noClosedTradesPenalty = backtest.closingTradeCount < 1 ? 10 : backtest.closingTradeCount < 2 ? 4 : 0
   const qualityBonus = (backtest.winRatePct || 0) * 0.08
-  return round(returnWeight - drawdownPenalty - activityPenalty + qualityBonus)
+  const expectancyBonus = Math.max(-6, Math.min(6, (backtest.expectancyPerTrade || 0) * 0.25))
+  return round(returnWeight - drawdownPenalty - lowActivityPenalty - noClosedTradesPenalty + qualityBonus + expectancyBonus)
 }
 
 function mutateStrategy(strategy, index) {

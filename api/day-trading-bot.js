@@ -93,6 +93,24 @@ export function evaluateDayTradingDecision(input = {}) {
   const unrealizedPnLPct = positionQty > 0 ? percentChange(avgEntryPrice, currentPrice) : 0
   const marketRegime = input.marketRegime || inferMarketRegime({ shortTrendPct, mediumTrendPct, longTrendPct, realizedVolatilityPct })
 
+  const liquidityOk = spreadPct <= 0.18 && volumeRatio >= 0.85
+  const volatilityOkForMeanReversion = realizedVolatilityPct >= 0.18 && realizedVolatilityPct <= 1.35
+  const weakLiquidity = spreadPct > 0.3 || volumeRatio < 0.7
+  const weakVolatilityForEntries = realizedVolatilityPct < 0.12 || realizedVolatilityPct > 1.8
+  const weakEvidence = weakLiquidity || weakVolatilityForEntries
+
+  const setup = classifySetup({
+    shortTrendPct,
+    mediumTrendPct,
+    longTrendPct,
+    momentumPct,
+    marketRegime,
+    liquidityOk,
+    volatilityOkForMeanReversion,
+    volumeRatio,
+    realizedVolatilityPct
+  })
+
   let entryScore = 50 + Number(strategyParams.entryBias || 0)
   if (shortTrendPct > 0.35) entryScore += 12
   if (mediumTrendPct > 0.8) entryScore += 10
@@ -104,6 +122,17 @@ export function evaluateDayTradingDecision(input = {}) {
   if (marketRegime === 'chop') entryScore -= 12
   if (marketRegime === 'breakout') entryScore += 12
   if (shortTrendPct < -0.5) entryScore -= 16
+
+  if (setup === 'mean-revert') {
+    entryScore += 18
+    if (shortTrendPct < -0.25) entryScore += 6
+    if (Math.abs(mediumTrendPct) < 0.6) entryScore += 4
+  }
+
+  if (marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout')) entryScore -= 24
+  if (setup === 'breakout' && marketRegime !== 'breakout') entryScore -= 10
+  if (setup === 'weak') entryScore -= 14
+  if (weakEvidence) entryScore -= 12
   entryScore = clamp(entryScore, 0, 100)
 
   let riskScore = 18 + Number(strategyParams.riskBias || 0)
@@ -113,6 +142,9 @@ export function evaluateDayTradingDecision(input = {}) {
   if (Math.abs(momentumPct) > 1.2) riskScore += 12
   if (marketRegime === 'chop') riskScore += 16
   if (marketRegime === 'breakout') riskScore += 5
+  if (weakLiquidity) riskScore += 12
+  if (weakVolatilityForEntries) riskScore += 10
+  if (marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout')) riskScore += 16
   riskScore = clamp(riskScore, 0, 100)
 
   const managementScore = clamp(
@@ -121,7 +153,12 @@ export function evaluateDayTradingDecision(input = {}) {
     100
   )
 
-  const confidence = clamp(Math.round(entryScore - riskScore * 0.45), 0, 100)
+  let confidence = clamp(Math.round(entryScore - riskScore * 0.45), 0, 100)
+  if (marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout')) confidence = clamp(confidence - 18, 0, 100)
+  if (setup === 'mean-revert' && liquidityOk && volatilityOkForMeanReversion) confidence = clamp(confidence + 8, 0, 100)
+  if (weakEvidence) confidence = clamp(confidence - 12, 0, 100)
+  const lowConfidence = confidence < 56
+
   const reasons = []
 
   if (shortTrendPct > 0.35) reasons.push('Short-term momentum is positive')
@@ -131,12 +168,31 @@ export function evaluateDayTradingDecision(input = {}) {
   if (realizedVolatilityPct > 1.4) reasons.push('Volatility is elevated')
   if (marketRegime === 'chop') reasons.push('Market regime is choppy')
   if (marketRegime === 'trend') reasons.push('Market regime favors trend continuation')
+  if (marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout')) {
+    reasons.push('Trend and breakout entries are suppressed during chop')
+  }
+  if (setup === 'mean-revert') {
+    reasons.push(liquidityOk && volatilityOkForMeanReversion
+      ? 'Mean-reversion conditions are acceptable for a controlled snapback entry'
+      : 'Mean-reversion is present, but execution conditions still need work')
+  }
+  if (weakEvidence) reasons.push('Liquidity or volatility conditions make the signal unreliable')
+  if (lowConfidence) reasons.push('Confidence is below the bar for a fresh trade')
 
   let action = 'hold'
+  const buyThreshold = profile.buyThreshold + (setup === 'mean-revert' ? -4 : 0)
+  const addThreshold = profile.addThreshold + (marketRegime === 'chop' ? 8 : 0)
+  const allowNewEntry = !lowConfidence
+    && riskScore <= profile.maxRiskScoreForEntry
+    && !weakEvidence
+    && !(marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout'))
+
   if (positionQty <= 0) {
-    if (riskScore <= profile.maxRiskScoreForEntry && entryScore >= profile.buyThreshold) {
+    if (allowNewEntry && entryScore >= buyThreshold && (setup !== 'weak')) {
       action = 'buy'
-      reasons.push('Entry score clears the buy threshold with acceptable risk')
+      reasons.push(setup === 'mean-revert'
+        ? 'Qualified mean-reversion entry clears the buy threshold with acceptable risk'
+        : 'Entry score clears the buy threshold with acceptable risk')
     }
     else {
       action = 'wait'
@@ -156,9 +212,18 @@ export function evaluateDayTradingDecision(input = {}) {
       action = 'trim'
       reasons.push('Open profit is strong, but momentum is cooling')
     }
-    else if (riskScore <= profile.maxRiskScoreForEntry && entryScore >= profile.addThreshold && unrealizedPnLPct >= 0.4) {
+    else if (
+      allowNewEntry
+      && marketRegime !== 'chop'
+      && entryScore >= addThreshold
+      && unrealizedPnLPct >= 0.4
+    ) {
       action = 'add'
       reasons.push('Trend and momentum support adding to the winner')
+    }
+    else if (lowConfidence && marketRegime === 'chop') {
+      action = 'hold'
+      reasons.push('Choppy, low-confidence conditions argue for sitting tight')
     }
     else {
       action = 'hold'
@@ -166,8 +231,9 @@ export function evaluateDayTradingDecision(input = {}) {
     }
   }
 
+  const sizeConfidence = clamp(confidence - (setup === 'mean-revert' ? 4 : 8), 35, 90)
   const positionSizePct = clamp(
-    profile.basePositionSizePct + ((confidence - 50) / 100) * profile.basePositionSizePct + Number(strategyParams.sizeBias || 0),
+    profile.basePositionSizePct + ((sizeConfidence - 50) / 100) * profile.basePositionSizePct + Number(strategyParams.sizeBias || 0),
     0.02,
     profile.maxPositionSizePct
   )
@@ -184,6 +250,13 @@ export function evaluateDayTradingDecision(input = {}) {
     symbol: input.symbol || null,
     riskProfile: profileName,
     marketRegime,
+    setup,
+    guardrails: {
+      liquidityOk,
+      volatilityOkForMeanReversion,
+      weakEvidence,
+      lowConfidence
+    },
     action,
     confidence,
     scores: {
@@ -211,13 +284,20 @@ export function evaluateDayTradingDecision(input = {}) {
       momentumPct,
       positionQty,
       executionPlan,
-      marketRegime
+      marketRegime,
+      setup,
+      guardrails: {
+        liquidityOk,
+        volatilityOkForMeanReversion,
+        weakEvidence,
+        lowConfidence
+      }
     }),
     reasons
   }
 }
 
-function buildRecommendation({ action, confidence, currentPrice, spreadPct, momentumPct, positionQty, executionPlan, marketRegime }) {
+function buildRecommendation({ action, confidence, currentPrice, spreadPct, momentumPct, positionQty, executionPlan, marketRegime, setup, guardrails }) {
   const safePrice = Number.isFinite(currentPrice) ? currentPrice : 0
   const safeSpreadPct = Number.isFinite(spreadPct) ? spreadPct : 0
   const limitBuyPrice = safePrice > 0
@@ -258,24 +338,35 @@ function buildRecommendation({ action, confidence, currentPrice, spreadPct, mome
 
   if (action === 'buy' || action === 'add') {
     const prefersImmediate = marketRegime === 'breakout' || Number(momentumPct) > 0.2 || confidence >= 80
+    const isMeanReversion = setup === 'mean-revert'
     return {
-      label: prefersImmediate && safePrice > 0
+      label: prefersImmediate && safePrice > 0 && !isMeanReversion
         ? `Buy now near ${formatPrice(safePrice)}`
         : limitBuyPrice
           ? `Limit buy now at ${formatPrice(limitBuyPrice)}`
           : 'Buy now',
-      orderType: prefersImmediate ? 'marketable-limit' : 'limit',
+      orderType: prefersImmediate && !isMeanReversion ? 'marketable-limit' : 'limit',
       side: 'buy',
-      price: prefersImmediate ? safePrice || null : limitBuyPrice,
+      price: prefersImmediate && !isMeanReversion ? safePrice || null : limitBuyPrice,
       stopPrice,
       targetPrice,
-      detail: prefersImmediate
-        ? 'Momentum is strong enough that the bot would accept immediate execution with a tight price guard.'
-        : 'The bot prefers price discipline and would lean on a limit entry instead of chasing.'
+      detail: isMeanReversion
+        ? 'The bot sees a controlled snapback setup and prefers a disciplined limit entry instead of chasing.'
+        : prefersImmediate
+          ? 'Momentum is strong enough that the bot would accept immediate execution with a tight price guard.'
+          : 'The bot prefers price discipline and would lean on a limit entry instead of chasing.'
     }
   }
 
   if (action === 'wait') {
+    const waitDetail = marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout')
+      ? 'The tape is choppy, so trend and breakout signals are being ignored until conditions clean up.'
+      : guardrails?.weakEvidence
+        ? 'The setup is not liquid or stable enough yet, so the bot would stand down and keep monitoring.'
+        : guardrails?.lowConfidence
+          ? 'Confidence is too soft, so the bot would rather wait than force a mediocre trade.'
+          : 'The setup is not clean enough yet, so the bot would stay patient and keep monitoring.'
+
     return {
       label: 'Wait',
       orderType: null,
@@ -283,7 +374,7 @@ function buildRecommendation({ action, confidence, currentPrice, spreadPct, mome
       price: null,
       stopPrice,
       targetPrice,
-      detail: 'The setup is not clean enough yet, so the bot would stay patient and keep monitoring.'
+      detail: waitDetail
     }
   }
 
@@ -300,6 +391,24 @@ function buildRecommendation({ action, confidence, currentPrice, spreadPct, mome
 
 function formatPrice(value) {
   return `$${Number(value).toFixed(2)}`
+}
+
+function classifySetup({ shortTrendPct, mediumTrendPct, longTrendPct, momentumPct, marketRegime, liquidityOk, volatilityOkForMeanReversion, volumeRatio, realizedVolatilityPct }) {
+  const breakoutSetup = shortTrendPct > 0.8 && mediumTrendPct > 0.9 && momentumPct > 0.18 && volumeRatio > 1.1 && realizedVolatilityPct > 0.45
+  if (breakoutSetup) return 'breakout'
+
+  const trendSetup = shortTrendPct > 0.35 && mediumTrendPct > 0.7 && longTrendPct > 0.8
+  if (trendSetup) return 'trend'
+
+  const meanReversionSetup = marketRegime === 'chop'
+    && shortTrendPct <= -0.2
+    && Math.abs(mediumTrendPct) <= 0.7
+    && momentumPct <= -0.05
+    && liquidityOk
+    && volatilityOkForMeanReversion
+  if (meanReversionSetup) return 'mean-revert'
+
+  return 'weak'
 }
 
 function inferMarketRegime({ shortTrendPct, mediumTrendPct, longTrendPct, realizedVolatilityPct }) {

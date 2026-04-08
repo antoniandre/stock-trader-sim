@@ -29,6 +29,16 @@
         .size--xs.op6 Live ticker recommendation
         .day-trading-bot-panel__action(:class="actionToneClass") {{ recommendationLabel }}
         .size--sm.op7 Confidence {{ decision.confidence }}% · Entry {{ decision.scores.entry }} · Risk {{ decision.scores.risk }}
+        .day-trading-bot-panel__badges
+          .bot-pill
+            .size--xs.op6 Setup
+            strong {{ setupLabel }}
+          .bot-pill(v-if="decision.guardrails?.lowConfidence")
+            .size--xs.op6 Guardrail
+            strong Low confidence
+          .bot-pill(v-if="decision.guardrails?.weakEvidence")
+            .size--xs.op6 Guardrail
+            strong Weak evidence
         .size--sm.mt2 {{ recommendationDetail }}
       .day-trading-bot-panel__hero-plan
         .bot-pill
@@ -242,6 +252,7 @@ const statusTone = computed(() => {
 const actionToneClass = computed(() => `day-trading-bot-panel__action--${props.decision?.action || 'hold'}`)
 const recommendationLabel = computed(() => props.decision?.recommendation?.label || props.decision?.action || 'No recommendation for now')
 const recommendationDetail = computed(() => props.decision?.recommendation?.detail || 'The bot is reading the latest ticker state and scoring risk in real time.')
+const setupLabel = computed(() => props.decision?.setup ? props.decision.setup.replace(/-/g, ' ') : 'unclassified')
 
 const rankedComparisons = computed(() => [...props.backtestComparisons].sort((a, b) => b.totalReturnPct - a.totalReturnPct))
 const bestSurvivor = computed(() => props.evolution?.survivors?.[0] || null)
@@ -274,7 +285,8 @@ function formatCurrency(value) {
 .day-trading-bot-panel__toolbar,
 .day-trading-bot-panel__hero,
 .day-trading-bot-panel__comparison-list,
-.day-trading-bot-panel__evolution-summary {
+.day-trading-bot-panel__evolution-summary,
+.day-trading-bot-panel__badges {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
