@@ -25,7 +25,9 @@ export function createRestApiRoutes() {
   const app = express()
 
   // JSON body parsing middleware.
-  app.use(express.json())
+  // Bot/backtest payloads can include long candle arrays, so raise the default
+  // limit above Express's 100kb ceiling to avoid parser-level 500s.
+  app.use(express.json({ limit: '1mb' }))
   app.use(createHttpLogger())
   app.use((req, res, next) => {
     res.setHeader('X-Request-Id', req.id)
@@ -1166,6 +1168,24 @@ export function createRestApiRoutes() {
 
   // Error handler.
   app.use((err, req, res, next) => {
+    if (err?.type === 'entity.too.large') {
+      logger.warn({ err, requestId: req.id }, 'request payload too large')
+      return res.status(413).json({
+        error: 'Payload Too Large',
+        message: 'Request body is too large for this endpoint.',
+        requestId: req.id
+      })
+    }
+
+    if (err instanceof SyntaxError && err?.status === 400 && 'body' in err) {
+      logger.warn({ err, requestId: req.id }, 'invalid json payload')
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Request body contains invalid JSON.',
+        requestId: req.id
+      })
+    }
+
     logger.error({ err, requestId: req.id }, 'Express error')
     res.status(500).json({ error: 'Internal server error', requestId: req.id })
   })
