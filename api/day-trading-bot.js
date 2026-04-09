@@ -66,8 +66,8 @@ export function evaluateDayTradingDecision(input = {}) {
   const profile = RISK_PROFILES[profileName]
   const strategyParams = input.strategyParams || {}
 
-  const prices = Array.isArray(input.prices) ? input.prices.filter(Number.isFinite) : []
-  const volumes = Array.isArray(input.volumes) ? input.volumes.filter(Number.isFinite) : []
+  const prices = Array.isArray(input.prices) ? input.prices.filter(Number.isFinite) : Array.isArray(input.stock?.history?.prices) ? input.stock.history.prices.filter(Number.isFinite) : []
+  const volumes = Array.isArray(input.volumes) ? input.volumes.filter(Number.isFinite) : Array.isArray(input.stock?.history?.volumes) ? input.stock.history.volumes.filter(Number.isFinite) : []
   const currentPrice = Number(input.currentPrice ?? prices.at(-1) ?? 0)
   const prevPrice = Number(prices.at(-2) ?? currentPrice)
   const shortWindow = prices.slice(-5)
