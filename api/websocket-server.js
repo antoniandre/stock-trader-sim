@@ -7,6 +7,8 @@ import { createAlpacaWebSocket, subscribeToSymbols, unsubscribeFromSymbols } fro
 // WebSocket State.
 // --------------------------------------------------------
 const subscribedStocks = new Set()
+// Per-client subscription tracking so we can clean up on disconnect.
+const clientSubscriptions = new Map() // ws → Set<symbol>
 let isAuthenticated = false
 let reconnectAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 5
@@ -199,6 +201,7 @@ export function createWebSocketServer(server) {
   wss.on('connection', (ws) => {
     console.log('🔌 New WebSocket client connected')
     state.wsClients.add(ws)
+    clientSubscriptions.set(ws, new Set())
 
     if (state.wsClients.size === 1) startMarketStatusUpdates()
 
@@ -243,6 +246,17 @@ export function createWebSocketServer(server) {
       console.log('🔌 WebSocket client disconnected')
       state.wsClients.delete(ws)
 
+      // Unsubscribe all symbols this client was watching if no other client wants them.
+      const mySymbols = clientSubscriptions.get(ws) || new Set()
+      clientSubscriptions.delete(ws)
+      for (const symbol of mySymbols) {
+        const stillWanted = [...clientSubscriptions.values()].some(s => s.has(symbol))
+        if (!stillWanted) {
+          console.log(`🧹 Client disconnect: removing orphaned subscription for ${symbol}`)
+          unsubscribeFromStock(symbol)
+        }
+      }
+
       if (state.wsClients.size === 0) {
         stopMarketStatusUpdates()
         if (subscribedStocks.size === 0) stopPricePolling()
@@ -257,10 +271,14 @@ export function createWebSocketServer(server) {
         if (message.type === 'subscribe' && message.symbol) {
           console.log(`📡 Client requesting subscription to ${message.symbol}`)
           subscribeToStock(message.symbol)
+          clientSubscriptions.get(ws)?.add(message.symbol)
         }
         else if (message.type === 'unsubscribe' && message.symbol) {
           console.log(`📡 Client requesting unsubscription from ${message.symbol}`)
-          unsubscribeFromStock(message.symbol)
+          clientSubscriptions.get(ws)?.delete(message.symbol)
+          // Only remove from global set if no other client still wants this symbol.
+          const stillWanted = [...clientSubscriptions.values()].some(s => s.has(message.symbol))
+          if (!stillWanted) unsubscribeFromStock(message.symbol)
         }
       }
       catch (error) {

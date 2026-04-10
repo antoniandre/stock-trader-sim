@@ -191,7 +191,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
+import { reactive, ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, nextTick, inject } from 'vue'
 import { fetchTicker, fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange, fetchDayTradingDecision, runDayTradingBacktest, evolveDayTradingStrategies } from '@/api'
 import { formatPercentage, formatCurrency } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
@@ -1878,15 +1878,18 @@ onMounted(async () => {
   initializeRealtimeBot()
 })
 
+// Send the unsubscribe message while the WebSocket is still open.
+// onBeforeUnmount fires BEFORE the composable's cleanup() which nulls the ws instance,
+// so the send is guaranteed to reach the server.
+onBeforeUnmount(() => {
+  wsUnsubscribeFromStock(stock.symbol)
+  console.log(`✅ Unsubscribed from WebSocket for ${stock.symbol}`)
+})
+
 onUnmounted(() => {
   console.log(`📊 Cleaning up ticker view for ${stock.symbol}...`)
   
   stopMarketStatusMonitoring()
-
-  // CRITICAL: Unsubscribe from WebSocket to stop receiving updates for this symbol
-  // Use the SAME WebSocket instance that subscribed (don't create a new one)
-  wsUnsubscribeFromStock(stock.symbol)
-  console.log(`✅ Unsubscribed from WebSocket for ${stock.symbol}`)
 
   // Clear any pending timers.
   if (panDebounceTimer) {
