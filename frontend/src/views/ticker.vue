@@ -336,6 +336,7 @@ const {
 let priceUpdateHandler = null
 let marketStatusHandler = null
 let tradeHandler = null
+let positionsUpdatedHandler = null
 
 // Chart Configuration
 // --------------------------------------------------------
@@ -1238,11 +1239,30 @@ function handleChartViewChange(chart, action) {
 }
 
 function handleTrade(data) {
-  if (data.symbol === stock.symbol) {
-    // Refresh ticker data (positions and orders) when a trade occurs for this symbol.
-    // Use batch endpoint for efficiency.
-    fetchTickerData()
+  if (data.symbol !== stock.symbol) return
+  // Immediate refresh for order list, then a short delayed re-fetch to catch
+  // fills that take a moment to process at the broker.
+  fetchTickerData()
+  setTimeout(fetchTickerData, 1500)
+}
+
+function handlePositionsUpdated(data) {
+  // Server pushes fresh positions right after every order via POST /api/orders.
+  // Apply the update directly instead of waiting for the next WS trade event.
+  const allPositions = Array.isArray(data.data) ? data.data : []
+  const myPosition = allPositions.find(p => p.symbol === stock.symbol) || null
+  const existingIndex = positions.value.findIndex(p => p.symbol === stock.symbol)
+
+  if (myPosition) {
+    if (existingIndex >= 0) positions.value[existingIndex] = myPosition
+    else positions.value.push(myPosition)
   }
+  else if (existingIndex >= 0) {
+    positions.value.splice(existingIndex, 1)
+  }
+
+  // Also refresh orders for this symbol to reflect any fills
+  fetchTickerData()
 }
 
 function setupWebSocket() {
@@ -1250,10 +1270,12 @@ function setupWebSocket() {
   priceUpdateHandler = handlePriceUpdate
   marketStatusHandler = handleMarketStatusUpdate
   tradeHandler = handleTrade
+  positionsUpdatedHandler = handlePositionsUpdated
   
   addMessageHandler('price', priceUpdateHandler)
   addMessageHandler('market-status', marketStatusHandler)
   addMessageHandler('trade', tradeHandler)
+  addMessageHandler('positions-updated', positionsUpdatedHandler)
 }
 
 // Data Fetching Functions
@@ -1966,6 +1988,10 @@ onUnmounted(() => {
   if (tradeHandler) {
     removeMessageHandler('trade', tradeHandler)
     tradeHandler = null
+  }
+  if (positionsUpdatedHandler) {
+    removeMessageHandler('positions-updated', positionsUpdatedHandler)
+    positionsUpdatedHandler = null
   }
 
   // Clear data to free memory
