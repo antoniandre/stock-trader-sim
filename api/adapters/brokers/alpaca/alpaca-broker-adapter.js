@@ -90,7 +90,8 @@ export class AlpacaBrokerAdapter extends BrokerAdapter {
       const service = await getTradingService()
       const order = await service.placeOrder(sym, qty, side, type, {
         timeInForce,
-        limit_price: type === 'limit' ? limitPrice : undefined
+        limit_price: type === 'limit' ? limitPrice : undefined,
+        extended_hours: input.extended_hours || false
       })
       if (!order) {
         return { success: false, error: 'Order was not accepted (no price or broker rejection)' }

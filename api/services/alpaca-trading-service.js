@@ -79,7 +79,7 @@ export class AlpacaTradingService extends TradingService {
 
   // Orders.
   // --------------------------------------------------------
-  async placeOrder(symbol, quantity, side, type = 'market', options = {}) {
+  async placeOrder(symbol, quantity, side, type = 'market', options = { extended_hours: false }) {
     if (IS_SIMULATION) {
       const price = await getPriceImpl(symbol)
       if (!price) return null
@@ -98,6 +98,7 @@ export class AlpacaTradingService extends TradingService {
         side,
         type,
         time_in_force: options.timeInForce || 'gtc',
+        extended_hours: options.extended_hours || false,
         ...options
       }
 
