@@ -1719,8 +1719,10 @@ async function refreshBotDecision() {
   }
 }
 
+const MIN_CANDLES = 25
+
 async function runBacktest() {
-  if (!stock.symbol || !historicalData.value?.length) return
+  if (!stock.symbol || historicalData.value.length < MIN_CANDLES) return
 
   backtestLoading.value = true
   backtestError.value = ''
@@ -1770,7 +1772,7 @@ async function runBacktest() {
 }
 
 async function runEvolution() {
-  if (!stock.symbol || !historicalData.value?.length) return
+  if (!stock.symbol || historicalData.value.length < MIN_CANDLES) return
 
   evolutionLoading.value = true
   evolutionError.value = ''
@@ -1997,7 +1999,12 @@ watch(() => currentPosition.value, () => {
 })
 
 watch(() => historicalData.value.length, (newLength, oldLength) => {
-  if (newLength > 0) refreshBotDecision()
+  if (newLength >= MIN_CANDLES) refreshBotDecision()
+  if (newLength === MIN_CANDLES) {
+    // First time we cross the threshold — also kick off backtest + evolution
+    runBacktest()
+    runEvolution()
+  }
   if (newLength > oldLength) console.log(`📊 Added ${newLength - oldLength} historical data points`)
 })
 </script>
