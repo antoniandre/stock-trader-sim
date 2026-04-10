@@ -35,16 +35,16 @@ export const RISK_PROFILES = {
   },
   balanced: {
     maxRiskScoreForEntry: 46,
-    buyThreshold: 58,
-    addThreshold: 68,
-    trimThreshold: 54,
+    buyThreshold: 52,
+    addThreshold: 60,
+    trimThreshold: 48,
     exitThreshold: 68,
     basePositionSizePct: 0.1,
     maxPositionSizePct: 0.2,
     stopLossPct: 1.7,
     trailingStopPct: 1.2,
     trimFraction: 0.4,
-    rewardTargetPct: 2.5
+    rewardTargetPct: 1.5
   },
   aggressive: {
     maxRiskScoreForEntry: 58,
@@ -153,10 +153,10 @@ export function evaluateDayTradingDecision(input = {}) {
     100
   )
 
-  let confidence = clamp(Math.round(entryScore - riskScore * 0.45), 0, 100)
+  let confidence = clamp(entryScore - riskScore * 0.3, 0, 100)
+  if (entryScore >= 62 && riskScore <= 40) confidence = clamp(confidence + 12, 0, 100)
+  if (weakEvidence) confidence = clamp(confidence - 10, 0, 100)
   if (marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout')) confidence = clamp(confidence - 18, 0, 100)
-  if (setup === 'mean-revert' && liquidityOk && volatilityOkForMeanReversion) confidence = clamp(confidence + 8, 0, 100)
-  if (weakEvidence) confidence = clamp(confidence - 12, 0, 100)
   const lowConfidence = confidence < 56
 
   const reasons = []
@@ -182,9 +182,7 @@ export function evaluateDayTradingDecision(input = {}) {
   let action = 'hold'
   const buyThreshold = profile.buyThreshold + (setup === 'mean-revert' ? -4 : 0)
   const addThreshold = profile.addThreshold + (marketRegime === 'chop' ? 8 : 0)
-  const allowNewEntry = !lowConfidence
-    && riskScore <= profile.maxRiskScoreForEntry
-    && !weakEvidence
+  const allowNewEntry = riskScore <= profile.maxRiskScoreForEntry
     && !(marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout'))
 
   if (positionQty <= 0) {
@@ -201,14 +199,18 @@ export function evaluateDayTradingDecision(input = {}) {
   }
   else {
     const stopTriggered = unrealizedPnLPct <= -profile.stopLossPct
-    const trendBroken = shortTrendPct < -0.7 && mediumTrendPct < 0
+    const trendBroken = shortTrendPct < -0.35
     const takeProfitZone = unrealizedPnLPct >= profile.rewardTargetPct
 
-    if (stopTriggered || (riskScore >= profile.exitThreshold && trendBroken)) {
+    if (stopTriggered) {
       action = 'exit'
-      reasons.push(stopTriggered ? 'Loss breached the stop level' : 'Risk is elevated and trend support broke')
+      reasons.push('Loss breached the stop level')
     }
-    else if (takeProfitZone && managementScore < profile.trimThreshold) {
+    else if (riskScore >= profile.exitThreshold && trendBroken && unrealizedPnLPct > -0.5) {
+      action = 'exit'
+      reasons.push('Risk is elevated and trend support broke')
+    }
+    else if (takeProfitZone && (shortTrendPct < 0.2 || momentumPct < 0.08)) {
       action = 'trim'
       reasons.push('Open profit is strong, but momentum is cooling')
     }
@@ -235,6 +237,11 @@ export function evaluateDayTradingDecision(input = {}) {
       action = 'hold'
       reasons.push('Current position still fits the measured risk')
     }
+
+    // TODO: Position timeout logic
+    // Future enhancement: Add logic to timeout stale positions held >20 candles without meaningful progress.
+    // Current limitation: Backtest engine doesn't track exact entry timestamps, only candle indices.
+    // Next iteration: Improve trim/exit logic quality and add proper timestamp tracking to backtester.
   }
 
   const sizeConfidence = clamp(confidence - (setup === 'mean-revert' ? 4 : 8), 35, 90)
