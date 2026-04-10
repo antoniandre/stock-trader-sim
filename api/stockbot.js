@@ -5,6 +5,7 @@ import { getAllTradableStocks, initializeMarketData } from './market-data.js'
 import { getAlpacaAccount, getAlpacaAccountActivities } from './alpaca-account.js'
 import { connectAlpacaSSE } from './sse-client.js'
 import { createWebSocketServer, connectAlpacaWebSocket, runSimulationWrapper, broadcast } from './websocket-server.js'
+import { initializeScreener, setOpportunityCallback } from './src/screener/screener.js'
 
 // Server Setup.
 // --------------------------------------------------------
@@ -28,6 +29,16 @@ async function startServer() {
     // Initialize stock data.
     await getAllTradableStocks()
     await initializeMarketData()
+
+    // Initialize the smart decision-making bot's screener functionality.
+    await initializeScreener()
+
+    // Set a callback to handle detected opportunities (for now, just log them).
+    setOpportunityCallback((opportunity) => {
+      console.log('🚨 Screener detected opportunity:', opportunity)
+      // In a real scenario, this would trigger an an action in the main trading bot.
+      // For example, passing the opportunity to the day-trading-bot.
+    })
 
     if (IS_SIMULATION) {
       console.log('🧪 Demo mode: Running simulation every 1 second')
