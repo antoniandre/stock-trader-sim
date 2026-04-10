@@ -30,7 +30,7 @@
           :class="getIndicatorValueClass(indicator, key, value)")
           | {{ key }}: {{ formatValue(value) }}
 
-  w-modal(
+  w-dialog(
     v-model="showSettings"
     title="Indicator Settings"
     width="500")

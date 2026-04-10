@@ -59,7 +59,7 @@
       button.grow.sell(@click="openOrderConfirmation('sell')" :disabled="!canSubmitOrder")
         strong SELL
 
-  w-modal(v-model="showOrderConfirmation" :title="confirmationTitle" width="520")
+  w-dialog(v-model="showOrderConfirmation" :title="confirmationTitle" width="520")
     .confirmation-copy(v-if="pendingOrder")
       w-alert.pa3.bdrs2.mb4(:success="marketGate.reason === 'open'" :warning="marketGate.reason !== 'open'")
         strong {{ pendingEnvironmentLabel }}

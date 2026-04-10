@@ -160,7 +160,7 @@
         span.op5.size--sm • Desk: {{ selectedMarketLabel }}
         span.op5.size--sm(v-if="searchQuery") • Filtered by "{{ searchQuery }}"
 
-  w-modal(v-model="showOrderConfirmation" title="Review quick order" width="520")
+  w-dialog(v-model="showOrderConfirmation" title="Review quick order" width="520")
     .confirmation-copy(v-if="pendingOrder")
       w-alert.pa3.bdrs2.mb4(:success="marketGate.reason === 'open'" :warning="marketGate.reason !== 'open'")
         strong {{ pendingEnvironmentLabel }}
