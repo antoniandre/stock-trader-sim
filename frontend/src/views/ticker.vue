@@ -1867,9 +1867,8 @@ function handleBotAutoFire(decision) {
 }
 
 function onAutonomousToggle(enabled) {
+  autonomousEnabled.value = enabled
   console.log(`🤖 Autonomous trading ${enabled ? 'enabled' : 'disabled'}`)
-  // State is already managed in autonomous-trading-toggle.vue via localStorage
-  // This handler can be extended for API calls if needed
 }
 
 function initializeRealtimeBot() {
@@ -1884,7 +1883,8 @@ function initializeRealtimeBot() {
 
     const decision = botDecision.value
     const confidence = Number(decision.confidence || 0)
-    const isValidAction = decision.action === 'buy' || decision.action === 'sell'
+    // 'add' is a bullish signal (add to existing position) — treat same as 'buy'
+    const isValidAction = ['buy', 'add', 'sell', 'exit'].includes(decision.action)
 
     if (!isValidAction || confidence < 80) return
 
@@ -1926,6 +1926,9 @@ function initializeRealtimeBot() {
 }
 
 onMounted(async () => {
+  // Sync autonomous toggle state from localStorage before the interval starts.
+  autonomousEnabled.value = localStorage.getItem('autonomousTrading') === 'true'
+
   setupWebSocket()
   connect()
 

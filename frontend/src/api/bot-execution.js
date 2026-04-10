@@ -15,7 +15,7 @@ export function shouldAutoFire(decision, autonomousTrading) {
   if (!autonomousTrading || !decision) return false
   
   const confidence = Number(decision.confidence || 0)
-  const isValidAction = decision.action === 'buy' || decision.action === 'sell'
+  const isValidAction = ['buy', 'add', 'sell', 'exit'].includes(decision.action)
   
   return confidence >= 80 && isValidAction
 }
@@ -42,7 +42,7 @@ export async function fireOrderAutomatically(decision, executionContext) {
   const orderIntent = {
     symbol: String(symbol).toUpperCase(),
     qty: Math.floor(qty),
-    side: action === 'buy' ? 'buy' : 'sell',
+    side: ['buy', 'add'].includes(action) ? 'buy' : 'sell',
     type: 'market'
   }
   

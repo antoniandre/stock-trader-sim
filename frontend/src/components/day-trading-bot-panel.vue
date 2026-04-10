@@ -233,7 +233,7 @@ watch(
       const autonomousTrading = localStorage.getItem('autonomousTrading') === 'true'
       const confidence = Number(newDecision.confidence || 0)
       const isHighConfidence = confidence >= 80
-      const isValidAction = newDecision.action === 'buy' || newDecision.action === 'sell'
+      const isValidAction = ['buy', 'add', 'sell', 'exit'].includes(newDecision.action)
       
       if (autonomousTrading && isHighConfidence && isValidAction) {
         // Emit event so parent can handle auto-fire
