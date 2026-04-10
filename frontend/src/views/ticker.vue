@@ -73,7 +73,8 @@
         @refresh="refreshBotDecision"
         @run-backtest="runBacktest"
         @run-evolution="runEvolution"
-        @update:risk-profile="onRiskProfileChange")
+        @update:risk-profile="onRiskProfileChange"
+        @auto-fire-detected="handleBotAutoFire")
 
       //- Open Orders
       .glass-box.pa6.pt4(v-if="openOrders.length")
@@ -194,6 +195,7 @@ import { reactive, ref, computed, onMounted, onUnmounted, watch, nextTick, injec
 import { fetchTicker, fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange, fetchDayTradingDecision, runDayTradingBacktest, evolveDayTradingStrategies } from '@/api'
 import { formatPercentage, formatCurrency } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
+import { useBotRealtimeEvaluation } from '@/composables/use-bot-realtime'
 import PriceChart from '@/components/price-chart.vue'
 import StockStatsPanel from '@/components/stock-stats-panel.vue'
 import TradingInterface from '@/components/trading-interface.vue'
@@ -202,7 +204,9 @@ import TickerPrice from '@/components/ticker-price.vue'
 import DraggableTradingInterface from '@/components/draggable-trading-interface.vue'
 import DayTradingBotPanel from '@/components/day-trading-bot-panel.vue'
 import AutonomousTradingToggle from '@/components/autonomous-trading-toggle.vue'
+import BotAutoExecutionModal from '@/components/bot-auto-execution-modal.vue'
 import { tradingOverviewPath } from '@/utils/trading-routes'
+import { fireOrderAutomatically, notifyAutoExecution } from '@/api/bot-execution'
 
 const props = defineProps({
   symbol: { type: String, required: true },
@@ -260,6 +264,9 @@ const evolutionError = ref('')
 const autonomousEnabled = ref(false)
 let marketStatusInterval = null
 
+// Real-time bot evaluation
+let botRealtimeEvaluator = null
+
 // Dynamic Loading State
 // --------------------------------------------------------
 const isLoadingAdditionalData = ref(false)
@@ -300,8 +307,20 @@ const PRICE_UPDATE_THROTTLE = 1000 // 1 second.
 
 // WebSocket Setup
 // --------------------------------------------------------
-const { wsConnected, lastUpdate, connect, addMessageHandler, subscribeToStock } = useWebSocket()
+const { 
+  wsConnected, 
+  lastUpdate, 
+  connect, 
+  addMessageHandler, 
+  removeMessageHandler,
+  subscribeToStock,
+  unsubscribeFromStock: wsUnsubscribeFromStock
+} = useWebSocket()
 
+// Store message handler references for cleanup
+let priceUpdateHandler = null
+let marketStatusHandler = null
+let tradeHandler = null
 
 // Chart Configuration
 // --------------------------------------------------------
@@ -1188,9 +1207,14 @@ function handleTrade(data) {
 }
 
 function setupWebSocket() {
-  addMessageHandler('price', handlePriceUpdate)
-  addMessageHandler('market-status', handleMarketStatusUpdate)
-  addMessageHandler('trade', handleTrade)
+  // Store handlers so we can clean them up properly
+  priceUpdateHandler = handlePriceUpdate
+  marketStatusHandler = handleMarketStatusUpdate
+  tradeHandler = handleTrade
+  
+  addMessageHandler('price', priceUpdateHandler)
+  addMessageHandler('market-status', marketStatusHandler)
+  addMessageHandler('trade', tradeHandler)
 }
 
 // Data Fetching Functions
@@ -1762,6 +1786,16 @@ function onRiskProfileChange(value) {
   if (evolutionResult.value) runEvolution()
 }
 
+function handleBotAutoFire(decision) {
+  console.log('🤖 Auto-fire detected from bot panel:', decision)
+  // Auto-fire event bubbled from day-trading-bot-panel.
+  // The bot-execution module already called emitAutoExecutionEvent internally.
+  // Here we can show a notification or trigger additional UI feedback.
+  if (decision && decision.action) {
+    console.log(`🤖 Auto-fire action: ${decision.action} with confidence ${decision.confidence}%`)
+  }
+}
+
 function onAutonomousToggle(enabled) {
   console.log(`🤖 Autonomous trading ${enabled ? 'enabled' : 'disabled'}`)
   // State is already managed in autonomous-trading-toggle.vue via localStorage
@@ -1783,10 +1817,20 @@ onMounted(async () => {
   await runBacktest()
   await runEvolution()
   startMarketStatusMonitoring()
+  
+  // Start real-time bot re-evaluation on WebSocket price events
+  initializeRealtimeBot()
 })
 
 onUnmounted(() => {
+  console.log(`📊 Cleaning up ticker view for ${stock.symbol}...`)
+  
   stopMarketStatusMonitoring()
+
+  // CRITICAL: Unsubscribe from WebSocket to stop receiving updates for this symbol
+  const { unsubscribeFromStock } = useWebSocket()
+  unsubscribeFromStock(stock.symbol)
+  console.log(`✅ Unsubscribed from WebSocket for ${stock.symbol}`)
 
   // Clear any pending timers.
   if (panDebounceTimer) {
@@ -1801,6 +1845,12 @@ onUnmounted(() => {
   // Clear active requests.
   activeRequests.value.clear()
 
+  // Clear real-time bot evaluator if exists
+  if (botRealtimeEvaluator) {
+    botRealtimeEvaluator.cleanup()
+    botRealtimeEvaluator = null
+  }
+
   // Clear data to free memory
   priceHistory.value = []
   historicalData.value = []
@@ -1809,6 +1859,8 @@ onUnmounted(() => {
   recentTrades.value = []
   timeframeDataCache.value.clear()
   dataCache.value.clear()
+  
+  console.log(`✅ Cleanup complete for ${stock.symbol}`)
 })
 
 watch(() => stock.symbol, async (newSymbol, oldSymbol) => {

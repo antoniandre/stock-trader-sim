@@ -173,7 +173,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
+import { shouldAutoFire, emitAutoExecutionEvent } from '@/api/bot-execution'
 
 const props = defineProps({
   decision: {
@@ -222,7 +223,32 @@ const props = defineProps({
   }
 })
 
-defineEmits(['refresh', 'update:risk-profile', 'run-backtest', 'run-evolution'])
+const emit = defineEmits(['refresh', 'update:risk-profile', 'run-backtest', 'run-evolution', 'auto-fire-detected'])
+
+// Auto-fire detection when decision changes
+watch(
+  () => props.decision,
+  (newDecision) => {
+    if (newDecision) {
+      const autonomousTrading = localStorage.getItem('autonomousTrading') === 'true'
+      const confidence = Number(newDecision.confidence || 0)
+      const isHighConfidence = confidence >= 80
+      const isValidAction = newDecision.action === 'buy' || newDecision.action === 'sell'
+      
+      if (autonomousTrading && isHighConfidence && isValidAction) {
+        // Emit event so parent can handle auto-fire
+        emitAutoExecutionEvent({
+          symbol: 'unknown', // Will be set by parent
+          action: newDecision.action,
+          confidence,
+          timestamp: new Date().toISOString()
+        })
+        // Notify parent component about auto-fire decision
+        emit('auto-fire-detected', newDecision)
+      }
+    }
+  }
+)
 
 const riskProfiles = ['conservative', 'balanced', 'aggressive']
 
