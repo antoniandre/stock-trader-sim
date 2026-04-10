@@ -306,6 +306,12 @@ async function transitionChartData(newData) {
 let lastPriceUpdate = 0
 const PRICE_UPDATE_THROTTLE = 1000 // 1 second.
 
+// Bot decision debounce: WS ticks are the primary driver, but we cap evaluations
+// at once per BOT_DECISION_INTERVAL_MS to avoid spamming the bot API on every tick.
+// The same interval is reused as the fallback poll for flat/no-price-change periods.
+let lastBotEval = 0
+const BOT_DECISION_INTERVAL_MS = 30_000
+
 // WebSocket Setup
 // --------------------------------------------------------
 const { 
@@ -783,8 +789,13 @@ function handlePriceUpdate(data) {
   }
   else console.log('📊 User has panned away, not updating real-time data')
   
-  // Re-evaluate bot confidence on every price tick
-  refreshBotDecision()
+  // Re-evaluate bot on price tick, debounced to once per BOT_DECISION_INTERVAL_MS.
+  // This keeps the display live via WS without spamming the bot API every second.
+  const now2 = Date.now()
+  if (now2 - lastBotEval >= BOT_DECISION_INTERVAL_MS) {
+    lastBotEval = now2
+    refreshBotDecision()
+  }
 }
 
 function handleMarketStatusUpdate(data) {
@@ -1183,8 +1194,6 @@ function getBufferTime(period, currentRange = null) {
   return baseBuffer
 }
 
-const BOT_FALLBACK_INTERVAL_MS = 30_000  // Refresh bot every 30 s when prices are flat
-
 function startMarketStatusMonitoring() {
   if (marketStatusInterval) return
 
@@ -1197,11 +1206,12 @@ function startMarketStatusMonitoring() {
   // interval only fires when there has been no price event in the last window,
   // so it doesn't double-call during active market hours.
   botRefreshInterval = setInterval(() => {
-    const timeSincePrice = Date.now() - lastPriceUpdate
-    if (timeSincePrice >= BOT_FALLBACK_INTERVAL_MS) {
+    const timeSinceEval = Date.now() - lastBotEval
+    if (timeSinceEval >= BOT_DECISION_INTERVAL_MS) {
+      lastBotEval = Date.now()
       refreshBotDecision()
     }
-  }, BOT_FALLBACK_INTERVAL_MS)
+  }, BOT_DECISION_INTERVAL_MS)
 }
 
 function stopMarketStatusMonitoring() {
@@ -1678,6 +1688,8 @@ function onToggleTrading(side) {
 async function refreshBotDecision() {
   if (!stock.symbol || !historicalData.value?.length) return
 
+  lastBotEval = Date.now() // reset debounce clock so neither the WS path nor the
+                           // fallback interval double-fires right after this call
   botLoading.value = true
   botError.value = ''
   try {
