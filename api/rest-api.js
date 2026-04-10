@@ -566,7 +566,7 @@ export function createRestApiRoutes() {
   // Ticker batch endpoint - combines stock + position + orders + market status for a symbol.
   app.get('/api/ticker/:symbol', async (req, res) => {
     try {
-      const { symbol } = req.params
+      const symbol = decodeURIComponent(req.params.symbol)
       const { ordersStatus = 'open', ordersLimit = 100, market = 'stocks' } = req.query
       const marketDataProvider = await getMarketDataProvider()
       const normalizedMarket = String(market).toLowerCase() === 'crypto' ? 'crypto' : 'stocks'
@@ -732,23 +732,23 @@ export function createRestApiRoutes() {
   // Stock historical data endpoint with enhanced data fetching.
   app.get('/api/stocks/:symbol/history', async (req, res) => {
     try {
-      const { symbol } = req.params
-      const { period = '1D', timeframe, progressive = 'true' } = req.query
+      const symbol = decodeURIComponent(req.params.symbol)
+      const { period = '1D', timeframe, progressive = 'true', market = 'stocks' } = req.query
       const marketDataProvider = await getMarketDataProvider()
 
       // For 1D period, use regular loading to get complete continuous data like TradingView.
       // Progressive loading can cause gaps in intraday data.
       if (period === '1D') {
-        const historicalData = await marketDataProvider.getStockHistoricalData(symbol, period, timeframe)
+        const historicalData = await marketDataProvider.getStockHistoricalData(symbol, period, timeframe, market)
         res.json(historicalData)
       }
       // Use progressive loading for longer periods where it's beneficial.
       else if (progressive === 'true') {
-        const historicalData = await getStockHistoricalDataProgressive(symbol, period, timeframe)
+        const historicalData = await getStockHistoricalDataProgressive(symbol, period, timeframe, market)
         res.json(historicalData)
       }
       else {
-        const historicalData = await marketDataProvider.getStockHistoricalData(symbol, period, timeframe)
+        const historicalData = await marketDataProvider.getStockHistoricalData(symbol, period, timeframe, market)
         res.json(historicalData)
       }
     }
@@ -761,12 +761,10 @@ export function createRestApiRoutes() {
   // Legacy endpoint for progressive data loading (redirects to main endpoint).
   app.get('/api/stocks/:symbol/history/progressive', async (req, res) => {
     try {
-      const { symbol } = req.params
-      const { period = '1D', timeframe } = req.query
+      const symbol = decodeURIComponent(req.params.symbol)
+      const { period = '1D', timeframe, market = 'stocks' } = req.query
 
-      // Redirect to main endpoint with progressive=true.
-      req.query.progressive = 'true'
-      const historicalData = await getStockHistoricalDataProgressive(symbol, period, timeframe)
+      const historicalData = await getStockHistoricalDataProgressive(symbol, period, timeframe, market)
       res.json(historicalData)
     }
     catch (error) {
@@ -778,14 +776,14 @@ export function createRestApiRoutes() {
   // Stock historical data with specific date range endpoint (for dynamic loading).
   app.get('/api/stocks/:symbol/history/range', async (req, res) => {
     try {
-      const { symbol } = req.params
-      const { timeframe, start, end } = req.query
+      const symbol = decodeURIComponent(req.params.symbol)
+      const { timeframe, start, end, market = 'stocks' } = req.query
 
       if (!timeframe || !start || !end) {
         return res.status(400).json({ error: 'timeframe, start, and end parameters are required' })
       }
 
-      const historicalData = await getStockHistoricalDataByRange(symbol, timeframe, start, end)
+      const historicalData = await getStockHistoricalDataByRange(symbol, timeframe, start, end, market)
       res.json(historicalData)
     }
     catch (error) {

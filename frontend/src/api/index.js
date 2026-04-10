@@ -381,7 +381,7 @@ export async function fetchTicker(symbol, ordersStatus = 'open', ordersLimit = 1
   const requestPromise = (async () => {
     try {
       const urlParams = new URLSearchParams(params)
-      const response = await fetch(`${API_BASE}/ticker/${symbol}?${urlParams}`)
+      const response = await fetch(`${API_BASE}/ticker/${encodeURIComponent(symbol)}?${urlParams}`)
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
       const result = await response.json()
@@ -453,12 +453,12 @@ export async function fetchMarketStatus() {
 }
 
 // Get historical data for a stock
-export async function fetchStockHistory(symbol, period = '1D', timeframe = null) {
+export async function fetchStockHistory(symbol, period = '1D', timeframe = null, market = 'stocks') {
   try {
-    const params = new URLSearchParams({ period })
+    const params = new URLSearchParams({ period, market })
     if (timeframe) params.append('timeframe', timeframe)
 
-    const response = await fetch(`${API_BASE}/stocks/${symbol}/history?${params}`)
+    const response = await fetch(`${API_BASE}/stocks/${encodeURIComponent(symbol)}/history?${params}`)
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
 
     return await response.json()
@@ -469,12 +469,12 @@ export async function fetchStockHistory(symbol, period = '1D', timeframe = null)
   }
 }
 
-export async function fetchStockHistoryProgressive(symbol, period = '1D', timeframe = null) {
+export async function fetchStockHistoryProgressive(symbol, period = '1D', timeframe = null, market = 'stocks') {
   try {
-    const params = new URLSearchParams({ period })
+    const params = new URLSearchParams({ period, market })
     if (timeframe) params.append('timeframe', timeframe)
 
-    const response = await fetch(`${API_BASE}/stocks/${symbol}/history/progressive?${params}`)
+    const response = await fetch(`${API_BASE}/stocks/${encodeURIComponent(symbol)}/history/progressive?${params}`)
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
 
     return await response.json()
@@ -482,19 +482,20 @@ export async function fetchStockHistoryProgressive(symbol, period = '1D', timefr
   catch (error) {
     console.error('Error fetching progressive stock history:', error)
     // Fallback to regular history if progressive fails.
-    return fetchStockHistory(symbol, period, timeframe)
+    return fetchStockHistory(symbol, period, timeframe, market)
   }
 }
 
-export async function fetchStockHistoryRange(symbol, timeframe, startDate, endDate) {
+export async function fetchStockHistoryRange(symbol, timeframe, startDate, endDate, market = 'stocks') {
   try {
     const params = new URLSearchParams({
       timeframe,
+      market,
       start: new Date(startDate).toISOString(),
       end: new Date(endDate).toISOString()
     })
 
-    const response = await fetch(`${API_BASE}/stocks/${symbol}/history/range?${params}`)
+    const response = await fetch(`${API_BASE}/stocks/${encodeURIComponent(symbol)}/history/range?${params}`)
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
     return await response.json()

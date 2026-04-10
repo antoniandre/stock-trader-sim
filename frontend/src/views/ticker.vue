@@ -412,7 +412,7 @@ async function selectAvailableTimeframe(period, preferredTimeframe) {
       console.log(`🔍 Testing timeframe: ${timeframe}`)
 
       // Quick test to see if this timeframe has data.
-      const testResponse = await fetchStockHistoryProgressive(stock.symbol, period, timeframe)
+      const testResponse = await fetchStockHistoryProgressive(stock.symbol, period, timeframe, props.market)
 
       if (testResponse?.data && testResponse.data.length > 0) {
         console.log(`✅ Found data for timeframe: ${timeframe} (${testResponse.data.length} points)`)
@@ -1005,7 +1005,8 @@ async function loadAdditionalData(startTime, endTime) {
       stock.symbol,
       selectedTimeframe.value,
       startTime,
-      endTime
+      endTime,
+      props.market
     )
     const additionalData = result.data || []
 
@@ -1448,7 +1449,7 @@ async function fetchHistoricalData() {
 
     console.log(`📊 Fetching historical data for ${stock.symbol}, period: ${selectedPeriod.value}, timeframe: ${selectedTimeframe.value}`)
     // Use progressive loading for faster initial display and maximum data retrieval.
-    const response = await fetchStockHistoryProgressive(stock.symbol, selectedPeriod.value, selectedTimeframe.value)
+    const response = await fetchStockHistoryProgressive(stock.symbol, selectedPeriod.value, selectedTimeframe.value, props.market)
 
     // Check for warnings, errors, or fallback data in the response
     if (response?.warning || response?.error) {
@@ -1521,7 +1522,7 @@ async function fetchStatsHistoricalData() {
   try {
     // Use separate request only for stats that need longer timeframe data.
     console.log(`📊 Fetching stats historical data for ${stock.symbol} (12M/1Day)`)
-    const response = await fetchStockHistoryProgressive(stock.symbol, '12M', '1Day')
+    const response = await fetchStockHistoryProgressive(stock.symbol, '12M', '1Day', props.market)
     if (response?.data) {
       statsHistoricalData.value = response.data.sort((a, b) => a.timestamp - b.timestamp)
       console.log(`✅ Loaded ${statsHistoricalData.value.length} stats historical data points`)
@@ -1612,7 +1613,7 @@ async function changeTimeframe(timeframe) {
       console.log(`📊 Fetching new data for ${availableTimeframe}`)
 
       // Fetch new data but don't clear existing data until we have the new data
-      const response = await fetchStockHistoryProgressive(stock.symbol, selectedPeriod.value, availableTimeframe)
+      const response = await fetchStockHistoryProgressive(stock.symbol, selectedPeriod.value, availableTimeframe, props.market)
 
       if (response?.data) {
         const newData = response.data.sort((a, b) => a.timestamp - b.timestamp)

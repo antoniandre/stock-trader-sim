@@ -127,6 +127,26 @@ export async function getBars(symbol, timeframe, startDate, endDate, limit = nul
   return data
 }
 
+// Crypto bars use a separate endpoint (/v1beta3/crypto/us/bars) where the
+// symbol is a query param, not a path segment (symbols like BTC/USD contain
+// a slash which cannot be embedded in a URL path).
+export async function getCryptoBars(symbol, timeframe, startDate, endDate, limit = null, pageToken = null) {
+  const params = new URLSearchParams({
+    symbols: symbol,
+    timeframe,
+    start: startDate instanceof Date ? startDate.toISOString() : startDate,
+    end: endDate instanceof Date ? endDate.toISOString() : endDate
+  })
+
+  if (limit) params.append('limit', limit.toString())
+  if (pageToken) params.append('page_token', pageToken)
+
+  const { data } = await axios.get(`${ALPACA_API_BASE_URL}/v1beta3/crypto/us/bars?${params}`, { headers: HEADERS })
+  // Normalise response shape to match stocks: { bars: [...], next_page_token }
+  const rawBars = (data.bars && data.bars[symbol]) || []
+  return { bars: rawBars, next_page_token: data.next_page_token || null }
+}
+
 // Market Calendar Endpoints.
 // --------------------------------------------------------
 export async function getMarketCalendar(startDate, endDate) {

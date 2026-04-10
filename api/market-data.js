@@ -662,11 +662,13 @@ export async function getAllTradableStocks() {
 // This allows users to pan back in time and zoom out without additional API calls or loading delays.
 // The frontend chart will auto-focus on recent data but keeps all historical data available.
 
-export async function getStockHistoricalData(symbol, period = '1D', timeframe = null) {
+export async function getStockHistoricalData(symbol, period = '1D', timeframe = null, market = 'stocks') {
   if (IS_SIMULATION) {
     console.log(`🧪 [SIM] Generating mock data for ${symbol} (${period}, ${timeframe || 'auto'})`)
     return generateMockHistoricalData(symbol, period, timeframe)
   }
+
+  const isCrypto = String(market).toLowerCase() === 'crypto'
 
   try {
     const { alpacaTimeframe, limit, maxHistoricalDays } = getPeriodParameters(period, timeframe)
@@ -685,7 +687,7 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
         console.log(`📅 Trying data range: ${testStartDate.toISOString().split('T')[0]} to ${testEndDate.toISOString().split('T')[0]} (${daysBack} days back)`)
 
         try {
-          const testBars = await fetchHistoricalDataWithPagination(symbol, alpacaTimeframe, testStartDate, testEndDate, 500)
+          const testBars = await fetchHistoricalDataWithPagination(symbol, alpacaTimeframe, testStartDate, testEndDate, 500, 'iex', market)
 
           if (testBars && testBars.length > 10) {
             console.log(`✅ Found ${testBars.length} data points ${daysBack} days back - using this range`)
@@ -709,7 +711,7 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
     // Fetch data with pagination support for maximum historical coverage.
     // This ensures we get as much data as possible within Alpaca's limits.
     // Use IEX feed only as per project requirements.
-    const allBars = await fetchHistoricalDataIEX(symbol, alpacaTimeframe, startDate, endDate, limit)
+    const allBars = await fetchHistoricalDataIEX(symbol, alpacaTimeframe, startDate, endDate, limit, market)
 
 
     if (!allBars || allBars.length === 0) {
@@ -727,7 +729,9 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
           alpacaTimeframe,
           fallbackStartDate,
           fallbackEndDate,
-          1000
+          1000,
+          'iex',
+          market
         )
 
         if (fallbackBars && fallbackBars.length > 0) {
@@ -1017,20 +1021,22 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
  * Fetch historical data using IEX feed only
  * We only use IEX feed as per project requirements
  */
-async function fetchHistoricalDataIEX(symbol, timeframe, startDate, endDate, maxLimit = 10000) {
-  console.log(`📊 Fetching ${symbol} data using IEX feed...`)
-  const bars = await fetchHistoricalDataWithPagination(symbol, timeframe, startDate, endDate, maxLimit, 'iex')
+async function fetchHistoricalDataIEX(symbol, timeframe, startDate, endDate, maxLimit = 10000, market = 'stocks') {
+  const isCrypto = String(market).toLowerCase() === 'crypto'
+  const feedLabel = isCrypto ? 'CRYPTO' : 'IEX'
+  console.log(`📊 Fetching ${symbol} data using ${feedLabel} feed...`)
+  const bars = await fetchHistoricalDataWithPagination(symbol, timeframe, startDate, endDate, maxLimit, 'iex', market)
 
   if (bars && bars.length > 0) {
-    console.log(`✅ Found ${bars.length} bars for ${symbol} in IEX feed`)
+    console.log(`✅ Found ${bars.length} bars for ${symbol} in ${feedLabel} feed`)
     return bars
   }
 
-  console.log(`❌ No data found for ${symbol} in IEX feed`)
+  console.log(`❌ No data found for ${symbol} in ${feedLabel} feed`)
   return []
 }
 
-export async function getStockHistoricalDataProgressive(symbol, period = '1D', timeframe = null) {
+export async function getStockHistoricalDataProgressive(symbol, period = '1D', timeframe = null, market = 'stocks') {
   if (IS_SIMULATION) {
     console.log(`🧪 [SIM] Generating mock data for ${symbol} (${period}, ${timeframe || 'auto'})`)
     return generateMockHistoricalData(symbol, period, timeframe)
@@ -1059,13 +1065,14 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
       alpacaTimeframe,
       recentStartDate,
       endDate,
-      recentLimit
+      recentLimit,
+      market
     )
 
     if (!recentBars || recentBars.length === 0) {
       console.warn(`⚠️ No recent data for ${symbol}, trying full range`)
       // Fallback to original method.
-      return getStockHistoricalData(symbol, period, timeframe)
+      return getStockHistoricalData(symbol, period, timeframe, market)
     }
 
     // Convert recent data.
@@ -1102,7 +1109,8 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
         alpacaTimeframe,
         fullStartDate,
         recentStartDate, // End where recent data began.
-        limit - recentLimit // Remaining limit for historical data.
+        limit - recentLimit, // Remaining limit for historical data.
+        market
       ).then(historicalBars => {
         if (historicalBars && historicalBars.length > 0) {
           const historicalData = historicalBars.map(bar => ({
@@ -1149,10 +1157,12 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
 // This function automatically handles pagination using next_page_token to fetch
 // comprehensive datasets that exceed the single-request limit.
 // Result: Users get seamless charts with extensive historical data for analysis.
-async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, endDate, maxLimit = 10000, feed = 'iex') {
+async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, endDate, maxLimit = 10000, feed = 'iex', market = 'stocks') {
   // Ensure dates are Date objects
   const start = startDate instanceof Date ? startDate : new Date(startDate)
   const end = endDate instanceof Date ? endDate : new Date(endDate)
+
+  const isCrypto = String(market).toLowerCase() === 'crypto'
 
   const allBars = []
   let pageToken = null
@@ -1162,9 +1172,12 @@ async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, e
   do {
     try {
       const limit = Math.min(10000, maxLimit)
-      console.log(`📊 Fetching page ${requestCount + 1} for ${symbol}${pageToken ? ' (paginated)' : ''} [${feed.toUpperCase()}]`)
+      const feedLabel = isCrypto ? 'CRYPTO' : feed.toUpperCase()
+      console.log(`📊 Fetching page ${requestCount + 1} for ${symbol}${pageToken ? ' (paginated)' : ''} [${feedLabel}]`)
 
-      const data = await AlpacaClient.getBars(symbol, timeframe, start, end, limit, feed, pageToken)
+      const data = isCrypto
+        ? await AlpacaClient.getCryptoBars(symbol, timeframe, start, end, limit, pageToken)
+        : await AlpacaClient.getBars(symbol, timeframe, start, end, limit, feed, pageToken)
 
       if (data.bars && data.bars.length > 0) {
         allBars.push(...data.bars)
@@ -1201,11 +1214,13 @@ async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, e
   return allBars
 }
 
-export async function getStockHistoricalDataByRange(symbol, timeframe, startDate, endDate) {
+export async function getStockHistoricalDataByRange(symbol, timeframe, startDate, endDate, market = 'stocks') {
   if (IS_SIMULATION) {
     console.log(`🧪 [SIM] Generating range data for ${symbol}`)
     return { symbol, timeframe, data: generateMockHistoricalDataByRange(symbol, timeframe, startDate, endDate) }
   }
+
+  const isCrypto = String(market).toLowerCase() === 'crypto'
 
   try {
     const start = new Date(startDate)
@@ -1215,7 +1230,9 @@ export async function getStockHistoricalDataByRange(symbol, timeframe, startDate
 
     console.log(`📊 Fetching range data for ${symbol}: ${timeframe}`)
 
-    const data = await AlpacaClient.getBars(symbol, timeframe, start, end, limit, 'iex', null)
+    const data = isCrypto
+      ? await AlpacaClient.getCryptoBars(symbol, timeframe, start, end, limit, null)
+      : await AlpacaClient.getBars(symbol, timeframe, start, end, limit, 'iex', null)
 
     if (!data.bars || data.bars.length === 0) {
       console.error(`❌ ALPACA DATA ISSUE: No range data for ${symbol}`)

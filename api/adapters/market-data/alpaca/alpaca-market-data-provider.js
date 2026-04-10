@@ -47,8 +47,8 @@ export class AlpacaMarketDataProvider extends MarketDataProvider {
     return await getAllTradableStocks()
   }
 
-  async getStockHistoricalData(symbol, period = '1D', timeframe = null, _context = null) {
-    return await getStockHistoricalData(symbol, period, timeframe)
+  async getStockHistoricalData(symbol, period = '1D', timeframe = null, market = 'stocks') {
+    return await getStockHistoricalData(symbol, period, timeframe, market)
   }
 
   async getStockHistoricalDataByRange(symbol, timeframe, startDate, endDate, _context = null) {
