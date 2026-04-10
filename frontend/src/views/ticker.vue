@@ -1805,6 +1805,59 @@ function onAutonomousToggle(enabled) {
   // This handler can be extended for API calls if needed
 }
 
+function initializeRealtimeBot() {
+  const COOLDOWN_MS = 5 * 60 * 1000  // 5 minutes between auto-fires for same symbol
+  let lastAutoFireTime = 0
+  let isAutoFiring = false
+
+  const intervalId = setInterval(async () => {
+    if (!autonomousEnabled.value) return
+    if (!botDecision.value) return
+    if (isAutoFiring) return
+
+    const decision = botDecision.value
+    const confidence = Number(decision.confidence || 0)
+    const isValidAction = decision.action === 'buy' || decision.action === 'sell'
+
+    if (!isValidAction || confidence < 80) return
+
+    const now = Date.now()
+    if (now - lastAutoFireTime < COOLDOWN_MS) {
+      console.log(`🤖 [REALTIME BOT] Cooldown active for ${stock.symbol}, skipping auto-fire`)
+      return
+    }
+
+    isAutoFiring = true
+    lastAutoFireTime = now
+
+    try {
+      console.log(`🤖 [REALTIME BOT] Auto-firing ${decision.action} for ${stock.symbol} @ ${confidence}% confidence`)
+      const response = await fireOrderAutomatically(decision, {
+        symbol: stock.symbol,
+        currentPrice: stock.price
+      })
+      notifyAutoExecution(
+        `Auto-executed: ${decision.action.toUpperCase()} ${stock.symbol} × order placed @ ${confidence}% confidence`,
+        'success'
+      )
+      console.log(`✅ [REALTIME BOT] Order submitted:`, response)
+    }
+    catch (error) {
+      console.error(`❌ [REALTIME BOT] Auto-fire failed for ${stock.symbol}:`, error)
+      notifyAutoExecution(`Auto-execution failed for ${stock.symbol}: ${error.message}`, 'error')
+    }
+    finally {
+      isAutoFiring = false
+    }
+  }, 10_000) // Re-check every 10 s; refreshBotDecision() already runs on each price tick
+
+  botRealtimeEvaluator = {
+    stop() {
+      clearInterval(intervalId)
+    }
+  }
+}
+
 onMounted(async () => {
   setupWebSocket()
   connect()
