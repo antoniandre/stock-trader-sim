@@ -221,6 +221,12 @@ export function evaluateDayTradingDecision(input = {}) {
       action = 'add'
       reasons.push('Trend and momentum support adding to the winner')
     }
+
+    // Safety: Never recommend "buy" if already positioned
+    if (action === 'buy') {
+      action = 'hold'
+      reasons.push('Already positioned, holding instead of buying again')
+    }
     else if (lowConfidence && marketRegime === 'chop') {
       action = 'hold'
       reasons.push('Choppy, low-confidence conditions argue for sitting tight')
@@ -336,7 +342,7 @@ function buildRecommendation({ action, confidence, currentPrice, spreadPct, mome
     }
   }
 
-  if (action === 'buy' || action === 'add') {
+  if (action === 'buy') {
     const prefersImmediate = marketRegime === 'breakout' || Number(momentumPct) > 0.2 || confidence >= 80
     const isMeanReversion = setup === 'mean-revert'
     return {
@@ -355,6 +361,21 @@ function buildRecommendation({ action, confidence, currentPrice, spreadPct, mome
         : prefersImmediate
           ? 'Momentum is strong enough that the bot would accept immediate execution with a tight price guard.'
           : 'The bot prefers price discipline and would lean on a limit entry instead of chasing.'
+    }
+  }
+
+  if (action === 'add') {
+    const isMeanReversion = setup === 'mean-revert'
+    return {
+      label: `Scale up near ${formatPrice(safePrice)}`,
+      orderType: 'limit',
+      side: 'buy',
+      price: limitBuyPrice,
+      stopPrice,
+      targetPrice,
+      detail: isMeanReversion
+        ? 'The bot sees a controlled snapback setup and prefers a disciplined limit entry instead of chasing.'
+        : 'Trend and momentum support adding to the winner with a disciplined entry.'
     }
   }
 
