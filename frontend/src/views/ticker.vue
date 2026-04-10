@@ -6,6 +6,12 @@
 
   TickerHeader(:stock="stock" :ws-connected="wsConnected")
 
+  //- Autonomous Trading Toggle - Top Right Control
+  .controls-bar.mt3.mr6.w-flex.justify-end
+    AutonomousTradingToggle(
+      :disabled="!wsConnected"
+      @update:autonomous="onAutonomousToggle")
+
   //- Stock Details & Trading
   .w-flex.mt4.mdd-column
     //- Left Column: Stock Details & Chart
@@ -195,6 +201,7 @@ import TickerHeader from '@/components/ticker-header.vue'
 import TickerPrice from '@/components/ticker-price.vue'
 import DraggableTradingInterface from '@/components/draggable-trading-interface.vue'
 import DayTradingBotPanel from '@/components/day-trading-bot-panel.vue'
+import AutonomousTradingToggle from '@/components/autonomous-trading-toggle.vue'
 import { tradingOverviewPath } from '@/utils/trading-routes'
 
 const props = defineProps({
@@ -250,6 +257,7 @@ const backtestComparisons = ref([])
 const evolutionResult = ref(null)
 const evolutionLoading = ref(false)
 const evolutionError = ref('')
+const autonomousEnabled = ref(false)
 let marketStatusInterval = null
 
 // Dynamic Loading State
@@ -1754,6 +1762,12 @@ function onRiskProfileChange(value) {
   if (evolutionResult.value) runEvolution()
 }
 
+function onAutonomousToggle(enabled) {
+  console.log(`🤖 Autonomous trading ${enabled ? 'enabled' : 'disabled'}`)
+  // State is already managed in autonomous-trading-toggle.vue via localStorage
+  // This handler can be extended for API calls if needed
+}
+
 onMounted(async () => {
   setupWebSocket()
   connect()
@@ -1835,6 +1849,11 @@ watch(() => historicalData.value.length, (newLength, oldLength) => {
 
 <style lang="scss">
 .ticker-view {
+  .controls-bar {
+    padding: 0 0.5rem;
+    margin-bottom: 1rem;
+  }
+
   .price-display .title2 {
     font-size: 2.2rem;
     line-height: 1;
@@ -1853,6 +1872,13 @@ watch(() => historicalData.value.length, (newLength, oldLength) => {
       background-image: linear-gradient(135deg, color-mix(in srgb, var(--w-error-color) 12%, transparent), transparent 80%);
       border-color: color-mix(in srgb, var(--w-error-color) 40%, transparent);
     }
+  }
+}
+
+@media (max-width: 768px) {
+  .ticker-view .controls-bar {
+    justify-content: flex-start !important;
+    margin-bottom: 0.5rem;
   }
 }
 </style>

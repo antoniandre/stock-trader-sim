@@ -1083,6 +1083,23 @@ export function createRestApiRoutes() {
         }
       }
 
+      // 🔄 Fetch and broadcast updated positions after order execution
+      try {
+        const updatedPositions = await getAlpacaPositions()
+        if (Array.isArray(updatedPositions) && updatedPositions.length > 0) {
+          broadcast({
+            type: 'positions-updated',
+            data: updatedPositions,
+            timestamp: new Date().toISOString()
+          })
+          console.log(`📊 Broadcasted position update after order execution for ${payload?.symbol}`)
+        }
+      }
+      catch (positionError) {
+        logger.warn({ err: positionError, symbol: payload?.symbol }, 'Failed to fetch and broadcast positions after order')
+        // Continue without position broadcast - order was still successful
+      }
+
       res.json(createStandardResponse({ order: payload || result.order }))
     }
     catch (error) {
