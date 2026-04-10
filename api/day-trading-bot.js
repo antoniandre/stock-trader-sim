@@ -238,10 +238,9 @@ export function evaluateDayTradingDecision(input = {}) {
       reasons.push('Current position still fits the measured risk')
     }
 
-    // TODO: Position timeout logic
-    // Future enhancement: Add logic to timeout stale positions held >20 candles without meaningful progress.
-    // Current limitation: Backtest engine doesn't track exact entry timestamps, only candle indices.
-    // Next iteration: Improve trim/exit logic quality and add proper timestamp tracking to backtester.
+    // TODO: Add position timeout when candle index tracking is available
+    // Currently, the backtest engine doesn't track when positions were opened.
+    // Once candle entry index is available, implement: timeout stale positions >20 candles without meaningful progress.
   }
 
   const sizeConfidence = clamp(confidence - (setup === 'mean-revert' ? 4 : 8), 35, 90)
