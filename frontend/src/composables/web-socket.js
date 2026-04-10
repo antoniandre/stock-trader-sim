@@ -1,4 +1,4 @@
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, onUnmounted } from 'vue'
 
 // WebSocket Composable
 // --------------------------------------------------------
@@ -19,6 +19,7 @@ export function useWebSocket(url = getDefaultWebSocketUrl()) {
   let ws = null
   let reconnectTimeout = null
   let messageHandlers = new Map()
+  let isDestroyed = false
 
   // Connection Management
   // --------------------------------------------------------
@@ -66,7 +67,10 @@ export function useWebSocket(url = getDefaultWebSocketUrl()) {
         wsConnected.value = false
         wsReconnecting.value = true
         wsStatusLabel.value = lastUpdate.value === 'Never' ? 'Connecting…' : 'Reconnecting… using cached data'
-        reconnectTimeout = setTimeout(connect, 3000)
+        // Do not reconnect after the component has been destroyed.
+        if (!isDestroyed) {
+          reconnectTimeout = setTimeout(connect, 3000)
+        }
       }
 
       ws.onerror = (error) => {
@@ -120,13 +124,15 @@ export function useWebSocket(url = getDefaultWebSocketUrl()) {
   // Cleanup
   // --------------------------------------------------------
   function cleanup() {
-    if (ws) {
-      ws.close()
-      ws = null
-    }
+    // Set destroyed flag first so ws.onclose does not schedule a reconnect.
+    isDestroyed = true
     if (reconnectTimeout) {
       clearTimeout(reconnectTimeout)
       reconnectTimeout = null
+    }
+    if (ws) {
+      ws.close()
+      ws = null
     }
     messageHandlers.clear()
     wsConnected.value = false
@@ -134,7 +140,10 @@ export function useWebSocket(url = getDefaultWebSocketUrl()) {
     wsStatusLabel.value = 'Offline'
   }
 
-  onBeforeUnmount(() => {
+  // Use onUnmounted (not onBeforeUnmount) so consuming components can still
+  // send a final WS message (e.g. unsubscribe) in their own onBeforeUnmount,
+  // which Vue always fires before any onUnmounted hooks.
+  onUnmounted(() => {
     cleanup()
   })
 

@@ -1949,8 +1949,8 @@ onMounted(async () => {
 })
 
 // Send the unsubscribe message while the WebSocket is still open.
-// onBeforeUnmount fires BEFORE the composable's cleanup() which nulls the ws instance,
-// so the send is guaranteed to reach the server.
+// The composable's cleanup() is registered on onUnmounted (a later phase),
+// so the WS is guaranteed to be open here.
 onBeforeUnmount(() => {
   wsUnsubscribeFromStock(stock.symbol)
   console.log(`✅ Unsubscribed from WebSocket for ${stock.symbol}`)
