@@ -287,6 +287,15 @@ export function connectAlpacaWebSocket() {
     if (messageData.retryAfter !== undefined) {
       if (messageData.code === 406) {
         console.error('💡 Connection limit exceeded. Waiting 60s before retry...')
+        // Surface error to frontend clients
+        broadcast({
+          type: 'alpaca-error',
+          error: 'Connection limit exceeded',
+          message: 'Alpaca WebSocket temporarily unavailable. Retrying in 60 seconds...',
+          severity: 'warning',
+          timestamp: new Date().toISOString(),
+          retryWaitMs: 60000
+        })
         cleanupAlpacaConnection()
         setTimeout(connectAlpacaWebSocket, messageData.retryAfter)
         return
@@ -343,6 +352,15 @@ export function connectAlpacaWebSocket() {
 
   const handleError = (error) => {
     console.error('❌ Alpaca WebSocket error:', error)
+    // Surface error to frontend clients
+    broadcast({
+      type: 'alpaca-error',
+      error: 'WebSocket connection failed',
+      message: 'Alpaca WebSocket encountered an error. Attempting to reconnect...',
+      severity: 'error',
+      timestamp: new Date().toISOString(),
+      retryWaitMs: 30000
+    })
   }
 
   const handleClose = (code, reason) => {
