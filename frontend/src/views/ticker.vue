@@ -4,16 +4,23 @@
     icon.w-icon.mr2(icon="mdi:arrow-left")
     | Back to Trading
 
-  TickerHeader(:stock="stock" :ws-connected="wsConnected")
+  .ticker-not-found(v-if="stockNotFound")
+    .ticker-not-found__icon 🔍
+    .title2.mt2 Symbol not found
+    p.op7.mt1 <strong>{{ stock.symbol }}</strong> is not in the tradable securities list.
+    p.size--sm.op5.mt1 It may be delisted, unsupported, or mistyped.
+    w-button.mt4(round @click="$router.push(tradingOverviewPath(market))") Back to markets
+
+  TickerHeader(v-if="!stockNotFound" :stock="stock" :ws-connected="wsConnected")
 
   //- Autonomous Trading Toggle - Top Right Control
-  .controls-bar.mt3.mr6.w-flex.justify-end
+  .controls-bar.mt3.mr6.w-flex.justify-end(v-if="!stockNotFound")
     AutonomousTradingToggle(
       :disabled="!wsConnected"
       @update:autonomous="onAutonomousToggle")
 
   //- Stock Details & Trading
-  .w-flex.mt4.mdd-column
+  .w-flex.mt4.mdd-column(v-if="!stockNotFound")
     //- Left Column: Stock Details & Chart
 
     //- Price Chart
@@ -232,6 +239,7 @@ const stock = reactive({
   nextOpen: null,
   nextClose: null
 })
+const stockNotFound = ref(false)
 
 // Chart Data
 // --------------------------------------------------------
@@ -1307,6 +1315,10 @@ async function fetchTickerData() {
   }
   catch (error) {
     console.error(`❌ Error fetching ticker data for ${stock.symbol}:`, error)
+    if (String(error?.message).includes('404')) {
+      stockNotFound.value = true
+      return
+    }
     // Set fallback values if API fails.
     Object.assign(stock, {
       marketState: 'closed',
@@ -2010,6 +2022,20 @@ watch(() => historicalData.value.length, (newLength, oldLength) => {
 </script>
 
 <style lang="scss">
+.ticker-not-found {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+  opacity: 0.85;
+
+  &__icon {
+    font-size: 3rem;
+  }
+}
+
 .ticker-view {
   .controls-bar {
     padding: 0 0.5rem;
