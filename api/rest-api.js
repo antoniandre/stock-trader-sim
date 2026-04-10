@@ -522,6 +522,47 @@ export function createRestApiRoutes() {
     }
   })
 
+  // Batch price endpoint - fetch multiple symbols in one request
+  app.post('/api/stocks/prices', async (req, res) => {
+    try {
+      const { symbols = [] } = req.body
+
+      if (!Array.isArray(symbols) || symbols.length === 0) {
+        return res.status(400).json({ error: 'symbols array is required' })
+      }
+
+      if (symbols.length > 100) {
+        return res.status(400).json({ error: 'Maximum 100 symbols per request' })
+      }
+
+      const marketDataProvider = await getMarketDataProvider()
+      const prices = {}
+
+      // Fetch all prices in parallel
+      await Promise.all(
+        symbols.map(async (symbol) => {
+          try {
+            const price = await marketDataProvider.getPrice(symbol)
+            if (price > 0) {
+              state.stockPrices[symbol] = price
+              prices[symbol] = price
+            }
+          }
+          catch (error) {
+            console.warn(`Failed to fetch price for ${symbol}:`, error.message)
+            prices[symbol] = 0
+          }
+        })
+      )
+
+      res.json(createStandardResponse(prices))
+    }
+    catch (error) {
+      console.error('POST /api/stocks/prices:', error)
+      res.status(500).json({ error: 'Failed to fetch batch prices' })
+    }
+  })
+
   // Ticker batch endpoint - combines stock + position + orders + market status for a symbol.
   app.get('/api/ticker/:symbol', async (req, res) => {
     try {

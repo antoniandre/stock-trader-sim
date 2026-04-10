@@ -153,7 +153,7 @@ export function evaluateDayTradingDecision(input = {}) {
     100
   )
 
-  let confidence = clamp(entryScore - riskScore * 0.3, 0, 100)
+  let confidence = clamp(Math.round(entryScore - riskScore * 0.3), 0, 100)
   if (entryScore >= 62 && riskScore <= 40) confidence = clamp(confidence + 12, 0, 100)
   if (weakEvidence) confidence = clamp(confidence - 10, 0, 100)
   if (marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout')) confidence = clamp(confidence - 18, 0, 100)

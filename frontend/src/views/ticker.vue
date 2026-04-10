@@ -781,6 +781,9 @@ function handlePriceUpdate(data) {
     }
   }
   else console.log('📊 User has panned away, not updating real-time data')
+  
+  // Re-evaluate bot confidence on every price tick
+  refreshBotDecision()
 }
 
 function handleMarketStatusUpdate(data) {
@@ -1828,8 +1831,8 @@ onUnmounted(() => {
   stopMarketStatusMonitoring()
 
   // CRITICAL: Unsubscribe from WebSocket to stop receiving updates for this symbol
-  const { unsubscribeFromStock } = useWebSocket()
-  unsubscribeFromStock(stock.symbol)
+  // Use the SAME WebSocket instance that subscribed (don't create a new one)
+  wsUnsubscribeFromStock(stock.symbol)
   console.log(`✅ Unsubscribed from WebSocket for ${stock.symbol}`)
 
   // Clear any pending timers.
@@ -1847,8 +1850,22 @@ onUnmounted(() => {
 
   // Clear real-time bot evaluator if exists
   if (botRealtimeEvaluator) {
-    botRealtimeEvaluator.cleanup()
+    botRealtimeEvaluator.stop()
     botRealtimeEvaluator = null
+  }
+  
+  // Remove message handlers to prevent memory leaks
+  if (priceUpdateHandler) {
+    removeMessageHandler('price', priceUpdateHandler)
+    priceUpdateHandler = null
+  }
+  if (marketStatusHandler) {
+    removeMessageHandler('market-status', marketStatusHandler)
+    marketStatusHandler = null
+  }
+  if (tradeHandler) {
+    removeMessageHandler('trade', tradeHandler)
+    tradeHandler = null
   }
 
   // Clear data to free memory

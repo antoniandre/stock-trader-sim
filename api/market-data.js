@@ -3,6 +3,7 @@ import { ALPACA_BASE_URL, ALPACA_API_BASE_URL, HEADERS, IS_SIMULATION, state } f
 import { getEasternTime, getCurrencyInfo } from './utils.js'
 import { getMockPrice, initializeMockPrices, getMockTradableStocks, generateMockHistoricalData, generateMockHistoricalDataByRange } from './simulation.js'
 import * as AlpacaClient from './clients/alpaca-client.js'
+import { broadcast } from './websocket-server.js'
 
 // Market Calendar Functions.
 // --------------------------------------------------------
@@ -10,6 +11,71 @@ let marketCalendar = null
 let marketClockData = null
 let pricePollingInterval = null
 let isPollingActive = false
+
+// Market Data Error Tracking
+// --------------------------------------------------------
+const marketDataErrors = new Map() // symbol -> { error, timestamp, cleared: boolean }
+
+/**
+ * Track a market data error for a symbol.
+ * If error persists >30s, auto-broadcasting will alert frontend.
+ */
+export function recordMarketDataError(symbol, error) {
+  const timestamp = Date.now()
+  marketDataErrors.set(symbol, {
+    error: error.message || String(error),
+    timestamp,
+    cleared: false
+  })
+  console.error(`❌ MARKET DATA ERROR for ${symbol}: ${error.message}`)
+  
+  // Broadcast error to frontend immediately
+  broadcast({
+    type: 'market-data-error',
+    symbol,
+    error: error.message || String(error),
+    timestamp
+  })
+  
+  // Set timeout to clear error if it persists
+  // (allows recovery detection)
+  setTimeout(() => {
+    const record = marketDataErrors.get(symbol)
+    if (record && !record.cleared && Date.now() - record.timestamp > 30000) {
+      // Still broken after 30s — ensure frontend knows
+      broadcast({
+        type: 'market-data-error-persistent',
+        symbol,
+        duration: Date.now() - timestamp,
+        timestamp
+      })
+    }
+  }, 30000)
+}
+
+/**
+ * Clear error for a symbol when market data recovers.
+ */
+export function clearMarketDataError(symbol) {
+  const record = marketDataErrors.get(symbol)
+  if (record && !record.cleared) {
+    record.cleared = true
+    console.log(`✅ Market data recovered for ${symbol}`)
+    broadcast({
+      type: 'market-data-recovered',
+      symbol,
+      timestamp: Date.now()
+    })
+  }
+}
+
+/**
+ * Get current error state for a symbol (if any).
+ */
+export function getMarketDataError(symbol) {
+  const record = marketDataErrors.get(symbol)
+  return record && !record.cleared ? record : null
+}
 
 export async function fetchMarketCalendar(startDate, endDate) {
   if (IS_SIMULATION) return null
@@ -416,6 +482,57 @@ export async function fetchStockTrend(symbol, points = 20) {
 
 // Price Data Functions.
 // --------------------------------------------------------
+
+// Batch price fetching with caching and rate-limit awareness
+export async function getPricesMulti(symbols) {
+  if (!Array.isArray(symbols) || symbols.length === 0) return {}
+
+  const MAX_BATCH_SIZE = 100
+  const results = {}
+
+  // Chunk symbols into batches of 100 (respect API limits)
+  for (let i = 0; i < symbols.length; i += MAX_BATCH_SIZE) {
+    const batch = symbols.slice(i, i + MAX_BATCH_SIZE)
+
+    // Fetch each symbol in batch in parallel
+    const batchResults = await Promise.all(
+      batch.map(async (symbol) => {
+        try {
+          // Try cache first
+          if (state.stockPrices[symbol] && state.stockPrices[symbol] > 0) {
+            return { symbol, price: state.stockPrices[symbol], cached: true }
+          }
+
+          // Fetch fresh price
+          const price = await getPrice(symbol)
+          return { symbol, price, cached: false }
+        }
+        catch (error) {
+          console.warn(`Failed to fetch ${symbol}:`, error.message)
+          return { symbol, price: 0, error: error.message }
+        }
+      })
+    )
+
+    // Aggregate results
+    for (const { symbol, price, cached, error } of batchResults) {
+      results[symbol] = {
+        price,
+        cached: cached || false,
+        error: error || null
+      }
+    }
+
+    // Add small delay between batches to avoid rate limits
+    if (i + MAX_BATCH_SIZE < symbols.length) {
+      const { sleep } = await import('./utils.js')
+      await sleep(100)
+    }
+  }
+
+  return results
+}
+
 export async function getPrice(symbol) {
   if (IS_SIMULATION) return getMockPrice(symbol)
 
