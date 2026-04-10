@@ -263,6 +263,7 @@ const evolutionLoading = ref(false)
 const evolutionError = ref('')
 const autonomousEnabled = ref(false)
 let marketStatusInterval = null
+let botRefreshInterval = null  // Fallback refresh when prices are flat
 
 // Real-time bot evaluation
 let botRealtimeEvaluator = null
@@ -1182,15 +1183,32 @@ function getBufferTime(period, currentRange = null) {
   return baseBuffer
 }
 
+const BOT_FALLBACK_INTERVAL_MS = 30_000  // Refresh bot every 30 s when prices are flat
+
 function startMarketStatusMonitoring() {
   if (marketStatusInterval) return
 
   marketStatusInterval = setInterval(async () => {
     await refreshMarketStatus()
   }, 2 * 60 * 1000) // Every 2 minutes.
+
+  // Fallback: re-evaluate bot decision when prices aren't ticking.
+  // handlePriceUpdate already calls refreshBotDecision on each tick; this
+  // interval only fires when there has been no price event in the last window,
+  // so it doesn't double-call during active market hours.
+  botRefreshInterval = setInterval(() => {
+    const timeSincePrice = Date.now() - lastPriceUpdate
+    if (timeSincePrice >= BOT_FALLBACK_INTERVAL_MS) {
+      refreshBotDecision()
+    }
+  }, BOT_FALLBACK_INTERVAL_MS)
 }
 
 function stopMarketStatusMonitoring() {
+  if (botRefreshInterval) {
+    clearInterval(botRefreshInterval)
+    botRefreshInterval = null
+  }
   if (marketStatusInterval) {
     clearInterval(marketStatusInterval)
     marketStatusInterval = null
