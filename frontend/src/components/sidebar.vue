@@ -30,27 +30,32 @@
 
     //- User Profile
     .w-divider.no-grow(v-if="!isCollapsed")
-    .w-flex.column.px4.py4.no-grow.pa4.gap3.sidebar-footer(v-if="!isCollapsed")
+    .w-flex.no-grow.pa2.gap1.sidebar-footer(v-if="!isCollapsed")
       .w-flex.align-center
         .user-avatar.w-flex.align-center.justify-center.no-grow
           icon(v-if="!currentUser" icon="mdi:account-off-outline")
           span(v-else) {{ userInitials }}
-        .ml3.user-summary
+        .ml3.user-summary.grow
           p.text-bold {{ userDisplayName }}
           p.size--sm.grey {{ userSecondaryLine }}
           p.size--xs.op6.mt1(v-if="authModeLabel") {{ authModeLabel }}
-      .w-flex.justify-end.gap2(v-if="showAuthActions")
-        w-button.align-self-start(sm route="/auth" round height="24") {{ authActionLabel }}
+      .w-flex.column.justify-end.no-grow.gap1(v-if="showAuthActions")
+        w-button.align-self-start.w-button--icon(
+          route="/auth"
+          text
+          tooltip="Manage account"
+          :tooltip-props="{ top: true }"
+          lg)
+          icon.size--md(icon="line-md:cog-loop")
         w-button.align-self-start.w-button--icon(
           v-if="authState.user"
-          sm
-          bg-color="error"
+          color="error"
+          text
           @click="handleSignOut"
           tooltip="Log out"
-          round
-          width="24"
-          height="24")
-          icon(icon="line-md:logout")
+          :tooltip-props="{ top: true }"
+          lg)
+          icon.size--md(icon="line-md:logout")
 
   //- Resize Handle
   .resize-handle(
