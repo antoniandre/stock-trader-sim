@@ -19,7 +19,7 @@ export class AlpacaBrokerAdapter extends BrokerAdapter {
       supportsPaper: true,
       supportsLive: !IS_SIMULATION,
       supportsStocks: true,
-      supportsCrypto: false,
+      supportsCrypto: true,
       supportsOptions: false,
       supportsMarketOrders: true,
       supportsLimitOrders: true,
@@ -29,7 +29,8 @@ export class AlpacaBrokerAdapter extends BrokerAdapter {
       supportsStreamingOrders: false,
       notes: [
         'Market and limit orders are supported.',
-        'Optional stop loss uses Alpaca bracket orders (order_class=bracket, stop_loss); opening leg uses time_in_force=day.'
+        'Equities: optional stop loss uses bracket orders (order_class=bracket); opening leg uses time_in_force=day.',
+        'Crypto pairs (e.g. BTC/USD): simple orders only; time_in_force is gtc or ioc per Alpaca. Bracket stops are not attached on crypto (they are unsupported and mis-TIF can leave orders pending).'
       ]
     }
   }

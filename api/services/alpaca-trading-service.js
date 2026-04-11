@@ -98,13 +98,20 @@ export class AlpacaTradingService extends TradingService {
 
     try {
       const qty = Math.abs(quantity)
+      const isCrypto = String(symbol).includes('/')
+      // Alpaca crypto: only time_in_force gtc|ioc; order_class must be simple (no bracket/OTO).
+      // Equity bracket legs used time_in_force=day — that is invalid for crypto and can leave orders pending.
+      const timeInForce = isCrypto
+        ? (String(tif).toLowerCase() === 'ioc' ? 'ioc' : 'gtc')
+        : tif
+
       const orderData = {
         symbol,
         qty,
         side,
         type,
-        time_in_force: tif,
-        extended_hours: !!options.extended_hours
+        time_in_force: timeInForce,
+        extended_hours: isCrypto ? false : !!options.extended_hours
       }
 
       const stopN = Number(stopPx)
@@ -126,7 +133,12 @@ export class AlpacaTradingService extends TradingService {
           orderData.limit_price = Number(limitPx)
         }
 
-        if (Number.isFinite(stopN) && stopN > 0 && (type === 'market' || type === 'limit')) {
+        if (
+          !isCrypto
+          && Number.isFinite(stopN)
+          && stopN > 0
+          && (type === 'market' || type === 'limit')
+        ) {
           orderData.order_class = 'bracket'
           orderData.stop_loss = { stop_price: String(stopN) }
           orderData.time_in_force = 'day'
