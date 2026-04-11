@@ -18,7 +18,7 @@
           w-button(
             @click="handleSignOut"
             text
-            color="error"
+            bg-color="error"
             round) Sign out
 
       ul.auth-view__benefits(v-if="!authState.user")
