@@ -13,10 +13,10 @@
           span.size--lg.ml2.mr1.pb2 {{ item.label }}
       | Order
 
-    w-alert.pa3.bdrs2(v-if="!stock.price" error)
+    w-alert.pa3.bdrs2(v-if="!tickerQuotePending && !stock.price" error)
       | Trading disabled: No current market data available
 
-    w-alert.pa3.bdrs2.mb4(v-else-if="marketGate.reason !== 'open'" warning)
+    w-alert.pa3.bdrs2.mb4(v-else-if="stock.price && marketGate.reason !== 'open'" warning)
       strong {{ marketGate.title }}
       div.mt1 {{ marketGate.message }}
 
@@ -149,7 +149,9 @@ const props = defineProps({
   },
   recentTrades: { type: Array, default: () => [] },
   hasPosition: { type: Boolean, default: false },
-  initialSide: { type: String, default: 'buy', validator: v => ['buy', 'sell'].includes(v) }
+  initialSide: { type: String, default: 'buy', validator: v => ['buy', 'sell'].includes(v) },
+  /** When true, suppress no-quote error until parent ticker finishes its first data batch. */
+  tickerQuotePending: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['order-placed'])

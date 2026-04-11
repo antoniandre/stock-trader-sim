@@ -58,6 +58,7 @@
         :recent-trades="recentTrades"
         :has-position="!!currentPosition"
         :initial-side="currentPosition ? 'sell' : 'buy'"
+        :ticker-quote-pending="tickerQuoteBootstrapPending"
         @order-placed="onOrderPlacedFromPanel")
 
 
@@ -107,6 +108,7 @@
                 color="error"
                 icon="wi-cross"
                 tooltip="Cancel"
+                :tooltip-props="{ alignRight: true }"
                 round)
 
       //- Current Position
@@ -194,13 +196,28 @@
       :stock="stock"
       :recent-trades="recentTrades"
       :initial-side="tradingInterfaceSide"
+      :ticker-quote-pending="tickerQuoteBootstrapPending"
       @close="showTradingInterface = false"
       @order-placed="onOrderPlacedFromPanel")
 </template>
 
 <script setup>
 import { reactive, ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, nextTick, inject } from 'vue'
-import { fetchTicker, fetchStock, fetchStockHistoryProgressive, fetchPositions, fetchOrders, cancelOrder, fetchStockPrice, fetchMarketStatus, fetchStockHistoryRange, fetchDayTradingDecision, runDayTradingBacktest, evolveDayTradingStrategies } from '@/api'
+import {
+  fetchTicker,
+  fetchStock,
+  fetchStockHistoryProgressive,
+  fetchPositions,
+  fetchOrders,
+  cancelOrder,
+  fetchStockPrice,
+  fetchMarketStatus,
+  fetchStockHistoryRange,
+  fetchDayTradingDecision,
+  runDayTradingBacktest,
+  evolveDayTradingStrategies,
+  invalidateTickerCache
+} from '@/api'
 import { formatPercentage, formatCurrency } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
 import { useBotRealtimeEvaluation } from '@/composables/use-bot-realtime'
@@ -212,6 +229,7 @@ import DraggableTradingInterface from '@/components/draggable-trading-interface.
 import DayTradingBotPanel from '@/components/day-trading-bot-panel.vue'
 import BotAutoExecutionModal from '@/components/bot-auto-execution-modal.vue'
 import { tradingOverviewPath } from '@/utils/trading-routes'
+import { tradableSymbolsEquivalent, isBracketStopChildOrder } from '@/utils/symbol-matching'
 import { fireOrderAutomatically, notifyAutoExecution } from '@/api/bot-execution'
 
 const props = defineProps({
@@ -255,6 +273,8 @@ const showDialog = ref(false)
 const showTradingInterface = ref(false)
 const tradingInterfaceSide = ref('buy')
 const isLoadingHistoricalData = ref(false)
+/** True until first batch ticker + history fetch finishes; suppresses misleading order-panel alerts. */
+const tickerQuoteBootstrapPending = ref(true)
 const positions = ref([])
 const orders = ref([])
 const selectedRiskProfile = ref('balanced')
@@ -460,15 +480,16 @@ const availableTimeframes = computed(() => timeframeOptions[selectedPeriod.value
 
 // Get current position for this symbol (case-insensitive matching).
 const currentPosition = computed(() => {
-  return positions.value.find(p => p.symbol === stock.symbol) || null
+  return positions.value.find(p => tradableSymbolsEquivalent(p.symbol, stock.symbol)) || null
 })
 
 // Get open orders for this symbol.
 const openOrders = computed(() => {
   const filtered = orders.value.filter(o => {
-    const orderSymbol = o.symbol?.toUpperCase()
+    if (isBracketStopChildOrder(o)) return false
+
     const orderStatus = o.status?.toLowerCase()
-    const matchesSymbol = orderSymbol === stock.symbol
+    const matchesSymbol = tradableSymbolsEquivalent(o.symbol, stock.symbol)
     const matchesStatus = ['new', 'accepted', 'pending_new', 'pending_replace', 'pending_cancel', 'open', 'held'].includes(orderStatus)
 
     if (matchesSymbol && !matchesStatus) {
@@ -1252,7 +1273,7 @@ function handleChartViewChange(chart, action) {
 }
 
 function sameTickerSymbol(a, b) {
-  return String(a || '').trim().toUpperCase() === String(b || '').trim().toUpperCase()
+  return tradableSymbolsEquivalent(a, b)
 }
 
 function handleTrade(data) {
@@ -1265,6 +1286,7 @@ function handleTrade(data) {
 
 /** REST path after confirm — refreshes even if WS trade/positions events are missed. */
 function onOrderPlacedFromPanel() {
+  invalidateTickerCache(stock.symbol)
   fetchTickerData()
   setTimeout(fetchTickerData, 800)
   setTimeout(fetchTickerData, 2000)
@@ -1275,7 +1297,7 @@ function handlePositionsUpdated(data) {
   // Apply the update directly instead of waiting for the next WS trade event.
   const allPositions = Array.isArray(data.data) ? data.data : []
   const myPosition = allPositions.find(p => sameTickerSymbol(p.symbol, stock.symbol)) || null
-  const existingIndex = positions.value.findIndex(p => p.symbol === stock.symbol)
+  const existingIndex = positions.value.findIndex(p => tradableSymbolsEquivalent(p.symbol, stock.symbol))
 
   if (myPosition) {
     if (existingIndex >= 0) positions.value[existingIndex] = myPosition
@@ -1328,7 +1350,7 @@ async function fetchTickerData() {
     }
 
     // Update positions — always sync, including removal when position is closed.
-    const existingIndex = positions.value.findIndex(p => p.symbol === stock.symbol)
+    const existingIndex = positions.value.findIndex(p => tradableSymbolsEquivalent(p.symbol, stock.symbol))
     if (data.position) {
       if (existingIndex >= 0) {
         positions.value[existingIndex] = data.position
@@ -1344,8 +1366,8 @@ async function fetchTickerData() {
 
     // Update orders.
     if (data.orders) {
-      // Remove old orders for this symbol and add new ones.
-      orders.value = orders.value.filter(o => o.symbol !== stock.symbol)
+      // Remove prior rows for this ticker (Alpaca may use HYPEUSD vs HYPE/USD for crypto).
+      orders.value = orders.value.filter(o => !tradableSymbolsEquivalent(o.symbol, stock.symbol))
       orders.value.push(...data.orders)
     }
 
@@ -1448,7 +1470,8 @@ async function fetchOrdersData() {
 async function cancelOrderHandler(orderId) {
   try {
     await cancelOrder(orderId)
-    await fetchOrdersData() // Refresh orders after cancellation.
+    invalidateTickerCache(stock.symbol)
+    await Promise.all([fetchTickerData(), fetchOrdersData()])
     $waveui.notify('Order cancelled', 'success')
   }
   catch (error) {
@@ -1991,7 +2014,12 @@ onMounted(async () => {
 
   // Use batch endpoint to fetch stock + position + orders + market status in one call.
   // Market status is included in ticker data, so we don't need a separate call.
-  await Promise.all([fetchTickerData(), fetchHistoricalData()])
+  try {
+    await Promise.all([fetchTickerData(), fetchHistoricalData()])
+  }
+  finally {
+    tickerQuoteBootstrapPending.value = false
+  }
   await refreshBotDecision()
   await runBacktest()
   await runEvolution()
@@ -2066,6 +2094,8 @@ onUnmounted(() => {
 watch(() => stock.symbol, async (newSymbol, oldSymbol) => {
   if (newSymbol === oldSymbol) return
 
+  tickerQuoteBootstrapPending.value = true
+
   // Cancel any ongoing requests for the old symbol.
   activeRequests.value.clear()
 
@@ -2084,8 +2114,12 @@ watch(() => stock.symbol, async (newSymbol, oldSymbol) => {
   userHasPanned.value = false
   isLoadingHistoricalData.value = false
 
-  // Fetch new data using batch endpoint.
-  await Promise.all([fetchTickerData(), fetchHistoricalData()])
+  try {
+    await Promise.all([fetchTickerData(), fetchHistoricalData()])
+  }
+  finally {
+    tickerQuoteBootstrapPending.value = false
+  }
   await refreshBotDecision()
 }, { immediate: false })
 

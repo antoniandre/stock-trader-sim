@@ -44,6 +44,31 @@ function setCachedResponse(cacheKey, data) {
   }
 }
 
+/**
+ * Clears cached GET /api/ticker/:symbol responses for this symbol.
+ * Without this, fetchTickerData() can merge a stale cached `orders` array and bring
+ * back cancelled (or filled) rows until the cache TTL expires.
+ */
+export function invalidateTickerCache(symbol) {
+  const s = String(symbol || '').trim()
+  if (!s) return
+  const base = `${API_BASE}/ticker/`
+  for (const key of [...requestCache.keys()]) {
+    if (!key.startsWith(base)) continue
+    const pathPart = key.slice(base.length).split('?')[0]
+    let decoded = pathPart
+    try {
+      decoded = decodeURIComponent(pathPart)
+    }
+    catch {
+      decoded = pathPart
+    }
+    if (pathPart === s || pathPart === encodeURIComponent(s) || decoded === s) {
+      requestCache.delete(key)
+    }
+  }
+}
+
 // Re-export utilities for convenience.
 export { formatCurrency, formatNumber, formatPercentage, getCurrencySymbol } from '@/utils/formatters'
 

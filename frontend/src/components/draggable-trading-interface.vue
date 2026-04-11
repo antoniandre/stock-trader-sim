@@ -18,9 +18,11 @@
     icon="wi-cross")
   TradingInterface(
     :symbol="symbol"
+    :market="market"
     :stock="stock"
     :recent-trades="recentTrades"
     :initial-side="initialSide"
+    :ticker-quote-pending="tickerQuotePending"
     @order-placed="$emit('order-placed')"
     @mousedown="startDrag"
     @touchstart="startDrag")
@@ -33,9 +35,11 @@ import TradingInterface from './trading-interface.vue'
 const props = defineProps({
   visible: { type: Boolean, default: false },
   symbol: { type: String, required: true },
+  market: { type: String, default: 'stocks' },
   stock: { type: Object, required: true },
   recentTrades: { type: Array, default: () => [] },
-  initialSide: { type: String, default: 'buy' }
+  initialSide: { type: String, default: 'buy' },
+  tickerQuotePending: { type: Boolean, default: false }
 })
 
 defineEmits(['close', 'order-placed'])
