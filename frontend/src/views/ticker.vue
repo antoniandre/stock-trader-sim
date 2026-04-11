@@ -63,7 +63,9 @@
         :stock="stock"
         :recent-trades="recentTrades"
         :has-position="!!currentPosition"
-        :initial-side="currentPosition ? 'sell' : 'buy'")
+        :initial-side="currentPosition ? 'sell' : 'buy'"
+        @order-placed="onOrderPlacedFromPanel")
+
 
       DayTradingBotPanel(
         :decision="botDecision"
@@ -194,7 +196,8 @@
       :stock="stock"
       :recent-trades="recentTrades"
       :initial-side="tradingInterfaceSide"
-      @close="showTradingInterface = false")
+      @close="showTradingInterface = false"
+      @order-placed="onOrderPlacedFromPanel")
 </template>
 
 <script setup>
@@ -1239,19 +1242,30 @@ function handleChartViewChange(chart, action) {
   if (action === 'pan' || action === 'zoom') checkAndLoadAdditionalData(chart, action)
 }
 
+function sameTickerSymbol(a, b) {
+  return String(a || '').trim().toUpperCase() === String(b || '').trim().toUpperCase()
+}
+
 function handleTrade(data) {
-  if (data.symbol !== stock.symbol) return
+  if (!sameTickerSymbol(data.symbol, stock.symbol)) return
   // Immediate refresh for order list, then a short delayed re-fetch to catch
   // fills that take a moment to process at the broker.
   fetchTickerData()
   setTimeout(fetchTickerData, 1500)
 }
 
+/** REST path after confirm — refreshes even if WS trade/positions events are missed. */
+function onOrderPlacedFromPanel() {
+  fetchTickerData()
+  setTimeout(fetchTickerData, 800)
+  setTimeout(fetchTickerData, 2000)
+}
+
 function handlePositionsUpdated(data) {
   // Server pushes fresh positions right after every order via POST /api/orders.
   // Apply the update directly instead of waiting for the next WS trade event.
   const allPositions = Array.isArray(data.data) ? data.data : []
-  const myPosition = allPositions.find(p => p.symbol === stock.symbol) || null
+  const myPosition = allPositions.find(p => sameTickerSymbol(p.symbol, stock.symbol)) || null
   const existingIndex = positions.value.findIndex(p => p.symbol === stock.symbol)
 
   if (myPosition) {

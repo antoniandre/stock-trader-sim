@@ -1107,31 +1107,48 @@ export function createRestApiRoutes() {
       }
 
       const payload = buildOrderPayload(result)
+
+      // Trade event — always broadcast on success so tickers refresh orders/positions.
+      // Previously we only broadcast when filled_avg_price was finite; pending or odd
+      // broker payloads skipped the event and the UI never refetched.
       if (payload?.symbol) {
-        const price = payload.filled_avg_price ?? payload.limit_price ?? payload.price ?? state.stockPrices[payload.symbol]
-        if (price != null && Number.isFinite(Number(price))) {
-          broadcast({
-            type: 'trade',
-            symbol: payload.symbol,
-            qty: Number.isFinite(Number(payload.qty)) ? Number(payload.qty) : undefined,
-            side: String(payload.side || orderIntent.side || '').toLowerCase(),
-            orderType: payload.type,
-            price: Number(price),
-            timestamp: payload.timestamp || payload.submitted_at || new Date().toISOString()
-          })
+        let price = payload.filled_avg_price ?? payload.limit_price ?? payload.price ?? state.stockPrices[payload.symbol]
+        if (price == null || !Number.isFinite(Number(price))) {
+          price = await getPrice(payload.symbol).catch(() => 0)
         }
+        if (!Number.isFinite(Number(price))) price = 0
+        broadcast({
+          type: 'trade',
+          symbol: payload.symbol,
+          qty: Number.isFinite(Number(payload.qty)) ? Number(payload.qty) : undefined,
+          side: String(payload.side || orderIntent.side || '').toLowerCase(),
+          orderType: payload.type,
+          price: Number(price),
+          timestamp: payload.timestamp || payload.submitted_at || new Date().toISOString()
+        })
       }
 
-      // 🔄 Fetch and broadcast updated positions after order execution
+      // Positions — always broadcast (even []) and retry once: the broker often lags
+      // the order response, so the first getPositions() can still be empty while the
+      // second sees the new open position.
       try {
-        const updatedPositions = await getAlpacaPositions()
-        if (Array.isArray(updatedPositions) && updatedPositions.length > 0) {
-          broadcast({
-            type: 'positions-updated',
-            data: updatedPositions,
-            timestamp: new Date().toISOString()
-          })
-          console.log(`📊 Broadcasted position update after order execution for ${payload?.symbol}`)
+        let updatedPositions = await getAlpacaPositions()
+        if (!Array.isArray(updatedPositions)) updatedPositions = []
+        broadcast({
+          type: 'positions-updated',
+          data: updatedPositions,
+          timestamp: new Date().toISOString()
+        })
+        await sleep(400)
+        updatedPositions = await getAlpacaPositions()
+        if (!Array.isArray(updatedPositions)) updatedPositions = []
+        broadcast({
+          type: 'positions-updated',
+          data: updatedPositions,
+          timestamp: new Date().toISOString()
+        })
+        if (payload?.symbol) {
+          console.log(`📊 Broadcasted position updates after order execution for ${payload.symbol}`)
         }
       }
       catch (positionError) {

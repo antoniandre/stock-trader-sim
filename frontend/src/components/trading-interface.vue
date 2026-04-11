@@ -125,6 +125,8 @@ const props = defineProps({
   initialSide: { type: String, default: 'buy', validator: v => ['buy', 'sell'].includes(v) }
 })
 
+const emit = defineEmits(['order-placed'])
+
 const $waveui = inject('$waveui')
 const marketStatus = ref(null)
 const health = ref(null)
@@ -252,6 +254,8 @@ async function confirmOrder() {
       type: pendingOrder.value.type,
       limitPrice: pendingOrder.value.limitPrice
     })
+
+    emit('order-placed')
 
     const typeLabel = pendingOrder.value.type.toUpperCase()
     $waveui.notify(`Order placed: ${typeLabel} ${pendingOrder.value.side.toUpperCase()} ${pendingOrder.value.quantity} ${pendingOrder.value.symbol}`, 'success')

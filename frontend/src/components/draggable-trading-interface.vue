@@ -21,6 +21,7 @@
     :stock="stock"
     :recent-trades="recentTrades"
     :initial-side="initialSide"
+    @order-placed="$emit('order-placed')"
     @mousedown="startDrag"
     @touchstart="startDrag")
 </template>
@@ -37,7 +38,7 @@ const props = defineProps({
   initialSide: { type: String, default: 'buy' }
 })
 
-defineEmits(['close'])
+defineEmits(['close', 'order-placed'])
 
 const position = ref({ x: 25, y: 130 })
 let isDragging = false
