@@ -224,23 +224,33 @@ export function evaluateDayTradingDecision(input = {}) {
       reasons.push('Trend and momentum support adding to the winner')
     }
 
-    // Safety: Never recommend "buy" if already positioned
+    // Safety: Never recommend "buy" if already positioned.
+    // Do not overwrite exit / trim — those are active risk-management actions.
     if (action === 'buy') {
       action = 'hold'
       reasons.push('Already positioned, holding instead of buying again')
     }
-    else if (lowConfidence && marketRegime === 'chop') {
+    else if (lowConfidence && marketRegime === 'chop' && action === 'add') {
       action = 'hold'
       reasons.push('Choppy, low-confidence conditions argue for sitting tight')
     }
-    else {
-      action = 'hold'
+    else if (action === 'hold') {
       reasons.push('Current position still fits the measured risk')
     }
 
     // TODO: Add position timeout when candle index tracking is available
     // Currently, the backtest engine doesn't track when positions were opened.
     // Once candle entry index is available, implement: timeout stale positions >20 candles without meaningful progress.
+  }
+
+  // Exit/trim are risk-management actions; entry/risk-based confidence can read very low
+  // while the action is still correct (e.g. stop hit). Clients gate auto-execution on
+  // confidence, so floor sell-side conviction without inflating buy/wait signals.
+  if (action === 'exit') {
+    confidence = clamp(Math.max(confidence, 82), 0, 100)
+  }
+  else if (action === 'trim') {
+    confidence = clamp(Math.max(confidence, 80), 0, 100)
   }
 
   const sizeConfidence = clamp(confidence - (setup === 'mean-revert' ? 4 : 8), 35, 90)
