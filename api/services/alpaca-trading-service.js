@@ -80,26 +80,43 @@ export class AlpacaTradingService extends TradingService {
   // Orders.
   // --------------------------------------------------------
   async placeOrder(symbol, quantity, side, type = 'market', options = { extended_hours: false }) {
+    const limitPx = options.limit_price ?? options.limitPrice
+    const stopPx = options.stop_price ?? options.stopPrice
+    const tif = options.timeInForce || options.time_in_force || 'gtc'
+
     if (IS_SIMULATION) {
       const price = await getPriceImpl(symbol)
       if (!price) return null
       return mockPlaceOrder(symbol, Math.abs(quantity), side, {
         type,
         price,
-        limitPrice: options.limit_price ?? options.limitPrice ?? null,
-        timeInForce: options.timeInForce || 'gtc'
+        limitPrice: type === 'limit' ? limitPx : null,
+        stopPrice: Number.isFinite(Number(stopPx)) && Number(stopPx) > 0 ? Number(stopPx) : null,
+        timeInForce: tif
       })
     }
 
     try {
+      const qty = Math.abs(quantity)
       const orderData = {
         symbol,
-        qty: Math.abs(quantity),
+        qty,
         side,
         type,
-        time_in_force: options.timeInForce || 'gtc',
-        extended_hours: options.extended_hours || false,
-        ...options
+        time_in_force: tif,
+        extended_hours: !!options.extended_hours
+      }
+
+      if (type === 'limit' && Number.isFinite(Number(limitPx))) {
+        orderData.limit_price = Number(limitPx)
+      }
+
+      const stopN = Number(stopPx)
+      if (Number.isFinite(stopN) && stopN > 0) {
+        orderData.order_class = 'bracket'
+        orderData.stop_loss = { stop_price: String(stopN) }
+        // Alpaca bracket opening legs for US equities use day time-in-force.
+        orderData.time_in_force = 'day'
       }
 
       // Remove undefined fields.

@@ -312,13 +312,16 @@ export async function previewOrder(order) {
 }
 
 export async function postOrder(order) {
+  const rawStop = order.stopPrice ?? order.stop_price ?? order.stopLoss
+  const stopNum = rawStop != null && rawStop !== '' ? Number(rawStop) : NaN
   const normalized = {
     symbol: String(order.symbol).trim().toUpperCase(),
     qty: Number(order.qty ?? order.quantity),
     side: String(order.side).toLowerCase(),
     type: String(order.type || 'market').toLowerCase(),
     limitPrice: order.limitPrice != null ? Number(order.limitPrice) : undefined,
-    timeInForce: order.timeInForce || 'gtc'
+    timeInForce: order.timeInForce || 'gtc',
+    ...(Number.isFinite(stopNum) && stopNum > 0 ? { stopPrice: stopNum } : {})
   }
 
   const response = await fetch(`${API_BASE}/orders`, {

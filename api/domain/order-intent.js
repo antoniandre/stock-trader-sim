@@ -28,7 +28,7 @@ export function normalizeOrderIntent(input = {}) {
   }
 }
 
-export function validateOrderIntent(orderIntent, { allowTypes = SUPPORTED_ORDER_TYPES } = {}) {
+export function validateOrderIntent(orderIntent, { allowTypes = SUPPORTED_ORDER_TYPES, referencePrice = null } = {}) {
   const errors = []
 
   if (!orderIntent.symbol) errors.push('Symbol is required')
@@ -40,8 +40,22 @@ export function validateOrderIntent(orderIntent, { allowTypes = SUPPORTED_ORDER_
     errors.push('Limit price must be greater than 0 for limit orders')
   }
 
-  if (orderIntent.stopPrice !== null && orderIntent.stopPrice <= 0) {
+  const sp = orderIntent.stopPrice
+  if (sp != null && sp !== '' && (!Number.isFinite(sp) || sp <= 0)) {
     errors.push('Stop price must be greater than 0 when provided')
+  }
+
+  // Bracket stop-loss: buy stops must be below entry; sell (e.g. short) stops above entry.
+  if (Number.isFinite(sp) && sp > 0 && referencePrice != null && Number.isFinite(referencePrice) && referencePrice > 0) {
+    const entry = orderIntent.type === 'limit' && Number.isFinite(orderIntent.limitPrice) && orderIntent.limitPrice > 0
+      ? orderIntent.limitPrice
+      : referencePrice
+    if (orderIntent.side === 'buy' && sp >= entry) {
+      errors.push('Stop loss must be below your entry price for buy orders')
+    }
+    if (orderIntent.side === 'sell' && sp <= entry) {
+      errors.push('Stop loss must be above your entry price for sell orders')
+    }
   }
 
   return {

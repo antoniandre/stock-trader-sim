@@ -43,10 +43,16 @@
           label.size--sm.op7.mb2 Limit Price
           w-input(v-model.number="orderForm.limitPrice" type="number" step="0.01" min="0" placeholder="Price per share" outline)
 
-        .mb4
-          label.size--sm.op7.mb2 Stop Loss
-          w-input(type="number" step="0.01" min="0" placeholder="Not available with current broker wiring" outline disabled)
-          .size--xs.op6.mt1 Stop orders are not live yet in this build, so this field stays disabled to avoid false promises.
+        .mb4(v-if="orderForm.side === 'buy' && stopOrdersEnabled")
+          label.size--sm.op7.mb2 Stop loss (optional)
+          w-input(
+            v-model.number="orderForm.stopLoss"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="Protective sell if price falls to this level"
+            outline)
+          .size--xs.op6.mt1 Bracket order: entry fills first; a protective sell is placed at your stop. Uses broker day time-in-force for the opening leg.
 
         .mt4(v-if="orderValue > 0 && stock.price > 0")
           .w-flex.justify-between.gap2
@@ -82,11 +88,16 @@
         .confirmation-row(v-if="pendingOrder.limitPrice")
           span.op7 Limit price
           strong(v-html="formatCurrency(pendingOrder.limitPrice, stock.currency, 2, false)")
+        .confirmation-row(v-if="pendingOrder.stopPrice")
+          span.op7 Stop loss
+          strong(v-html="formatCurrency(pendingOrder.stopPrice, stock.currency, 2, false)")
         .confirmation-row
           span.op7 Estimated notional
           strong(v-html="formatCurrency(pendingOrder.estimatedNotional, stock.currency, 2, false)")
 
-      p.size--sm.op7.mt4(v-if="pendingOrder.type === 'market'") Market orders fill at the best available price and can move before execution.
+      p.size--sm.op7.mt4(v-if="pendingOrder.type === 'market' && !pendingOrder.stopPrice") Market orders fill at the best available price and can move before execution.
+      p.size--sm.op7.mt4(v-else-if="pendingOrder.type === 'market' && pendingOrder.stopPrice") Market bracket: fills at the best available price; a protective stop is attached at your stop price.
+      p.size--sm.op7.mt4(v-else-if="pendingOrder.stopPrice") Limit bracket: executes at your limit or better when marketable; a protective stop is attached.
       p.size--sm.op7.mt4(v-else) Limit orders only execute at your limit price or better. In simulation, only immediately marketable limits are filled.
 
       .w-flex.justify-end.gap2.mt5
@@ -167,6 +178,12 @@ const isOrderValid = computed(() => {
   if (!orderForm.value.quantity || orderForm.value.quantity <= 0) return false
   if (!props.stock.price || props.stock.price <= 0) return false
   if (orderForm.value.type === 'limit' && (!orderForm.value.limitPrice || orderForm.value.limitPrice <= 0)) return false
+  if (orderForm.value.side === 'buy' && orderForm.value.stopLoss > 0) {
+    const entry = orderForm.value.type === 'limit' && orderForm.value.limitPrice > 0
+      ? orderForm.value.limitPrice
+      : props.stock.price
+    if (orderForm.value.stopLoss >= entry) return false
+  }
   return true
 })
 
@@ -190,6 +207,8 @@ const confirmationTitle = computed(() => {
   const type = pendingOrder.value?.type || orderForm.value.type || 'market'
   return `Confirm ${type} order`
 })
+
+const stopOrdersEnabled = computed(() => health.value?.featureFlags?.stopOrders !== false)
 
 const marketGate = computed(() => {
   if (props.market === 'crypto') {
@@ -226,13 +245,16 @@ async function refreshTradingContext() {
 }
 
 function openOrderConfirmation(side) {
+  orderForm.value.side = side
   if (!isOrderValid.value) return
+  const stopRaw = side === 'buy' && orderForm.value.stopLoss > 0 ? Number(orderForm.value.stopLoss) : null
   pendingOrder.value = {
     symbol: String(props.symbol).toUpperCase(),
     side,
     type: orderForm.value.type,
     quantity: Number(orderForm.value.quantity),
     limitPrice: orderForm.value.type === 'limit' ? Number(orderForm.value.limitPrice) : null,
+    stopPrice: Number.isFinite(stopRaw) && stopRaw > 0 ? stopRaw : null,
     estimatedNotional: orderValue.value
   }
   showOrderConfirmation.value = true
@@ -252,7 +274,8 @@ async function confirmOrder() {
       qty: pendingOrder.value.quantity,
       side: pendingOrder.value.side,
       type: pendingOrder.value.type,
-      limitPrice: pendingOrder.value.limitPrice
+      limitPrice: pendingOrder.value.limitPrice,
+      ...(pendingOrder.value.stopPrice ? { stopPrice: pendingOrder.value.stopPrice } : {})
     })
 
     emit('order-placed')

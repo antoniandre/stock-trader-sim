@@ -27,7 +27,7 @@ export const {
   FEATURE_PAPER_TRADING = 'true',
   FEATURE_MARKET_ORDERS = 'true',
   FEATURE_LIMIT_ORDERS = 'false',
-  FEATURE_STOP_ORDERS = 'false',
+  FEATURE_STOP_ORDERS = 'true',
   FEATURE_API_ACCESS = 'false',
   FEATURE_ALERTS = 'false',
   FEATURE_BOTS = 'false'

@@ -23,13 +23,13 @@ export class AlpacaBrokerAdapter extends BrokerAdapter {
       supportsOptions: false,
       supportsMarketOrders: true,
       supportsLimitOrders: true,
-      supportsStopOrders: false,
+      supportsStopOrders: true,
       supportsFractionalShares: false,
       supportsExtendedHours: false,
       supportsStreamingOrders: false,
       notes: [
-        'Market and limit orders are supported in the current product wiring.',
-        'Stop orders remain hidden until backend and UX validation are implemented.'
+        'Market and limit orders are supported.',
+        'Optional stop loss uses Alpaca bracket orders (order_class=bracket, stop_loss); opening leg uses time_in_force=day.'
       ]
     }
   }
@@ -87,11 +87,13 @@ export class AlpacaBrokerAdapter extends BrokerAdapter {
     }
 
     try {
+      const stopPx = input?.stop_price ?? input?.stopPrice
       const service = await getTradingService()
       const order = await service.placeOrder(sym, qty, side, type, {
         timeInForce,
         limit_price: type === 'limit' ? limitPrice : undefined,
-        extended_hours: input.extended_hours || false
+        extended_hours: input.extended_hours || false,
+        stop_price: Number.isFinite(Number(stopPx)) && Number(stopPx) > 0 ? Number(stopPx) : undefined
       })
       if (!order) {
         return { success: false, error: 'Order was not accepted (no price or broker rejection)' }

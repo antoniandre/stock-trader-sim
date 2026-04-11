@@ -19,6 +19,10 @@ import { recordStrategyRun } from './services/strategy-run-recorder.js'
 import { normalizeBrokerError } from './services/broker-error.js'
 import { getTradeCandidates } from './services/trade-screener-service.js'
 
+function orderIntentHasStopLoss(orderIntent) {
+  return Number.isFinite(orderIntent.stopPrice) && orderIntent.stopPrice > 0
+}
+
 // Express API Routes.
 // --------------------------------------------------------
 export function createRestApiRoutes() {
@@ -1031,17 +1035,20 @@ export function createRestApiRoutes() {
 
   async function getOrderPreview(input) {
     const orderIntent = normalizeOrderIntent(input)
-    const validation = validateOrderIntent(orderIntent)
-    if (!validation.valid) {
-      return { statusCode: 400, body: { error: 'Invalid order request', details: validation.errors } }
+    if (orderIntentHasStopLoss(orderIntent) && !FEATURE_FLAGS.stopOrders) {
+      return { statusCode: 403, body: { error: 'Stop-loss orders are disabled in this deployment.' } }
     }
 
     const currentPrice = await getPrice(orderIntent.symbol).catch(() => 0)
+    const validation = validateOrderIntent(orderIntent, { referencePrice: currentPrice })
+    if (!validation.valid) {
+      return { statusCode: 400, body: { error: 'Invalid order request', details: validation.errors } }
+    }
     const positions = await getAlpacaPositions().catch(() => [])
     const position = Array.isArray(positions)
       ? positions.find((item) => String(item.symbol || '').toUpperCase() === orderIntent.symbol) || null
       : null
-    const estimatedNotional = estimateOrderNotional(orderIntent, currentPrice)
+    const estimatedNotional = estimateOrderNotional(orderIntent, currentPrice || null)
 
     return {
       statusCode: 200,
@@ -1084,7 +1091,12 @@ export function createRestApiRoutes() {
   app.post('/api/orders', requireMutationAuth, async (req, res) => {
     try {
       const orderIntent = normalizeOrderIntent(req.body || {})
-      const validation = validateOrderIntent(orderIntent)
+      if (orderIntentHasStopLoss(orderIntent) && !FEATURE_FLAGS.stopOrders) {
+        return res.status(403).json({ error: 'Stop-loss orders are disabled in this deployment.' })
+      }
+
+      const referencePrice = await getPrice(orderIntent.symbol).catch(() => 0)
+      const validation = validateOrderIntent(orderIntent, { referencePrice })
       if (!validation.valid) {
         return res.status(400).json({
           error: 'Invalid order request',
@@ -1222,8 +1234,8 @@ export function createRestApiRoutes() {
           dashboard: 'GET /api/dashboard',
           movers: 'GET /api/movers',
           history: 'GET /api/stocks/:symbol/history?period=1D',
-          placeOrder: 'POST /api/orders JSON { symbol, qty, side, type: "market" | "limit", limitPrice? }',
-          previewOrder: 'POST /api/orders/preview JSON { symbol, qty, side, type, limitPrice? }'
+          placeOrder: 'POST /api/orders JSON { symbol, qty, side, type: "market" | "limit", limitPrice?, stopPrice? }',
+          previewOrder: 'POST /api/orders/preview JSON { symbol, qty, side, type, limitPrice?, stopPrice? }'
         }
       }))
     }

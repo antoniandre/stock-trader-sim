@@ -490,13 +490,19 @@ export function mockPlaceOrder(symbol, qty, side, orderConfig = {}) {
   }
 
   const executionPrice = type === 'limit' && Number.isFinite(limitPrice) ? limitPrice : marketPrice
-  console.log(`🧪 [SIM] ${side.toUpperCase()} ${qty} ${symbol} ${type.toUpperCase()} @ $${executionPrice.toFixed(2)}`)
-  return recordTrade(symbol, qty, side, executionPrice, {
+  const stopN = orderConfig.stopPrice != null ? Number(orderConfig.stopPrice) : null
+  const extras = {
     type,
     limit_price: Number.isFinite(limitPrice) ? limitPrice : undefined,
     time_in_force: orderConfig.timeInForce || 'gtc',
     status: 'filled'
-  })
+  }
+  if (Number.isFinite(stopN) && stopN > 0) {
+    extras.order_class = 'bracket'
+    extras.stop_loss = { stop_price: String(stopN) }
+  }
+  console.log(`🧪 [SIM] ${side.toUpperCase()} ${qty} ${symbol} ${type.toUpperCase()} @ $${executionPrice.toFixed(2)}`)
+  return recordTrade(symbol, qty, side, executionPrice, extras)
 }
 
 export function recordTrade(symbol, qty, side, price, extra = {}) {
