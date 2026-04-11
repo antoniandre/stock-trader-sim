@@ -15,7 +15,7 @@ export function shouldAutoFire(decision, autonomousTrading) {
   if (!autonomousTrading || !decision) return false
   
   const confidence = Number(decision.confidence || 0)
-  const isValidAction = ['buy', 'add', 'sell', 'exit'].includes(decision.action)
+  const isValidAction = ['buy', 'add', 'sell', 'exit', 'trim'].includes(decision.action)
   
   return confidence >= 80 && isValidAction
 }
@@ -27,14 +27,13 @@ export function shouldAutoFire(decision, autonomousTrading) {
  * @returns {Promise<Object>} Order response
  */
 export async function fireOrderAutomatically(decision, executionContext) {
-  const { symbol, currentPrice } = executionContext
+  const { symbol, currentPrice, positionQty: heldQty } = executionContext
   const { action, executionPlan, confidence } = decision
   
   if (!symbol) throw new Error('Symbol is required')
   if (!executionPlan) throw new Error('Execution plan is required')
   
-  // Calculate quantity from execution plan
-  const qty = calculateQtyFromExecutionPlan(executionPlan, currentPrice)
+  const qty = calculateOrderQtyForBotAction(action, executionPlan, currentPrice, heldQty)
   
   if (qty <= 0) throw new Error('Invalid quantity calculated from execution plan')
   
@@ -69,7 +68,23 @@ export async function fireOrderAutomatically(decision, executionContext) {
 }
 
 /**
- * Calculate quantity from execution plan
+ * Buy/add: notional from execution plan. Exit/trim: use live share count when provided.
+ */
+function calculateOrderQtyForBotAction(action, executionPlan, currentPrice, positionQty) {
+  const held = Number(positionQty)
+  if (action === 'exit' && Number.isFinite(held) && held > 0) {
+    return Math.max(1, Math.floor(held))
+  }
+  if (action === 'trim' && Number.isFinite(held) && held > 0) {
+    const frac = Number(executionPlan?.trimFraction)
+    const f = Number.isFinite(frac) && frac > 0 && frac <= 1 ? frac : 0.4
+    return Math.max(1, Math.floor(held * f))
+  }
+  return calculateQtyFromExecutionPlan(executionPlan, currentPrice)
+}
+
+/**
+ * Calculate quantity from execution plan (entries / fallback sells)
  * @param {Object} executionPlan - Plan with positionSizePct
  * @param {number} currentPrice - Current stock price
  * @returns {number} Quantity to order
