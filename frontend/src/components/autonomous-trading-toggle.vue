@@ -12,11 +12,10 @@
         .size--xs.op6 {{ statusText }}
 
     .toggle-indicator(v-if="!disabled" :class="{ active: localToggle }")
-      .indicator-dot
 </template>
 
 <script setup>
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 
 const props = defineProps({
   disabled: {
@@ -47,14 +46,6 @@ const handleToggle = (value) => {
   emit('update:autonomous', value)
 }
 
-// Watch for external changes
-watch(
-  () => props.modelValue,
-  newVal => {
-    if (newVal !== undefined && newVal !== localToggle.value) localToggle.value = newVal
-  }
-)
-
 // Export current state getter
 const getAutonomousState = () => localToggle.value
 
@@ -84,12 +75,6 @@ defineExpose({
       background: #4caf50;
       box-shadow: 0 0 8px rgba(76, 175, 80, 0.5);
     }
-  }
-
-  .indicator-dot {
-    width: 100%;
-    height: 100%;
-    border-radius: 50%;
   }
 }
 </style>

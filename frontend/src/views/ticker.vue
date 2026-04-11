@@ -39,14 +39,12 @@
           :last-update="lastUpdate"
           :is-refreshing="isRefreshing"
           :is-transitioning-timeframe="isTransitioningTimeframe"
-          :autonomous-toggle-disabled="!wsConnected"
           @change-chart-type="changeChartType"
           @change-period="changePeriod"
           @change-timeframe="changeTimeframe"
           @reset-zoom-complete="handleResetZoomComplete"
           @toggle-fullscreen="showDialog = true"
-          @refresh-price="refreshPrice"
-          @update:autonomous="onAutonomousToggle")
+          @refresh-price="refreshPrice")
 
     //- Right Column: Stats, Positions and Trading Interface
     .spacer.ma3.no-grow
@@ -63,6 +61,8 @@
 
 
       DayTradingBotPanel(
+        :ticker-symbol="stock.symbol"
+        :autonomous-toggle-disabled="!wsConnected"
         :decision="botDecision"
         :loading="botLoading"
         :error="botError"
@@ -81,7 +81,8 @@
         @auto-fire-detected="handleBotAutoFire"
         :execute-recommendation-loading="botOneClickLoading"
         :execute-recommendation-blocked="botExecuteRecommendationBlocked"
-        @execute-recommendation="onBotExecuteRecommendation")
+        @execute-recommendation="onBotExecuteRecommendation"
+        @update:autonomous="onAutonomousToggle")
 
       //- Open Orders
       .glass-box.pa6.pt4(v-if="openOrders.length")
@@ -179,15 +180,13 @@
       :last-update="lastUpdate"
       :is-refreshing="isRefreshing"
       :is-transitioning-timeframe="isTransitioningTimeframe"
-      :autonomous-toggle-disabled="!wsConnected"
       show-trading-toggle
       @change-chart-type="changeChartType"
       @change-period="changePeriod"
       @change-timeframe="changeTimeframe"
       @reset-zoom-complete="handleResetZoomComplete"
       @toggle-trading="onToggleTrading"
-      @refresh-price="refreshPrice"
-      @update:autonomous="onAutonomousToggle")
+      @refresh-price="refreshPrice")
     DraggableTradingInterface(
       v-if="showTradingInterface"
       :visible="showTradingInterface"

@@ -1,6 +1,6 @@
 <template lang="pug">
 .price-chart
-  //- Price + autonomous trading (single place for normal + fullscreen chart)
+  //- Live price + OHLCV (autonomous trading lives on the bot panel)
   .price-chart__header.w-flex.justify-space-between.align-end.gap4.wrap(
     v-if="hasChartHeader")
     div
@@ -22,11 +22,6 @@
         strong {{ formatPrice(currentOHLC.close) }}
         span.base-color.ml1 V
         strong {{ formatVolume(currentOHLC.volume) }}
-
-    AutonomousTradingToggle.no-shrink.mt-2(
-      v-if="showAutonomousToggle"
-      :disabled="autonomousToggleDisabled"
-      @update:autonomous="emit('update:autonomous', $event)")
 
   //- Chart Controls
   .chart-controls.w-flex.justify-space-between.align-center.mb2
@@ -212,7 +207,6 @@ import { formatPrice, formatVolume } from '@/utils/formatters'
 import CandlestickChart from './candlestick-chart.vue'
 import DrawingTools from './drawing-tools.vue'
 import TickerPrice from './ticker-price.vue'
-import AutonomousTradingToggle from './autonomous-trading-toggle.vue'
 
 // Props & Emits
 // --------------------------------------------------------
@@ -236,13 +230,11 @@ const props = defineProps({
   showFullscreenButton: { type: Boolean, default: true },
   // Position entry price to display on chart.
   entryPrice: { type: Number, default: null },
-  // Header: live price (TickerPrice) + autonomous toggle — optional so chart stays reusable.
+  // Header: live price (TickerPrice) — optional so chart stays reusable.
   stock: { type: Object, default: null },
   lastUpdate: { type: String, default: '' },
   isRefreshing: { type: Boolean, default: false },
-  isTransitioningTimeframe: { type: Boolean, default: false },
-  showAutonomousToggle: { type: Boolean, default: true },
-  autonomousToggleDisabled: { type: Boolean, default: false }
+  isTransitioningTimeframe: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
@@ -252,14 +244,13 @@ const emit = defineEmits([
   'reset-zoom-complete',
   'toggle-trading',
   'toggle-fullscreen',
-  'refresh-price',
-  'update:autonomous'
+  'refresh-price'
 ])
 // --------------------------------------------------------
 
 const $waveui = inject('$waveui')
 
-const hasChartHeader = computed(() => props.stock != null || props.showAutonomousToggle)
+const hasChartHeader = computed(() => props.stock != null)
 
 const buttonsColors = computed(() => {
   return {

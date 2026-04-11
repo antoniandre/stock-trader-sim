@@ -1,124 +1,168 @@
 <template lang="pug">
-.glass-box.pa6.day-trading-bot-panel
+.glass-box.pa6.bot-panel
   header
     .w-flex.align-center.justify-space-between.gap2.wrap
-      .text-upper.size--xs.op6 Trading intelligence · {{ (props.tickerSymbol || '').trim() }}
+      .text-upper.size--xs.op6 Trading intelligence · {{ context.tickerSymbol }}
       w-button.w-button--icon(
         @click="$emit('refresh')"
         :loading="loading"
-        :tooltip="loading ? 'Refreshing...' : 'Refresh'"
+        :tooltip="loading ? 'Refreshing…' : 'Refresh'"
         text)
         icon(icon="mdi:refresh")
     .title2 Bot command center
 
-  .day-trading-bot-panel__toolbar
-    .w-flex.align-center.gap2.wrap
-      span.size--sm.op6 Risk profile
-      w-button.px1.lh2(
-        v-for="option in riskProfiles"
-        :key="option"
-        sm
-        round
-        :outline="option !== selectedRiskProfile"
-        :tooltip="riskProfileTooltip(option)"
-        :tooltip-props="{ maxWidth: 360 }"
-        @click="$emit('update:risk-profile', option)") {{ option }}
+  .w-flex.align-center.gap1.no-grow.mla(v-if="!hasApiError")
+    span.size--xs.text-upper.op6 Risk profile
+    w-button.w-button--icon(
+      xs
+      text
+      :aria-label="riskProfilesHelpTooltip"
+      :tooltip="riskProfilesHelpTooltip"
+      :tooltip-props="{ maxWidth: 360 }")
+      icon(icon="mdi:help-circle-outline")
+    w-select(
+      v-model="riskProfileModel"
+      :items="riskProfileSelectItems"
+      round
+      outline)
 
-  .w-flex.align-center.gap2.no-grow
-    w-tag.px2(round sm :bg-color="statusTone") {{ statusLabel }}
-  p.mt2.mb0.op7(v-if="panelHeadline") {{ panelHeadline }}
-  .day-trading-bot-panel__error(v-if="error") {{ error }}
+  .bot-panel__autonomous.bsrsr
+    AutonomousTradingToggle(
+      :disabled="autonomousToggleDisabled"
+      @update:autonomous="emit('update:autonomous', $event)")
+
+  section.bot-panel__analysis
+    //- Bot fetch / API state
+    template(v-if="showServiceStatus")
+      .bot-panel__regime.bot-panel__regime--service
+        .bot-panel__regime-meta
+          span.size--xs.op6(v-if="!hasApiError") Bot status
+          w-tag.bot-panel__market-tag.w-flex.align-center.px2(round sm :bg-color="serviceStatus.tone")
+            span.bot-panel__market-tag__text {{ serviceStatus.label }}
+        p.bot-panel__error.mb0.mt1(v-if="hasApiError") {{ error }}
+
+  p.mt2.mb0.op7(v-if="idleHint") {{ idleHint }}
 
   template(v-else-if="decision")
-    section.day-trading-bot-panel__hero(aria-labelledby="bot-rec-heading")
-      .size--xs.op6#bot-rec-heading Live recommendation
-      .day-trading-bot-panel__action-row
-        .day-trading-bot-panel__action(:class="actionToneClass")
+    section
+      .title3.text-upper.size--sm.op7 Live recommendation
+      .bot-panel__action-line
+        .bot-panel__action(:class="actionToneClass")
           | {{ recommendationLabel }}
           w-button.mt-1.ml2.px2(
-            v-if="showOneClickExecute"
+            v-if="oneClickBuy.visible"
             bg-color="success"
-            :loading="executeRecommendationLoading"
-            :disabled="executeRecommendationDisabled"
+            :loading="oneClickBuy.loading"
+            :disabled="oneClickBuy.disabled"
             @click="emit('execute-recommendation', decision)"
-            :tooltip="executeRecommendationBlocked || 'Buy now (1-click)'"
+            :tooltip="oneClickBuy.tooltip"
             :tooltip-props="{ alignRight: true }"
             round
             sm) BUY
-      p.size--sm
-        span.op7 Confidence {{ decision.confidence }}%
-        span.op4 · Entry {{ decision.scores.entry }} · Risk {{ decision.scores.risk }}
-      .day-trading-bot-panel__context-strip
-        .bot-pill
-          .size--xs.op6 Setup
-          strong {{ setupLabel }}
-        .bot-pill(v-for="pill in guardrailPills" :key="pill.key")
-          .size--xs.op6 {{ pill.label }}
-          strong {{ pill.text }}
-        .bot-pill(v-for="pill in executionPlanPills" :key="pill.key")
-          .size--xs.op6 {{ pill.label }}
-          strong {{ pill.text }}
+      p
+        span Confidence {{ decision.confidence }}%
+        span.op4.size--sm · Entry {{ decision.scores.entry }} · Risk {{ decision.scores.risk }}
+
+      //- One market regime pill (+ setup detail when it adds info); help lives inside the tag
+      .bot-panel__regime.mt2(v-if="marketContextTag")
+        .bot-panel__market-line
+          span.size--xs.op6 Market
+          w-tag.align-center.no-grow.bd0(
+            round
+            sm
+            :color="marketContextTag.tone || undefined"
+            bg-color="contrast-o05")
+            span.bot-panel__market-tag__text.text-bold {{ marketContextTag.tagText }}
+            w-button.bot-panel__market-tag__help.w-button--icon(
+              xs
+              text
+              @click.stop
+              :aria-label="marketContextTag.tooltip"
+              :tooltip="marketContextTag.tooltip"
+              :tooltip-props="{ maxWidth: 340 }")
+              icon(icon="mdi:help-circle-outline")
+          w-tag.bot-panel__market-tag.w-flex.align-center.no-grow(
+            v-if="guardrailTag"
+            xs
+            round
+            outline
+            color="warning")
+            span.bot-panel__market-tag__text {{ guardrailTag.label }}
+            w-button.bot-panel__market-tag__help.w-button--icon(
+              xs
+              text
+              @click.stop
+              :aria-label="guardrailTag.tooltip"
+              :tooltip="guardrailTag.tooltip"
+              :tooltip-props="{ maxWidth: 300 }")
+              icon(icon="mdi:help-circle-outline")
 
       p.size--sm.mt2.mb0 {{ recommendationDetail }}
+    section.bot-panel__hero(aria-labelledby="bot-plan-heading")
+      .title3.text-upper.size--sm.op7.mb2#bot-plan-heading Execution plan
+      .bot-panel__row
+        .bot-panel__chip(v-for="pill in executionPlanPills" :key="pill.key")
+          .size--xs.op6 {{ pill.label }}
+          strong {{ pill.text }}
 
-    section.day-trading-bot-panel__section
-      h3.size--sm.text-bold.mb2 Tape &amp; position
-      .day-trading-bot-panel__grid
-        .bot-stat(v-for="tile in metricTiles" :key="tile.key")
+
+    section.bot-panel__section
+      .title3.text-upper.size--sm.op7.mb2 Indicators
+      .bot-panel__stat-grid
+        .bot-panel__stat(v-for="tile in metricTiles" :key="tile.key")
           .size--xs.op6 {{ tile.label }}
           .title3.mt1 {{ tile.value }}
 
-    section.day-trading-bot-panel__section
-      .w-flex.align-center.justify-space-between.gap2.wrap.mb2
-        .title3.text-upper.size--sm.op7 Decision factors
-      ul.day-trading-bot-panel__reason-list
+    section.bot-panel__section
+      .title3.text-upper.size--sm.op7.mb2 Decision factors
+      ul.bot-panel__reasons
         li(v-for="reason in decision.reasons" :key="reason") {{ reason }}
 
-    w-button.mla(round text @click="showSimulationLabDialog = true") Simulation lab
+    w-button.mla(round text @click="ui.simulationLab.show = true") Simulation lab
 
 w-dialog(
-  v-model="showSimulationLabDialog"
+  v-model="ui.simulationLab.show"
   title="Simulation lab"
   width="640"
-  :persistent="backtestLoading || evolutionLoading")
-  .day-trading-bot-panel__dialog-body
-    section.day-trading-bot-panel__dialog-section
+  :persistent="dialogPersistent")
+  .bot-panel__dialog
+    section.bot-panel__dialog-section
       .w-flex.align-center.justify-space-between.gap2.wrap.mb2
         div
           h3.size--sm.text-bold.mb0 Backtest
           p.size--xs.op6.mb0.mt1 Simulated P/L on recent history for the active risk profile.
         w-button(xs round text :loading="backtestLoading" @click="$emit('run-backtest')") Run backtest
 
-      .day-trading-bot-panel__error(v-if="backtestError") {{ backtestError }}
+      .bot-panel__error(v-if="backtestError") {{ backtestError }}
       template(v-else-if="backtest")
-        .day-trading-bot-panel__grid.mb3
-          .bot-stat
+        .bot-panel__stat-grid.mb3
+          .bot-panel__stat
             .size--xs.op6 Return
             .title3.mt1(:class="backtest.totalReturnPct >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatPct(backtest.totalReturnPct) }}%
-          .bot-stat
+          .bot-panel__stat
             .size--xs.op6 Drawdown
             .title3.mt1 {{ formatPct(backtest.maxDrawdownPct) }}%
-          .bot-stat
+          .bot-panel__stat
             .size--xs.op6 Trades
             .title3.mt1 {{ backtest.tradeCount }}
-          .bot-stat
+          .bot-panel__stat
             .size--xs.op6 Win rate
             .title3.mt1 {{ formatPct(backtest.winRatePct) }}%
-          .bot-stat
+          .bot-panel__stat
             .size--xs.op6 Realized P/L
             .title3.mt1(:class="backtest.realizedPnL >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatCurrency(backtest.realizedPnL) }}
-          .bot-stat
+          .bot-panel__stat
             .size--xs.op6 Ending equity
             .title3.mt1 {{ formatCurrency(backtest.endingEquity) }}
         p.size--xs.op6.mb2(v-if="backtest.captureId") Capture {{ backtest.captureId }}
 
-        .day-trading-bot-panel__comparison(v-if="backtestComparisons.length")
+        template(v-if="backtestComparisons.length")
           p.size--xs.op6.mb2 Risk profile comparison (by simulated return)
-          .day-trading-bot-panel__comparison-list
-            .bot-comparison-card(
+          .bot-panel__row
+            .bot-panel__compare(
               v-for="item in rankedComparisons"
               :key="item.riskProfile"
-              :class="{ 'bot-comparison-card--active': item.riskProfile === selectedRiskProfile }")
+              :class="{ 'bot-panel__compare--current': item.riskProfile === selectedRiskProfile }")
               .w-flex.align-center.justify-space-between.gap2
                 strong {{ item.riskProfile }}
                 span.size--xs.op6 {{ item.tradeCount }} trades
@@ -128,39 +172,37 @@ w-dialog(
 
     w-divider.my4
 
-    section.day-trading-bot-panel__dialog-section
+    section.bot-panel__dialog-section
       .w-flex.align-center.justify-space-between.gap2.wrap.mb2
         div
           h3.size--sm.text-bold.mb0 Strategy evolution
           p.size--xs.op6.mb0.mt1 Explores variants offline; results do not change your live recommendation until you adopt logic elsewhere.
         w-button(xs round text :loading="evolutionLoading" @click="$emit('run-evolution')") Evolve
 
-      .day-trading-bot-panel__error(v-if="evolutionError") {{ evolutionError }}
+      .bot-panel__error(v-if="evolutionError") {{ evolutionError }}
       template(v-else-if="evolution")
-        .day-trading-bot-panel__evolution-summary.mb3
-          .bot-pill
+        .bot-panel__row.mb3
+          .bot-panel__chip
             .size--xs.op6 Evaluated
             strong {{ evolution.evaluatedCount }}
-          .bot-pill
+          .bot-panel__chip
             .size--xs.op6 Survivors
             strong {{ evolution.survivors.length }}
-          .bot-pill(v-if="bestSurvivor")
+          .bot-panel__chip(v-if="bestSurvivor")
             .size--xs.op6 Best score
             strong {{ bestSurvivor.score }}
-          .bot-pill(v-if="evolution.captureId")
+          .bot-panel__chip(v-if="evolution.captureId")
             .size--xs.op6 Capture
             strong {{ evolution.captureId }}
 
-        .day-trading-bot-panel__dialog-block(
-          v-for="(block, blockIdx) in evolutionBlocks"
-          :key="block.key")
+        template(v-for="(block, blockIdx) in evolutionBlocks" :key="block.key")
           w-divider.my4(v-if="blockIdx > 0")
           h4.size--sm.text-bold.mb2 {{ block.title }}
-          .day-trading-bot-panel__strategy-list
-            .bot-strategy-card(
+          .bot-panel__strategy-list
+            .bot-panel__strategy(
               v-for="item in block.items"
               :key="item.id"
-              :class="{ 'bot-strategy-card--muted': block.muted }")
+              :class="{ 'bot-panel__strategy--muted': block.muted }")
               .w-flex.align-center.justify-space-between.gap2
                 strong {{ item.id }}
                 span.size--xs.op6 {{ item.family }}
@@ -170,10 +212,13 @@ w-dialog(
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { emitAutoExecutionEvent } from '@/api/bot-execution'
+import AutonomousTradingToggle from '@/components/autonomous-trading-toggle.vue'
 
-const showSimulationLabDialog = ref(false)
+const ui = reactive({
+  simulationLab: { show: false }
+})
 
 const props = defineProps({
   tickerSymbol: { type: String, default: '' },
@@ -189,99 +234,225 @@ const props = defineProps({
   evolutionLoading: { type: Boolean, default: false },
   evolutionError: { type: String, default: '' },
   executeRecommendationLoading: { type: Boolean, default: false },
-  executeRecommendationBlocked: { type: String, default: '' }
+  executeRecommendationBlocked: { type: String, default: '' },
+  autonomousToggleDisabled: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['refresh', 'update:risk-profile', 'run-backtest', 'run-evolution', 'auto-fire-detected', 'execute-recommendation'])
+const emit = defineEmits([
+  'refresh',
+  'update:risk-profile',
+  'run-backtest',
+  'run-evolution',
+  'auto-fire-detected',
+  'execute-recommendation',
+  'update:autonomous'
+])
 
-watch(
-  () => props.decision,
-  (newDecision) => {
-    if (!newDecision) {
-      showSimulationLabDialog.value = false
-      return
-    }
+const riskProfileModel = computed({
+  get() {
+    return props.selectedRiskProfile || 'balanced'
+  },
+  set(v) {
+    emit('update:risk-profile', v)
+  }
+})
 
-    const autonomousTrading = localStorage.getItem('autonomousTrading') === 'true'
-    const confidence = Number(newDecision.confidence || 0)
-    const isHighConfidence = confidence >= 80
-    const isValidAction = ['buy', 'add', 'sell', 'exit', 'trim'].includes(newDecision.action)
+const RISK_PROFILES = ['conservative', 'balanced', 'aggressive']
 
-    if (autonomousTrading && isHighConfidence && isValidAction) {
-      emitAutoExecutionEvent({
-        symbol: 'unknown', // Will be set by parent
-        action: newDecision.action,
-        confidence,
-        timestamp: new Date().toISOString()
-      })
-      emit('auto-fire-detected', newDecision)
+const riskProfileSelectItems = RISK_PROFILES.map(value => ({
+  label: value.charAt(0).toUpperCase() + value.slice(1),
+  value
+}))
+
+/** Single help for all profiles (per-option tooltips moved off the control). */
+const riskProfilesHelpTooltip = [
+  '&bull; <strong>Conservative:</strong> tighter risk, smaller size, fewer marginal entries.',
+  '&bull; <strong>Balanced:</strong> default middle path.',
+  '&bull; <strong>Aggressive:</strong> larger swings allowed, bigger size / wider risk tolerance in the model.',
+  '',
+  'Pick a profile to re-run the bot with that risk stance.'
+].join('<br>')
+
+const context = computed(() => ({
+  tickerSymbol: String(props.tickerSymbol || '').trim()
+}))
+
+const dialogPersistent = computed(() => props.backtestLoading || props.evolutionLoading)
+
+const hasApiError = computed(() => Boolean(props.error?.trim()))
+
+/** Loading or failed fetch — separate from market tape (choppy / trend / …). */
+const showServiceStatus = computed(() => hasApiError.value || props.loading)
+
+const serviceStatus = computed(() => {
+  if (hasApiError.value) {
+    return { label: 'Degraded', tone: 'error' }
+  }
+  return { label: 'Syncing', tone: 'info' }
+})
+
+/** Hint when there is no decision yet (never duplicates the API error string). */
+const idleHint = computed(() => {
+  if (hasApiError.value || props.loading) return ''
+  if (!props.decision) {
+    return 'Load a decision to see whether the setup looks actionable, defensive, or best left alone.'
+  }
+  return ''
+})
+
+/**
+ * Regime labels traders recognize; tooltips avoid the word "tape".
+ * "Directional" ≈ session with a clear with-trend bias (distinct from a chop / range day).
+ */
+function resolveMarketRegime(raw) {
+  const key = typeof raw === 'string' ? raw.toLowerCase() : ''
+  const catalog = {
+    trend: {
+      label: 'Directional',
+      tone: 'success',
+      tooltip:
+        'The model reads a clear directional bias on this horizon (similar to what many traders call a trend day or trending conditions). Trend-following setups get more weight than fade / range plays.'
+    },
+    breakout: {
+      label: 'Breakout',
+      tone: 'warning',
+      tooltip:
+        'Volatility or range expansion: wider swings than a quiet grind—often higher risk/reward; watch false breaks and size.'
+    },
+    chop: {
+      label: 'Choppy',
+      tone: 'error',
+      tooltip:
+        'Sideways or noisy price action—often favors patience, smaller size, or mean-reversion over chasing breakouts.'
+    },
+    ready: {
+      label: 'Neutral',
+      tone: '',
+      tooltip:
+        'Not enough fresh structure yet to label the session type. Refresh or wait for the next decision tick.'
     }
   }
-)
 
-const riskProfiles = ['conservative', 'balanced', 'aggressive']
+  if (key && catalog[key]) return catalog[key]
 
-function riskProfileTooltip(option) {
-  const key = String(option || '').toLowerCase()
-  const isSelected = key === String(props.selectedRiskProfile || '').toLowerCase()
-  const tooltip = {
-    conservative: 'Tighter risk, smaller size, fewer marginal entries.',
-    balanced: 'Default middle path.',
-    aggressive: 'Larger swings allowed, bigger size / wider risk tolerance in the model.'
+  return {
+    label: raw ? String(raw).replace(/-/g, ' ') : 'Neutral',
+    tone: '',
+    tooltip:
+      'How the model reads recent price action on this horizon; it nudges how aggressive or defensive the recommendation is.'
   }
-  return tooltip[key] || ''
 }
 
-/** Shown only while loading, on error, or before a decision — avoids repeating the headline action text. */
-const panelHeadline = computed(() => {
-  if (props.loading) return 'Refreshing the latest bot read for this ticker.'
-  if (props.error) return 'Bot signals are temporarily unavailable. You can still trade manually and retry once the API settles.'
-  if (!props.decision) return 'Load a decision to see whether the setup looks actionable, defensive, or best left alone.'
-  return ''
+function normalizeForRegimeCompare(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+/**
+ * True when setup does not add information beyond the regime label (e.g. Directional + "trend").
+ */
+function isSetupRedundantWithRegime(regimeRaw, regimeLabel, setupPretty) {
+  const rk = String(regimeRaw || '').toLowerCase()
+  const setupN = normalizeForRegimeCompare(setupPretty)
+  const labelN = normalizeForRegimeCompare(regimeLabel)
+
+  if (rk === 'trend' && (setupN === 'trend' || setupN === 'trending')) return true
+  if (rk === 'chop' && (setupN === 'chop' || setupN === 'choppy')) return true
+  if (rk === 'breakout' && setupN.includes('breakout')) return true
+
+  if (!labelN || !setupN) return true
+  if (labelN === setupN) return true
+
+  const minLen = 3
+  if (
+    labelN.length >= minLen &&
+    setupN.length >= minLen &&
+    (labelN.includes(setupN) || setupN.includes(labelN))
+  ) {
+    return true
+  }
+
+  const setupWords = [...new Set(setupN.split(' ').filter(w => w.length >= 2))]
+  if (!setupWords.length) return true
+
+  const labelWords = labelN.split(' ').filter(w => w.length >= 2)
+
+  function wordCoveredByLabel(word) {
+    if (labelN.includes(word)) return true
+    return labelWords.some(lw => {
+      if (lw.length < 3 || word.length < 3) return lw === word
+      return lw.startsWith(word) || word.startsWith(lw)
+    })
+  }
+
+  return setupWords.every(wordCoveredByLabel)
+}
+
+/** One pill: regime (+ setup only when it adds detail). */
+const marketContextTag = computed(() => {
+  if (!props.decision || hasApiError.value || props.loading) return null
+
+  const regimeRaw = props.decision.marketRegime
+  const regime = resolveMarketRegime(regimeRaw)
+  const raw = props.decision.setup
+  const setupPretty =
+    raw != null && String(raw).trim() !== '' ? String(raw).replace(/-/g, ' ').trim() : ''
+  const setupWorth = setupPretty && !/^unclassified$/i.test(setupPretty)
+
+  let tagText = regime.label
+  let tooltip = regime.tooltip
+
+  if (setupWorth && !isSetupRedundantWithRegime(regimeRaw, regime.label, setupPretty)) {
+    tagText = `${regime.label} · ${setupPretty}`
+    tooltip = `${regime.tooltip} Pattern: ${setupPretty}.`
+  }
+
+  return {
+    tagText,
+    tone: regime.tone,
+    tooltip
+  }
 })
 
-const statusLabel = computed(() => {
-  if (props.loading) return 'syncing'
-  if (props.error) return 'degraded'
-  return props.decision?.marketRegime || 'ready'
-})
-
-const statusTone = computed(() => {
-  if (props.loading) return 'info'
-  if (props.error) return 'error'
-  const regime = props.decision?.marketRegime
-  if (regime === 'trend') return 'success'
-  if (regime === 'breakout') return 'warning'
-  if (regime === 'chop') return 'error'
-  return ''
-})
-
-const actionToneClass = computed(() => `day-trading-bot-panel__action--${props.decision?.action || 'hold'}`)
-
-/** Green hero line = bullish buy/add; offer one-click market buy aligned with autonomous path. */
-const showOneClickExecute = computed(() => {
-  const d = props.decision
-  if (!d?.executionPlan) return false
-  return ['buy', 'add'].includes(d.action)
-})
-
-const executeRecommendationDisabled = computed(
-  () => props.executeRecommendationLoading || Boolean(props.executeRecommendationBlocked?.trim())
-)
-
-const recommendationLabel = computed(() => props.decision?.recommendation?.label || props.decision?.action || 'No recommendation for now')
-const recommendationDetail = computed(() => props.decision?.recommendation?.detail || 'The bot is reading the latest ticker state and scoring risk in real time.')
-const setupLabel = computed(() => props.decision?.setup ? props.decision.setup.replace(/-/g, ' ') : 'unclassified')
-
-const guardrailPills = computed(() => {
+/** Single caution pill instead of multiple guardrail boxes. */
+const guardrailTag = computed(() => {
   const g = props.decision?.guardrails
-  if (!g) return []
-  const out = []
-  if (g.lowConfidence) out.push({ key: 'low-conf', label: 'Guardrail', text: 'Low confidence' })
-  if (g.weakEvidence) out.push({ key: 'weak-ev', label: 'Guardrail', text: 'Weak evidence' })
-  return out
+  if (!g) return null
+  const parts = []
+  if (g.lowConfidence) parts.push('Low confidence')
+  if (g.weakEvidence) parts.push('Weak evidence')
+  if (!parts.length) return null
+  return {
+    label: parts.join(' · '),
+    tooltip: `The model is flagging: ${parts.join(' and ')}. It may size down or wait for cleaner structure.`
+  }
 })
 
+const oneClickBuy = computed(() => {
+  const d = props.decision
+  const visible = Boolean(d?.executionPlan && ['buy', 'add'].includes(d.action))
+  const blocked = Boolean(props.executeRecommendationBlocked?.trim())
+  return {
+    visible,
+    loading: props.executeRecommendationLoading,
+    disabled: props.executeRecommendationLoading || blocked,
+    tooltip: blocked ? props.executeRecommendationBlocked : 'Place a market buy aligned with this recommendation (if your account and gates allow it).'
+  }
+})
+
+const actionToneClass = computed(() => `bot-panel__action--${props.decision?.action || 'hold'}`)
+
+const recommendationLabel = computed(
+  () => props.decision?.recommendation?.label || props.decision?.action || 'No recommendation for now'
+)
+const recommendationDetail = computed(
+  () =>
+    props.decision?.recommendation?.detail ||
+    'The bot is reading the latest ticker state and scoring risk in real time.'
+)
 const executionPlanPills = computed(() => {
   const ep = props.decision?.executionPlan
   if (!ep) return []
@@ -292,24 +463,6 @@ const executionPlanPills = computed(() => {
     { key: 'target', label: 'Target', text: `${ep.rewardTargetPct}%` }
   ]
 })
-
-function formatPct(value) {
-  return Number.isFinite(Number(value)) ? Math.round((Number(value) + Number.EPSILON) * 100) / 100 : '--'
-}
-
-function formatNumber(value) {
-  return Number.isFinite(Number(value)) ? Math.round((Number(value) + Number.EPSILON) * 100) / 100 : '--'
-}
-
-function formatCurrency(value) {
-  const amount = Number(value)
-  if (!Number.isFinite(amount)) return '--'
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0
-  }).format(amount)
-}
 
 const metricTiles = computed(() => {
   const d = props.decision
@@ -322,24 +475,15 @@ const metricTiles = computed(() => {
     { key: 'volr', label: 'Volume ratio', value: `${formatNumber(m.volumeRatio)}x` },
     { key: 'rvol', label: 'Volatility', value: `${formatPct(m.realizedVolatilityPct)}%` }
   ]
-  if (ep?.trimFraction) {
-    tiles.push({ key: 'trim', label: 'Trim size', value: `${Math.round(ep.trimFraction * 100)}%` })
-  }
+  if (ep?.trimFraction) tiles.push({ key: 'trim', label: 'Trim size', value: `${Math.round(ep.trimFraction * 100)}%` })
   tiles.push({ key: 'upl', label: 'Unrealized P/L', value: `${formatPct(m.unrealizedPnLPct)}%` })
   return tiles
 })
 
-const rankedComparisons = computed(() => [...props.backtestComparisons].sort((a, b) => b.totalReturnPct - a.totalReturnPct))
+const rankedComparisons = computed(() =>
+  [...props.backtestComparisons].sort((a, b) => b.totalReturnPct - a.totalReturnPct)
+)
 const bestSurvivor = computed(() => props.evolution?.survivors?.[0] || null)
-
-function evolutionSummaryLine(item, { includeDrawdown }) {
-  const b = item.backtestSummary
-  if (!b) return ''
-  let s = `Score ${item.score} · Return ${formatPct(b.totalReturnPct)}%`
-  if (includeDrawdown) s += ` · DD ${formatPct(b.maxDrawdownPct)}%`
-  s += ` · Win ${formatPct(b.winRatePct)}%`
-  return s
-}
 
 const evolutionBlocks = computed(() => {
   const ev = props.evolution
@@ -386,129 +530,227 @@ const evolutionBlocks = computed(() => {
 
   return blocks
 })
+
+function formatPct(value) {
+  return Number.isFinite(Number(value)) ? Math.round((Number(value) + Number.EPSILON) * 100) / 100 : '--'
+}
+
+function formatNumber(value) {
+  return Number.isFinite(Number(value)) ? Math.round((Number(value) + Number.EPSILON) * 100) / 100 : '--'
+}
+
+function formatCurrency(value) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '--'
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0
+  }).format(amount)
+}
+
+function evolutionSummaryLine(item, { includeDrawdown }) {
+  const b = item.backtestSummary
+  if (!b) return ''
+  let s = `Score ${item.score} · Return ${formatPct(b.totalReturnPct)}%`
+  if (includeDrawdown) s += ` · DD ${formatPct(b.maxDrawdownPct)}%`
+  s += ` · Win ${formatPct(b.winRatePct)}%`
+  return s
+}
+
+watch(
+  () => props.decision,
+  newDecision => {
+    if (!newDecision) {
+      ui.simulationLab.show = false
+      return
+    }
+
+    const autonomousTrading = localStorage.getItem('autonomousTrading') === 'true'
+    const confidence = Number(newDecision.confidence || 0)
+    const isHighConfidence = confidence >= 80
+    const isValidAction = ['buy', 'add', 'sell', 'exit', 'trim'].includes(newDecision.action)
+
+    if (autonomousTrading && isHighConfidence && isValidAction) {
+      emitAutoExecutionEvent({
+        symbol: 'unknown',
+        action: newDecision.action,
+        confidence,
+        timestamp: new Date().toISOString()
+      })
+      emit('auto-fire-detected', newDecision)
+    }
+  }
+)
 </script>
 
 <style lang="scss" scoped>
-.day-trading-bot-panel {
+.bot-panel {
+  --bp-gap: 0.75rem;
+  --bp-surface: color-mix(in srgb, var(--w-contrast-bg-color) 6%, transparent);
+  --bp-edge: color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
+
   display: grid;
-  gap: 0.9rem;
-}
+  gap: 0.875rem;
 
-.day-trading-bot-panel__toolbar,
-.day-trading-bot-panel__hero,
-.day-trading-bot-panel__comparison-list,
-.day-trading-bot-panel__evolution-summary,
-.day-trading-bot-panel__badges {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.day-trading-bot-panel__toolbar,
-.day-trading-bot-panel__hero {
-  justify-content: space-between;
-  align-items: center;
-}
-
-.day-trading-bot-panel__hero {
-  padding: 1rem;
-  border-radius: 18px;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--w-primary-color) 18%, transparent), color-mix(in srgb, var(--w-base-bg-color) 86%, transparent));
-}
-
-.day-trading-bot-panel__hero-main {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.day-trading-bot-panel__one-click {
-  margin-top: 0.25rem;
-}
-
-.day-trading-bot-panel__hero-plan,
-.day-trading-bot-panel__grid {
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-}
-
-.day-trading-bot-panel__action {
-  font-size: 1.6rem;
-  font-weight: 700;
-  text-transform: capitalize;
-}
-
-.day-trading-bot-panel__action--buy,
-.day-trading-bot-panel__action--add {
-  color: var(--w-success-color);
-}
-
-.day-trading-bot-panel__action--trim,
-.day-trading-bot-panel__action--wait {
-  color: var(--w-warning-color);
-}
-
-.day-trading-bot-panel__action--exit {
-  color: var(--w-error-color);
-}
-
-.day-trading-bot-panel__action--hold {
-  color: var(--w-primary-color);
-}
-
-.bot-stat,
-.bot-pill,
-.bot-strategy-card,
-.bot-comparison-card {
-  padding: 0.85rem 0.95rem;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--w-contrast-bg-color) 6%, transparent);
-}
-
-.bot-pill {
-  min-width: 100px;
-}
-
-.day-trading-bot-panel__section {
-  border-top: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
-  padding-top: 1rem;
-}
-
-.day-trading-bot-panel__section--compact {
-  padding-top: 0.65rem;
-}
-
-.day-trading-bot-panel__dialog-body {
-  max-height: min(72vh, 640px);
-  overflow-y: auto;
-  padding-right: 0.15rem;
-
-  .day-trading-bot-panel__section:first-of-type {
-    border-top: none;
-    padding-top: 0;
+  &__row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--bp-gap);
   }
-}
 
-.day-trading-bot-panel__reason-list,
-.day-trading-bot-panel__strategy-list {
-  display: grid;
-  gap: 0.6rem;
-  margin: 0;
-}
+  &__autonomous.bsrsr {
+    width: 100%;
+    padding-block: 4px;
+  }
 
-.day-trading-bot-panel__reason-list {
-  padding-left: 1rem;
-}
+  &__analysis {
+    display: grid;
+    gap: 0.5rem;
+  }
 
-.bot-comparison-card--active {
-  outline: 1px solid color-mix(in srgb, var(--w-primary-color) 45%, transparent);
-}
+  &__regime {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--bp-gap) 1rem;
+  }
 
-.bot-strategy-card--muted {
-  opacity: 0.72;
-}
+  /** Loading / degraded: single pill, right-aligned; no help icon or duplicate error copy. */
+  &__regime--service {
+    width: 100%;
+    justify-content: flex-end;
+  }
 
-.day-trading-bot-panel__error {
-  color: var(--w-error-color);
+  &__regime-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.5rem;
+  }
+
+  &__market-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.65rem;
+    width: 100%;
+  }
+
+  &__market-tag {
+    max-width: 100%;
+    gap: 0.1rem;
+  }
+
+  &__market-tag__text {
+    line-height: 1.25;
+    text-transform: capitalize;
+    padding-right: 0.1rem;
+  }
+
+  &__market-tag__help {
+    opacity: 0.85;
+    margin: 0 -0.15rem 0 -0.1rem;
+  }
+
+  &__hero {
+    display: grid;
+    gap: 0.5rem;
+    padding: 1rem 1.1rem;
+    border-radius: 18px;
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--w-primary-color) 18%, transparent),
+      color-mix(in srgb, var(--w-base-bg-color) 86%, transparent)
+    );
+  }
+
+  &__action-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem var(--bp-gap);
+  }
+
+  &__action {
+    font-size: 1.6rem;
+    font-weight: 700;
+    text-transform: capitalize;
+
+    &--buy,
+    &--add {
+      color: var(--w-success-color);
+    }
+
+    &--trim,
+    &--wait {
+      color: var(--w-warning-color);
+    }
+
+    &--exit {
+      color: var(--w-error-color);
+    }
+
+    &--hold {
+      color: var(--w-primary-color);
+    }
+  }
+
+  &__stat-grid {
+    display: grid;
+    gap: var(--bp-gap);
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  }
+
+  &__chip,
+  &__stat,
+  &__strategy,
+  &__compare {
+    padding: 0.85rem 0.95rem;
+    border-radius: 16px;
+    background: var(--bp-surface);
+  }
+
+  &__chip {
+    min-width: 100px;
+  }
+
+  &__section {
+    padding-top: 1rem;
+    border-top: 1px solid var(--bp-edge);
+  }
+
+  &__dialog {
+    max-height: min(72vh, 640px);
+    overflow-y: auto;
+    padding-right: 0.15rem;
+  }
+
+  &__dialog-section:first-of-type h3 {
+    margin-top: 0;
+  }
+
+  &__reasons,
+  &__strategy-list {
+    display: grid;
+    gap: 0.6rem;
+    margin: 0;
+  }
+
+  &__reasons {
+    padding-left: 1rem;
+  }
+
+  &__compare--current {
+    outline: 1px solid color-mix(in srgb, var(--w-primary-color) 45%, transparent);
+  }
+
+  &__strategy--muted {
+    opacity: 0.72;
+  }
+
+  &__error {
+    color: var(--w-error-color);
+  }
 }
 </style>
