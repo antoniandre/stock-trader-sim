@@ -77,7 +77,10 @@
         @run-backtest="runBacktest"
         @run-evolution="runEvolution"
         @update:risk-profile="onRiskProfileChange"
-        @auto-fire-detected="handleBotAutoFire")
+        @auto-fire-detected="handleBotAutoFire"
+        :execute-recommendation-loading="botOneClickLoading"
+        :execute-recommendation-blocked="botExecuteRecommendationBlocked"
+        @execute-recommendation="onBotExecuteRecommendation")
 
       //- Open Orders
       .glass-box.pa6.pt4(v-if="openOrders.length")
@@ -97,14 +100,14 @@
                 span(v-if="order.type === 'limit'" v-html="formatCurrency(order.limit_price || 0, stock.currency, 2, false)")
                 span(v-else) Market
             .order-actions
-              w-button(
+              w-button.pa3(
                 @click="cancelOrderHandler(order.id)"
                 text
-                xs
+                sm
                 color="error"
+                icon="wi-cross"
+                tooltip="Cancel"
                 round)
-                w-icon(size="14") wi-cross
-                | Cancel
 
       //- Current Position
       .glass-box.mt4.pa6.pt4(v-if="currentPosition")
@@ -266,6 +269,7 @@ const evolutionResult = ref(null)
 const evolutionLoading = ref(false)
 const evolutionError = ref('')
 const autonomousEnabled = ref(false)
+const botOneClickLoading = ref(false)
 let marketStatusInterval = null
 let botRefreshInterval = null  // Fallback refresh when prices are flat
 
@@ -480,6 +484,18 @@ const openOrders = computed(() => {
   }
 
   return filtered
+})
+
+/** Disables bot one-click buy when venue or quote is not ready (aligned with trading-interface market gate). */
+const botExecuteRecommendationBlocked = computed(() => {
+  if (props.market !== 'crypto') {
+    const s = String(stock.marketState || '').toLowerCase()
+    if (!s || s === 'unknown') return 'Market status is still loading.'
+    if (s !== 'open') return stock.marketMessage || 'Market is closed; stock orders are paused.'
+  }
+  if (!stock.price || stock.price <= 0) return 'Wait for a live price before sending a market order.'
+  if (stock.tradable === false) return 'This symbol is not tradable right now.'
+  return ''
 })
 
 // Position display values.
@@ -1873,6 +1889,35 @@ function handleBotAutoFire(decision) {
   }
 }
 
+async function onBotExecuteRecommendation(decision) {
+  const d = decision || botDecision.value
+  if (!d?.executionPlan || !['buy', 'add'].includes(d.action)) return
+
+  const blocked = botExecuteRecommendationBlocked.value
+  if (blocked) {
+    $waveui.notify(blocked, 'warning')
+    return
+  }
+
+  botOneClickLoading.value = true
+  try {
+    await fireOrderAutomatically(d, {
+      symbol: stock.symbol,
+      currentPrice: stock.price,
+      positionQty: currentPosition.value ? Number(currentPosition.value.qty || 0) : 0
+    })
+    $waveui.notify(`Bought ${stock.symbol} from the bot panel (market, bot size plan).`, 'success')
+    onOrderPlacedFromPanel()
+  }
+  catch (error) {
+    console.error('Bot one-click buy failed:', error)
+    $waveui.notify(error?.message || 'One-click buy failed', 'error')
+  }
+  finally {
+    botOneClickLoading.value = false
+  }
+}
+
 function onAutonomousToggle(enabled) {
   autonomousEnabled.value = enabled
   console.log(`🤖 Autonomous trading ${enabled ? 'enabled' : 'disabled'}`)
@@ -1891,7 +1936,7 @@ function initializeRealtimeBot() {
     const decision = botDecision.value
     const confidence = Number(decision.confidence || 0)
     // 'add' is a bullish signal (add to existing position) — treat same as 'buy'
-    const isValidAction = ['buy', 'add', 'sell', 'exit'].includes(decision.action)
+    const isValidAction = ['buy', 'add', 'sell', 'exit', 'trim'].includes(decision.action)
 
     if (!isValidAction || confidence < 80) return
 
@@ -1908,7 +1953,8 @@ function initializeRealtimeBot() {
       console.log(`🤖 [REALTIME BOT] Auto-firing ${decision.action} for ${stock.symbol} @ ${confidence}% confidence`)
       const response = await fireOrderAutomatically(decision, {
         symbol: stock.symbol,
-        currentPrice: stock.price
+        currentPrice: stock.price,
+        positionQty: currentPosition.value ? Number(currentPosition.value.qty || 0) : 0
       })
       notifyAutoExecution(
         `Auto-executed: ${decision.action.toUpperCase()} ${stock.symbol} × order placed @ ${confidence}% confidence`,
