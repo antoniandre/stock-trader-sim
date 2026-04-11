@@ -29,6 +29,15 @@
         .size--xs.op6 Live ticker recommendation
         .day-trading-bot-panel__action(:class="actionToneClass") {{ recommendationLabel }}
         .size--sm.op7 Confidence {{ decision.confidence }}% · Entry {{ decision.scores.entry }} · Risk {{ decision.scores.risk }}
+        .day-trading-bot-panel__one-click(v-if="showOneClickExecute")
+          w-button(
+            color="success"
+            round
+            sm
+            :loading="executeRecommendationLoading"
+            :disabled="executeRecommendationDisabled"
+            :title="executeRecommendationBlocked || undefined"
+            @click="emit('execute-recommendation', decision)") {{ oneClickButtonLabel }}
         .day-trading-bot-panel__badges
           .bot-pill
             .size--xs.op6 Setup
@@ -220,10 +229,18 @@ const props = defineProps({
   evolutionError: {
     type: String,
     default: ''
+  },
+  executeRecommendationLoading: {
+    type: Boolean,
+    default: false
+  },
+  executeRecommendationBlocked: {
+    type: String,
+    default: ''
   }
 })
 
-const emit = defineEmits(['refresh', 'update:risk-profile', 'run-backtest', 'run-evolution', 'auto-fire-detected'])
+const emit = defineEmits(['refresh', 'update:risk-profile', 'run-backtest', 'run-evolution', 'auto-fire-detected', 'execute-recommendation'])
 
 // Auto-fire detection when decision changes
 watch(
@@ -233,7 +250,7 @@ watch(
       const autonomousTrading = localStorage.getItem('autonomousTrading') === 'true'
       const confidence = Number(newDecision.confidence || 0)
       const isHighConfidence = confidence >= 80
-      const isValidAction = ['buy', 'add', 'sell', 'exit'].includes(newDecision.action)
+      const isValidAction = ['buy', 'add', 'sell', 'exit', 'trim'].includes(newDecision.action)
       
       if (autonomousTrading && isHighConfidence && isValidAction) {
         // Emit event so parent can handle auto-fire
@@ -276,6 +293,20 @@ const statusTone = computed(() => {
 })
 
 const actionToneClass = computed(() => `day-trading-bot-panel__action--${props.decision?.action || 'hold'}`)
+
+/** Green hero line = bullish buy/add; offer one-click market buy aligned with autonomous path. */
+const showOneClickExecute = computed(() => {
+  const d = props.decision
+  if (!d?.executionPlan) return false
+  return ['buy', 'add'].includes(d.action)
+})
+
+const executeRecommendationDisabled = computed(
+  () => props.executeRecommendationLoading || Boolean(props.executeRecommendationBlocked?.trim())
+)
+
+const oneClickButtonLabel = 'Buy now (1-click)'
+
 const recommendationLabel = computed(() => props.decision?.recommendation?.label || props.decision?.action || 'No recommendation for now')
 const recommendationDetail = computed(() => props.decision?.recommendation?.detail || 'The bot is reading the latest ticker state and scoring risk in real time.')
 const setupLabel = computed(() => props.decision?.setup ? props.decision.setup.replace(/-/g, ' ') : 'unclassified')
@@ -333,6 +364,10 @@ function formatCurrency(value) {
 .day-trading-bot-panel__hero-main {
   display: grid;
   gap: 0.35rem;
+}
+
+.day-trading-bot-panel__one-click {
+  margin-top: 0.25rem;
 }
 
 .day-trading-bot-panel__hero-plan,
