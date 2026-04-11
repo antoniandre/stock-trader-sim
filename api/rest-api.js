@@ -13,7 +13,7 @@ import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory
 import * as AlpacaClient from './clients/alpaca-client.js'
 import { broadcast } from './websocket-server.js'
 import { recordTrade } from './simulation.js'
-import { createStandardResponse, sleep, withRateLimitBackoff } from './utils.js'
+import { createStandardResponse, sleep, withRateLimitBackoff, tradableSymbolsEquivalent } from './utils.js'
 import { normalizeOrderIntent, validateOrderIntent, estimateOrderNotional } from './domain/order-intent.js'
 import { recordStrategyRun } from './services/strategy-run-recorder.js'
 import { normalizeBrokerError } from './services/broker-error.js'
@@ -636,8 +636,8 @@ export function createRestApiRoutes() {
       if (!stockData) return res.status(404).json({ error: `Stock ${symbol} not found` })
 
       // Find position and orders for this symbol.
-      const position = positions.find(p => p.symbol === symbol) || null
-      const symbolOrders = orders.filter(o => o.symbol === symbol)
+      const position = positions.find(p => tradableSymbolsEquivalent(p.symbol, symbol)) || null
+      const symbolOrders = orders.filter(o => tradableSymbolsEquivalent(o.symbol, symbol))
 
       res.json(createStandardResponse({
         stock: stockData,
