@@ -1,31 +1,32 @@
 <template lang="pug">
 .price-chart
   //- Price + autonomous trading (single place for normal + fullscreen chart)
-  .price-chart__header.w-flex.justify-space-between.align-start.gap4.flex-wrap.mb2(
+  .price-chart__header.w-flex.justify-space-between.align-end.gap4.wrap(
     v-if="hasChartHeader")
-    TickerPrice.chart-header__price(
-      v-if="stock"
-      :stock="stock"
-      :last-update="lastUpdate"
-      :is-refreshing="isRefreshing"
-      :is-transitioning-timeframe="isTransitioningTimeframe"
-      @refresh-price="emit('refresh-price')")
-    AutonomousTradingToggle.chart-header__autonomous(
+    div
+      TickerPrice.chart-header__price(
+        v-if="stock"
+        :stock="stock"
+        :last-update="lastUpdate"
+        :is-refreshing="isRefreshing"
+        :is-transitioning-timeframe="isTransitioningTimeframe"
+        @refresh-price="emit('refresh-price')")
+      .ohlcv.size--xs(v-if="currentOHLC" :class="ohlcColorClass")
+        span.base-color.ml1 O
+        strong {{ formatPrice(currentOHLC.open) }}
+        span.base-color.ml1 H
+        strong {{ formatPrice(currentOHLC.high) }}
+        span.base-color.ml1 L
+        strong {{ formatPrice(currentOHLC.low) }}
+        span.base-color.ml1 C
+        strong {{ formatPrice(currentOHLC.close) }}
+        span.base-color.ml1 V
+        strong {{ formatVolume(currentOHLC.volume) }}
+
+    AutonomousTradingToggle.no-shrink.mt-2(
       v-if="showAutonomousToggle"
       :disabled="autonomousToggleDisabled"
       @update:autonomous="emit('update:autonomous', $event)")
-
-  .ohlcv.size--xs(v-if="currentOHLC" :class="ohlcColorClass")
-    span.base-color.ml1 O
-    strong {{ formatPrice(currentOHLC.open) }}
-    span.base-color.ml1 H
-    strong {{ formatPrice(currentOHLC.high) }}
-    span.base-color.ml1 L
-    strong {{ formatPrice(currentOHLC.low) }}
-    span.base-color.ml1 C
-    strong {{ formatPrice(currentOHLC.close) }}
-    span.base-color.ml1 V
-    strong {{ formatVolume(currentOHLC.volume) }}
 
   //- Chart Controls
   .chart-controls.w-flex.justify-space-between.align-center.mb2
@@ -1924,23 +1925,18 @@ defineExpose({
       flex: 1;
       min-width: 0;
     }
-
-    .chart-header__autonomous {
-      flex-shrink: 0;
-    }
   }
 
   .ohlcv {
     display: flex;
     align-items: center;
     gap: 2px;
-    margin-bottom: 0.4rem;
   }
 
   .chart-controls {
     flex-wrap: wrap;
     gap: 1rem;
-    margin-top: 1rem;
+    margin-top: 0.5rem;
 
     .buy, .sell {
       position: relative;
