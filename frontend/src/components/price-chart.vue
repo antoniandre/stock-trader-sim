@@ -1,6 +1,21 @@
 <template lang="pug">
 .price-chart
-  .pane-values.size--xs(v-if="currentOHLC" :class="ohlcColorClass")
+  //- Price + autonomous trading (single place for normal + fullscreen chart)
+  .price-chart__header.w-flex.justify-space-between.align-start.gap4.flex-wrap.mb2(
+    v-if="hasChartHeader")
+    TickerPrice.chart-header__price(
+      v-if="stock"
+      :stock="stock"
+      :last-update="lastUpdate"
+      :is-refreshing="isRefreshing"
+      :is-transitioning-timeframe="isTransitioningTimeframe"
+      @refresh-price="emit('refresh-price')")
+    AutonomousTradingToggle.chart-header__autonomous(
+      v-if="showAutonomousToggle"
+      :disabled="autonomousToggleDisabled"
+      @update:autonomous="emit('update:autonomous', $event)")
+
+  .ohlcv.size--xs(v-if="currentOHLC" :class="ohlcColorClass")
     span.base-color.ml1 O
     strong {{ formatPrice(currentOHLC.open) }}
     span.base-color.ml1 H
@@ -195,6 +210,8 @@ import { useTechnicalIndicators } from '@/composables/use-technical-indicators'
 import { formatPrice, formatVolume } from '@/utils/formatters'
 import CandlestickChart from './candlestick-chart.vue'
 import DrawingTools from './drawing-tools.vue'
+import TickerPrice from './ticker-price.vue'
+import AutonomousTradingToggle from './autonomous-trading-toggle.vue'
 
 // Props & Emits
 // --------------------------------------------------------
@@ -217,7 +234,14 @@ const props = defineProps({
   // Show fullscreen button.
   showFullscreenButton: { type: Boolean, default: true },
   // Position entry price to display on chart.
-  entryPrice: { type: Number, default: null }
+  entryPrice: { type: Number, default: null },
+  // Header: live price (TickerPrice) + autonomous toggle — optional so chart stays reusable.
+  stock: { type: Object, default: null },
+  lastUpdate: { type: String, default: '' },
+  isRefreshing: { type: Boolean, default: false },
+  isTransitioningTimeframe: { type: Boolean, default: false },
+  showAutonomousToggle: { type: Boolean, default: true },
+  autonomousToggleDisabled: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
@@ -226,11 +250,15 @@ const emit = defineEmits([
   'change-timeframe',
   'reset-zoom-complete',
   'toggle-trading',
-  'toggle-fullscreen'
+  'toggle-fullscreen',
+  'refresh-price',
+  'update:autonomous'
 ])
 // --------------------------------------------------------
 
 const $waveui = inject('$waveui')
+
+const hasChartHeader = computed(() => props.stock != null || props.showAutonomousToggle)
 
 const buttonsColors = computed(() => {
   return {
@@ -1888,6 +1916,27 @@ defineExpose({
 
 <style lang="scss">
 .price-chart {
+  .price-chart__header {
+    width: 100%;
+    align-items: flex-start;
+
+    .chart-header__price {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .chart-header__autonomous {
+      flex-shrink: 0;
+    }
+  }
+
+  .ohlcv {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-bottom: 0.4rem;
+  }
+
   .chart-controls {
     flex-wrap: wrap;
     gap: 1rem;

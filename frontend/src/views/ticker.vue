@@ -13,11 +13,6 @@
 
   TickerHeader(v-if="!stockNotFound" :stock="stock" :ws-connected="wsConnected")
 
-  //- Autonomous Trading Toggle - Top Right Control
-  .controls-bar.mt3.mr6.w-flex.justify-end(v-if="!stockNotFound")
-    AutonomousTradingToggle(
-      :disabled="!wsConnected"
-      @update:autonomous="onAutonomousToggle")
 
   //- Stock Details & Trading
   .w-flex.mt4.mdd-column(v-if="!stockNotFound")
@@ -26,14 +21,6 @@
     //- Price Chart
     .glass-box.pa6.grow
       .chart-wrap
-        TickerPrice(
-          :stock="stock"
-          :last-update="lastUpdate"
-          :is-refreshing="isRefreshing"
-          :is-transitioning-timeframe="isTransitioningTimeframe"
-          @refresh-price="refreshPrice")
-
-        //- Price Chart Component
         PriceChart(
           :symbol="stock.symbol"
           :chart-type="chartType"
@@ -48,11 +35,18 @@
           :effective-timeframe="effectiveTimeframe"
           :is-using-fallback-timeframe="isUsingFallbackTimeframe"
           :show-fullscreen-button="true"
+          :stock="stock"
+          :last-update="lastUpdate"
+          :is-refreshing="isRefreshing"
+          :is-transitioning-timeframe="isTransitioningTimeframe"
+          :autonomous-toggle-disabled="!wsConnected"
           @change-chart-type="changeChartType"
           @change-period="changePeriod"
           @change-timeframe="changeTimeframe"
           @reset-zoom-complete="handleResetZoomComplete"
-          @toggle-fullscreen="showDialog = true")
+          @toggle-fullscreen="showDialog = true"
+          @refresh-price="refreshPrice"
+          @update:autonomous="onAutonomousToggle")
 
     //- Right Column: Stats, Positions and Trading Interface
     .spacer.ma3.no-grow
@@ -161,12 +155,6 @@
       :stock="stock"
       :ws-connected="wsConnected"
       small)
-    TickerPrice(
-      :stock="stock"
-      :last-update="lastUpdate"
-      :is-refreshing="isRefreshing"
-      :is-transitioning-timeframe="isTransitioningTimeframe"
-      @refresh-price="refreshPrice")
     PriceChart.small(
       :symbol="stock.symbol"
       :chart-type="chartType"
@@ -182,12 +170,19 @@
       :is-using-fallback-timeframe="isUsingFallbackTimeframe"
       :show-fullscreen-button="false"
       :entry-price="avgEntryPrice"
+      :stock="stock"
+      :last-update="lastUpdate"
+      :is-refreshing="isRefreshing"
+      :is-transitioning-timeframe="isTransitioningTimeframe"
+      :autonomous-toggle-disabled="!wsConnected"
       show-trading-toggle
       @change-chart-type="changeChartType"
       @change-period="changePeriod"
       @change-timeframe="changeTimeframe"
       @reset-zoom-complete="handleResetZoomComplete"
-      @toggle-trading="onToggleTrading")
+      @toggle-trading="onToggleTrading"
+      @refresh-price="refreshPrice"
+      @update:autonomous="onAutonomousToggle")
     DraggableTradingInterface(
       v-if="showTradingInterface"
       :visible="showTradingInterface"
@@ -210,10 +205,8 @@ import PriceChart from '@/components/price-chart.vue'
 import StockStatsPanel from '@/components/stock-stats-panel.vue'
 import TradingInterface from '@/components/trading-interface.vue'
 import TickerHeader from '@/components/ticker-header.vue'
-import TickerPrice from '@/components/ticker-price.vue'
 import DraggableTradingInterface from '@/components/draggable-trading-interface.vue'
 import DayTradingBotPanel from '@/components/day-trading-bot-panel.vue'
-import AutonomousTradingToggle from '@/components/autonomous-trading-toggle.vue'
 import BotAutoExecutionModal from '@/components/bot-auto-execution-modal.vue'
 import { tradingOverviewPath } from '@/utils/trading-routes'
 import { fireOrderAutomatically, notifyAutoExecution } from '@/api/bot-execution'
@@ -325,11 +318,11 @@ const BOT_DECISION_INTERVAL_MS = 30_000
 
 // WebSocket Setup
 // --------------------------------------------------------
-const { 
-  wsConnected, 
-  lastUpdate, 
-  connect, 
-  addMessageHandler, 
+const {
+  wsConnected,
+  lastUpdate,
+  connect,
+  addMessageHandler,
   removeMessageHandler,
   subscribeToStock,
   unsubscribeFromStock: wsUnsubscribeFromStock
@@ -800,7 +793,7 @@ function handlePriceUpdate(data) {
     }
   }
   else console.log('📊 User has panned away, not updating real-time data')
-  
+
   // Re-evaluate bot on price tick, debounced to once per BOT_DECISION_INTERVAL_MS.
   // This keeps the display live via WS without spamming the bot API every second.
   const now2 = Date.now()
@@ -1286,7 +1279,7 @@ function setupWebSocket() {
   marketStatusHandler = handleMarketStatusUpdate
   tradeHandler = handleTrade
   positionsUpdatedHandler = handlePositionsUpdated
-  
+
   addMessageHandler('price', priceUpdateHandler)
   addMessageHandler('market-status', marketStatusHandler)
   addMessageHandler('trade', tradeHandler)
@@ -1957,7 +1950,7 @@ onMounted(async () => {
   await runBacktest()
   await runEvolution()
   startMarketStatusMonitoring()
-  
+
   // Start real-time bot re-evaluation on WebSocket price events
   initializeRealtimeBot()
 })
@@ -1972,7 +1965,7 @@ onBeforeUnmount(() => {
 
 onUnmounted(() => {
   console.log(`📊 Cleaning up ticker view for ${stock.symbol}...`)
-  
+
   stopMarketStatusMonitoring()
 
   // Clear any pending timers.
@@ -1993,7 +1986,7 @@ onUnmounted(() => {
     botRealtimeEvaluator.stop()
     botRealtimeEvaluator = null
   }
-  
+
   // Remove message handlers to prevent memory leaks
   if (priceUpdateHandler) {
     removeMessageHandler('price', priceUpdateHandler)
@@ -2020,7 +2013,7 @@ onUnmounted(() => {
   recentTrades.value = []
   timeframeDataCache.value.clear()
   dataCache.value.clear()
-  
+
   console.log(`✅ Cleanup complete for ${stock.symbol}`)
 })
 
