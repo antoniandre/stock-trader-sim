@@ -79,19 +79,28 @@ export class AlpacaBrokerAdapter extends BrokerAdapter {
     if (side !== 'buy' && side !== 'sell') {
       return { success: false, error: 'side must be buy or sell' }
     }
-    if (type !== 'market' && type !== 'limit') {
-      return { success: false, error: 'Only type=market and type=limit are supported' }
+    if (!['market', 'limit', 'stop', 'stop_limit'].includes(type)) {
+      return { success: false, error: 'Unsupported order type' }
     }
     if (type === 'limit' && (!Number.isFinite(limitPrice) || limitPrice <= 0)) {
       return { success: false, error: 'Limit price must be greater than 0 for limit orders' }
     }
+    if (type === 'stop_limit' && (!Number.isFinite(limitPrice) || limitPrice <= 0)) {
+      return { success: false, error: 'Limit price must be greater than 0 for stop-limit orders' }
+    }
+    const stopPx = input?.stop_price ?? input?.stopPrice
+    if (type === 'stop' && (!Number.isFinite(Number(stopPx)) || Number(stopPx) <= 0)) {
+      return { success: false, error: 'Stop orders require stop_price' }
+    }
+    if (type === 'stop_limit' && (!Number.isFinite(Number(stopPx)) || Number(stopPx) <= 0)) {
+      return { success: false, error: 'Stop-limit orders require stop_price' }
+    }
 
     try {
-      const stopPx = input?.stop_price ?? input?.stopPrice
       const service = await getTradingService()
       const order = await service.placeOrder(sym, qty, side, type, {
         timeInForce,
-        limit_price: type === 'limit' ? limitPrice : undefined,
+        limit_price: (type === 'limit' || type === 'stop_limit') ? limitPrice : undefined,
         extended_hours: input.extended_hours || false,
         stop_price: Number.isFinite(Number(stopPx)) && Number(stopPx) > 0 ? Number(stopPx) : undefined
       })

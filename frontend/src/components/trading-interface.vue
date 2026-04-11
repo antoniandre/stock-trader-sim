@@ -39,11 +39,22 @@
           label.size--sm.op7.mb2 Quantity
           w-input(v-model.number="orderForm.quantity" type="number" min="0" placeholder="Number of shares" outline)
 
-        .mb4(v-if="orderForm.type === 'limit'")
-          label.size--sm.op7.mb2 Limit Price
+        .mb4(v-if="orderForm.type === 'limit' || orderForm.type === 'stop_limit'")
+          label.size--sm.op7.mb2 {{ orderForm.type === 'stop_limit' ? 'Limit price (after trigger)' : 'Limit Price' }}
           w-input(v-model.number="orderForm.limitPrice" type="number" step="0.01" min="0" placeholder="Price per share" outline)
 
-        .mb4(v-if="orderForm.side === 'buy' && stopOrdersEnabled")
+        .mb4(v-if="['stop','stop_limit'].includes(orderForm.type) && stopOrdersEnabled")
+          label.size--sm.op7.mb2 Stop (trigger) price
+          w-input(
+            v-model.number="orderForm.stopTrigger"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="Order activates when last price reaches this level"
+            outline)
+          .size--xs.op6.mt1 Sell stop: set below last price. Buy stop: set above last price.
+
+        .mb4(v-if="orderForm.side === 'buy' && stopOrdersEnabled && ['market','limit'].includes(orderForm.type)")
           label.size--sm.op7.mb2 Stop loss (optional)
           w-input(
             v-model.number="orderForm.stopLoss"
@@ -88,14 +99,19 @@
         .confirmation-row(v-if="pendingOrder.limitPrice")
           span.op7 Limit price
           strong(v-html="formatCurrency(pendingOrder.limitPrice, stock.currency, 2, false)")
-        .confirmation-row(v-if="pendingOrder.stopPrice")
-          span.op7 Stop loss
+        .confirmation-row(v-if="pendingOrder.stopPrice && ['stop','stop_limit'].includes(pendingOrder.type)")
+          span.op7 Stop (trigger)
+          strong(v-html="formatCurrency(pendingOrder.stopPrice, stock.currency, 2, false)")
+        .confirmation-row(v-else-if="pendingOrder.stopPrice")
+          span.op7 Stop loss (bracket)
           strong(v-html="formatCurrency(pendingOrder.stopPrice, stock.currency, 2, false)")
         .confirmation-row
           span.op7 Estimated notional
           strong(v-html="formatCurrency(pendingOrder.estimatedNotional, stock.currency, 2, false)")
 
-      p.size--sm.op7.mt4(v-if="pendingOrder.type === 'market' && !pendingOrder.stopPrice") Market orders fill at the best available price and can move before execution.
+      p.size--sm.op7.mt4(v-if="pendingOrder.type === 'stop'") Stop: converts to a market order when the stop price is reached. Simulation only fills if the mock price has already crossed your stop; use Alpaca paper for resting stops.
+      p.size--sm.op7.mt4(v-else-if="pendingOrder.type === 'stop_limit'") Stop-limit: when the stop is reached, a limit order is placed at your limit price.
+      p.size--sm.op7.mt4(v-else-if="pendingOrder.type === 'market' && !pendingOrder.stopPrice") Market orders fill at the best available price and can move before execution.
       p.size--sm.op7.mt4(v-else-if="pendingOrder.type === 'market' && pendingOrder.stopPrice") Market bracket: fills at the best available price; a protective stop is attached at your stop price.
       p.size--sm.op7.mt4(v-else-if="pendingOrder.stopPrice") Limit bracket: executes at your limit or better when marketable; a protective stop is attached.
       p.size--sm.op7.mt4(v-else) Limit orders only execute at your limit price or better. In simulation, only immediately marketable limits are filled.
@@ -146,6 +162,8 @@ const pendingOrder = ref(null)
 const submittingOrder = ref(false)
 let refreshTimer = null
 
+const stopOrdersEnabled = computed(() => health.value?.featureFlags?.stopOrders !== false)
+
 const defaultSide = computed(() => props.hasPosition ? 'sell' : props.initialSide)
 
 const orderForm = ref({
@@ -153,7 +171,8 @@ const orderForm = ref({
   side: defaultSide.value,
   quantity: 1,
   limitPrice: undefined,
-  stopLoss: null
+  stopLoss: null,
+  stopTrigger: null
 })
 
 watch([() => props.hasPosition, () => props.initialSide], ([hasPosition, initialSide]) => {
@@ -161,24 +180,50 @@ watch([() => props.hasPosition, () => props.initialSide], ([hasPosition, initial
   if (['buy', 'sell'].includes(newSide)) orderForm.value.side = newSide
 })
 
-const orderTypes = [
-  { label: 'Market', value: 'market' },
-  { label: 'Limit', value: 'limit' }
-]
+watch(() => orderForm.value.type, (t) => {
+  if (t !== 'market' && t !== 'limit') orderForm.value.stopLoss = null
+  if (t !== 'stop' && t !== 'stop_limit') orderForm.value.stopTrigger = null
+})
+
+const orderTypes = computed(() => {
+  const base = [
+    { label: 'Market', value: 'market' },
+    { label: 'Limit', value: 'limit' }
+  ]
+  if (stopOrdersEnabled.value) {
+    base.push({ label: 'Stop', value: 'stop' }, { label: 'Stop limit', value: 'stop_limit' })
+  }
+  return base
+})
 
 const orderValue = computed(() => {
   if (!props.stock.price || !orderForm.value.quantity) return 0
-  const referencePrice = orderForm.value.type === 'limit' && orderForm.value.limitPrice > 0
-    ? orderForm.value.limitPrice
-    : props.stock.price
-  return referencePrice * orderForm.value.quantity
+  const q = orderForm.value.quantity
+  if (orderForm.value.type === 'limit' && orderForm.value.limitPrice > 0) return orderForm.value.limitPrice * q
+  if (orderForm.value.type === 'stop' && orderForm.value.stopTrigger > 0) return orderForm.value.stopTrigger * q
+  if (orderForm.value.type === 'stop_limit') {
+    const lp = orderForm.value.limitPrice > 0 ? orderForm.value.limitPrice : props.stock.price
+    return lp * q
+  }
+  return props.stock.price * q
 })
 
 const isOrderValid = computed(() => {
   if (!orderForm.value.quantity || orderForm.value.quantity <= 0) return false
   if (!props.stock.price || props.stock.price <= 0) return false
   if (orderForm.value.type === 'limit' && (!orderForm.value.limitPrice || orderForm.value.limitPrice <= 0)) return false
-  if (orderForm.value.side === 'buy' && orderForm.value.stopLoss > 0) {
+  if (orderForm.value.type === 'stop_limit') {
+    if (!orderForm.value.limitPrice || orderForm.value.limitPrice <= 0) return false
+    if (!orderForm.value.stopTrigger || orderForm.value.stopTrigger <= 0) return false
+    if (orderForm.value.side === 'sell' && orderForm.value.stopTrigger >= props.stock.price) return false
+    if (orderForm.value.side === 'buy' && orderForm.value.stopTrigger <= props.stock.price) return false
+  }
+  if (orderForm.value.type === 'stop') {
+    if (!orderForm.value.stopTrigger || orderForm.value.stopTrigger <= 0) return false
+    if (orderForm.value.side === 'sell' && orderForm.value.stopTrigger >= props.stock.price) return false
+    if (orderForm.value.side === 'buy' && orderForm.value.stopTrigger <= props.stock.price) return false
+  }
+  if (orderForm.value.side === 'buy' && orderForm.value.stopLoss > 0 && ['market', 'limit'].includes(orderForm.value.type)) {
     const entry = orderForm.value.type === 'limit' && orderForm.value.limitPrice > 0
       ? orderForm.value.limitPrice
       : props.stock.price
@@ -207,8 +252,6 @@ const confirmationTitle = computed(() => {
   const type = pendingOrder.value?.type || orderForm.value.type || 'market'
   return `Confirm ${type} order`
 })
-
-const stopOrdersEnabled = computed(() => health.value?.featureFlags?.stopOrders !== false)
 
 const marketGate = computed(() => {
   if (props.market === 'crypto') {
@@ -247,14 +290,24 @@ async function refreshTradingContext() {
 function openOrderConfirmation(side) {
   orderForm.value.side = side
   if (!isOrderValid.value) return
-  const stopRaw = side === 'buy' && orderForm.value.stopLoss > 0 ? Number(orderForm.value.stopLoss) : null
+  const bracketStop = side === 'buy' && ['market', 'limit'].includes(orderForm.value.type) && orderForm.value.stopLoss > 0
+    ? Number(orderForm.value.stopLoss)
+    : null
+  const triggerStop = ['stop', 'stop_limit'].includes(orderForm.value.type) && orderForm.value.stopTrigger > 0
+    ? Number(orderForm.value.stopTrigger)
+    : null
   pendingOrder.value = {
     symbol: String(props.symbol).toUpperCase(),
     side,
     type: orderForm.value.type,
     quantity: Number(orderForm.value.quantity),
-    limitPrice: orderForm.value.type === 'limit' ? Number(orderForm.value.limitPrice) : null,
-    stopPrice: Number.isFinite(stopRaw) && stopRaw > 0 ? stopRaw : null,
+    limitPrice: ['limit', 'stop_limit'].includes(orderForm.value.type) ? Number(orderForm.value.limitPrice) : null,
+    stopPrice: (() => {
+      if (['stop', 'stop_limit'].includes(orderForm.value.type)) {
+        return Number.isFinite(triggerStop) && triggerStop > 0 ? triggerStop : null
+      }
+      return Number.isFinite(bracketStop) && bracketStop > 0 ? bracketStop : null
+    })(),
     estimatedNotional: orderValue.value
   }
   showOrderConfirmation.value = true
@@ -274,7 +327,9 @@ async function confirmOrder() {
       qty: pendingOrder.value.quantity,
       side: pendingOrder.value.side,
       type: pendingOrder.value.type,
-      limitPrice: pendingOrder.value.limitPrice,
+      ...(pendingOrder.value.limitPrice != null && pendingOrder.value.limitPrice > 0
+        ? { limitPrice: pendingOrder.value.limitPrice }
+        : {}),
       ...(pendingOrder.value.stopPrice ? { stopPrice: pendingOrder.value.stopPrice } : {})
     })
 
@@ -287,6 +342,7 @@ async function confirmOrder() {
     orderForm.value.quantity = 1
     orderForm.value.limitPrice = undefined
     orderForm.value.stopLoss = null
+    orderForm.value.stopTrigger = null
     await refreshTradingContext()
   }
   catch (error) {

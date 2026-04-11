@@ -480,6 +480,42 @@ export function mockPlaceOrder(symbol, qty, side, orderConfig = {}) {
     throw new Error(`Cannot sell ${qty} ${symbol} in simulation, only ${existingQty} shares available`)
   }
 
+  if (type === 'stop' || type === 'stop_limit') {
+    const sp = Number(orderConfig.stopPrice)
+    if (!Number.isFinite(sp) || sp <= 0) throw new Error('Stop orders require a stop (trigger) price')
+
+    const lp = type === 'stop_limit' ? Number(orderConfig.limitPrice) : null
+    if (type === 'stop_limit' && (!Number.isFinite(lp) || lp <= 0)) {
+      throw new Error('Stop-limit orders require a limit price')
+    }
+
+    if (side === 'sell' && marketPrice > sp) {
+      throw new Error(
+        `Simulation does not queue resting sell stops. Mock price $${marketPrice.toFixed(2)} is above your stop $${sp.toFixed(2)}. Use Alpaca paper to test resting stops.`
+      )
+    }
+    if (side === 'buy' && marketPrice < sp) {
+      throw new Error(
+        `Simulation does not queue resting buy stops. Mock price $${marketPrice.toFixed(2)} is below your stop $${sp.toFixed(2)}.`
+      )
+    }
+
+    const executionPrice = type === 'stop'
+      ? marketPrice
+      : (side === 'sell' ? Math.max(marketPrice, lp) : Math.min(marketPrice, lp))
+
+    const extras = {
+      type,
+      time_in_force: orderConfig.timeInForce || 'gtc',
+      status: 'filled',
+      stop_price: String(sp)
+    }
+    if (type === 'stop_limit') extras.limit_price = lp
+
+    console.log(`🧪 [SIM] ${side.toUpperCase()} ${qty} ${symbol} ${type.toUpperCase()} @ $${executionPrice.toFixed(2)} (trigger ${sp})`)
+    return recordTrade(symbol, qty, side, executionPrice, extras)
+  }
+
   if (type === 'limit') {
     if (!Number.isFinite(limitPrice) || limitPrice <= 0) throw new Error('Limit price must be greater than 0 for limit orders')
 
@@ -497,7 +533,7 @@ export function mockPlaceOrder(symbol, qty, side, orderConfig = {}) {
     time_in_force: orderConfig.timeInForce || 'gtc',
     status: 'filled'
   }
-  if (Number.isFinite(stopN) && stopN > 0) {
+  if (Number.isFinite(stopN) && stopN > 0 && (type === 'market' || type === 'limit')) {
     extras.order_class = 'bracket'
     extras.stop_loss = { stop_price: String(stopN) }
   }

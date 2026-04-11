@@ -1,4 +1,4 @@
-export const SUPPORTED_ORDER_TYPES = ['market', 'limit']
+export const SUPPORTED_ORDER_TYPES = ['market', 'limit', 'stop', 'stop_limit']
 export const SUPPORTED_ORDER_SIDES = ['buy', 'sell']
 
 function toNumber(value) {
@@ -40,13 +40,35 @@ export function validateOrderIntent(orderIntent, { allowTypes = SUPPORTED_ORDER_
     errors.push('Limit price must be greater than 0 for limit orders')
   }
 
+  if (orderIntent.type === 'stop_limit' && (!Number.isFinite(orderIntent.limitPrice) || orderIntent.limitPrice <= 0)) {
+    errors.push('Limit price must be greater than 0 for stop-limit orders')
+  }
+
   const sp = orderIntent.stopPrice
   if (sp != null && sp !== '' && (!Number.isFinite(sp) || sp <= 0)) {
     errors.push('Stop price must be greater than 0 when provided')
   }
 
-  // Bracket stop-loss: buy stops must be below entry; sell (e.g. short) stops above entry.
-  if (Number.isFinite(sp) && sp > 0 && referencePrice != null && Number.isFinite(referencePrice) && referencePrice > 0) {
+  if ((orderIntent.type === 'stop' || orderIntent.type === 'stop_limit') && (!Number.isFinite(sp) || sp <= 0)) {
+    errors.push('Stop (trigger) price is required for stop and stop-limit orders')
+  }
+
+  // Standalone stop / stop-limit: sell stop must be below last price; buy stop above (Alpaca rules of thumb).
+  if ((orderIntent.type === 'stop' || orderIntent.type === 'stop_limit')
+    && Number.isFinite(sp) && sp > 0
+    && referencePrice != null && Number.isFinite(referencePrice) && referencePrice > 0) {
+    if (orderIntent.side === 'sell' && sp >= referencePrice) {
+      errors.push('Sell stop trigger must be below the reference price')
+    }
+    if (orderIntent.side === 'buy' && sp <= referencePrice) {
+      errors.push('Buy stop trigger must be above the reference price')
+    }
+  }
+
+  // Bracket stop-loss on market/limit only: protective stop relative to entry.
+  if ((orderIntent.type === 'market' || orderIntent.type === 'limit')
+    && Number.isFinite(sp) && sp > 0
+    && referencePrice != null && Number.isFinite(referencePrice) && referencePrice > 0) {
     const entry = orderIntent.type === 'limit' && Number.isFinite(orderIntent.limitPrice) && orderIntent.limitPrice > 0
       ? orderIntent.limitPrice
       : referencePrice
@@ -65,7 +87,16 @@ export function validateOrderIntent(orderIntent, { allowTypes = SUPPORTED_ORDER_
 }
 
 export function estimateOrderNotional(orderIntent, fallbackPrice = null) {
-  const referencePrice = orderIntent.type === 'limit' ? orderIntent.limitPrice : fallbackPrice
+  let referencePrice = null
+  if (orderIntent.type === 'limit') referencePrice = orderIntent.limitPrice
+  else if (orderIntent.type === 'stop_limit') {
+    referencePrice = Number.isFinite(orderIntent.limitPrice) && orderIntent.limitPrice > 0
+      ? orderIntent.limitPrice
+      : (Number.isFinite(orderIntent.stopPrice) ? orderIntent.stopPrice : fallbackPrice)
+  }
+  else if (orderIntent.type === 'stop') referencePrice = Number.isFinite(orderIntent.stopPrice) ? orderIntent.stopPrice : fallbackPrice
+  else referencePrice = fallbackPrice
+
   if (!Number.isFinite(referencePrice) || referencePrice <= 0 || !Number.isFinite(orderIntent.qty)) return null
   return Number((referencePrice * orderIntent.qty).toFixed(2))
 }

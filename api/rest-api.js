@@ -19,8 +19,10 @@ import { recordStrategyRun } from './services/strategy-run-recorder.js'
 import { normalizeBrokerError } from './services/broker-error.js'
 import { getTradeCandidates } from './services/trade-screener-service.js'
 
-function orderIntentHasStopLoss(orderIntent) {
-  return Number.isFinite(orderIntent.stopPrice) && orderIntent.stopPrice > 0
+function orderIntentRequiresStopFeature(orderIntent) {
+  if (orderIntent.type === 'stop' || orderIntent.type === 'stop_limit') return true
+  return (orderIntent.type === 'market' || orderIntent.type === 'limit')
+    && Number.isFinite(orderIntent.stopPrice) && orderIntent.stopPrice > 0
 }
 
 // Express API Routes.
@@ -1035,8 +1037,8 @@ export function createRestApiRoutes() {
 
   async function getOrderPreview(input) {
     const orderIntent = normalizeOrderIntent(input)
-    if (orderIntentHasStopLoss(orderIntent) && !FEATURE_FLAGS.stopOrders) {
-      return { statusCode: 403, body: { error: 'Stop-loss orders are disabled in this deployment.' } }
+    if (orderIntentRequiresStopFeature(orderIntent) && !FEATURE_FLAGS.stopOrders) {
+      return { statusCode: 403, body: { error: 'Stop / stop-loss orders are disabled in this deployment.' } }
     }
 
     const currentPrice = await getPrice(orderIntent.symbol).catch(() => 0)
@@ -1091,8 +1093,8 @@ export function createRestApiRoutes() {
   app.post('/api/orders', requireMutationAuth, async (req, res) => {
     try {
       const orderIntent = normalizeOrderIntent(req.body || {})
-      if (orderIntentHasStopLoss(orderIntent) && !FEATURE_FLAGS.stopOrders) {
-        return res.status(403).json({ error: 'Stop-loss orders are disabled in this deployment.' })
+      if (orderIntentRequiresStopFeature(orderIntent) && !FEATURE_FLAGS.stopOrders) {
+        return res.status(403).json({ error: 'Stop / stop-loss orders are disabled in this deployment.' })
       }
 
       const referencePrice = await getPrice(orderIntent.symbol).catch(() => 0)
@@ -1234,7 +1236,7 @@ export function createRestApiRoutes() {
           dashboard: 'GET /api/dashboard',
           movers: 'GET /api/movers',
           history: 'GET /api/stocks/:symbol/history?period=1D',
-          placeOrder: 'POST /api/orders JSON { symbol, qty, side, type: "market" | "limit", limitPrice?, stopPrice? }',
+          placeOrder: 'POST /api/orders JSON { symbol, qty, side, type: "market"|"limit"|"stop"|"stop_limit", limitPrice?, stopPrice? }',
           previewOrder: 'POST /api/orders/preview JSON { symbol, qty, side, type, limitPrice?, stopPrice? }'
         }
       }))

@@ -90,7 +90,7 @@ export class AlpacaTradingService extends TradingService {
       return mockPlaceOrder(symbol, Math.abs(quantity), side, {
         type,
         price,
-        limitPrice: type === 'limit' ? limitPx : null,
+        limitPrice: (type === 'limit' || type === 'stop_limit') ? limitPx : null,
         stopPrice: Number.isFinite(Number(stopPx)) && Number(stopPx) > 0 ? Number(stopPx) : null,
         timeInForce: tif
       })
@@ -107,16 +107,30 @@ export class AlpacaTradingService extends TradingService {
         extended_hours: !!options.extended_hours
       }
 
-      if (type === 'limit' && Number.isFinite(Number(limitPx))) {
+      const stopN = Number(stopPx)
+
+      if (type === 'stop') {
+        orderData.type = 'stop'
+        if (!Number.isFinite(stopN) || stopN <= 0) throw new Error('stop orders require stop_price')
+        orderData.stop_price = String(stopN)
+      }
+      else if (type === 'stop_limit') {
+        orderData.type = 'stop_limit'
+        if (!Number.isFinite(stopN) || stopN <= 0) throw new Error('stop_limit orders require stop_price')
+        if (!Number.isFinite(Number(limitPx)) || Number(limitPx) <= 0) throw new Error('stop_limit orders require limit_price')
+        orderData.stop_price = String(stopN)
         orderData.limit_price = Number(limitPx)
       }
+      else {
+        if (type === 'limit' && Number.isFinite(Number(limitPx))) {
+          orderData.limit_price = Number(limitPx)
+        }
 
-      const stopN = Number(stopPx)
-      if (Number.isFinite(stopN) && stopN > 0) {
-        orderData.order_class = 'bracket'
-        orderData.stop_loss = { stop_price: String(stopN) }
-        // Alpaca bracket opening legs for US equities use day time-in-force.
-        orderData.time_in_force = 'day'
+        if (Number.isFinite(stopN) && stopN > 0 && (type === 'market' || type === 'limit')) {
+          orderData.order_class = 'bracket'
+          orderData.stop_loss = { stop_price: String(stopN) }
+          orderData.time_in_force = 'day'
+        }
       }
 
       // Remove undefined fields.
