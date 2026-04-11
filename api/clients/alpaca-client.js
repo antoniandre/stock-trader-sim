@@ -127,6 +127,29 @@ export async function getBars(symbol, timeframe, startDate, endDate, limit = nul
   return data
 }
 
+// Crypto latest-price endpoints (mirror of getLatestQuote/Trade/Bar for crypto).
+// Alpaca uses /v1beta3/crypto/us/latest/* with `symbols` as a query param.
+export async function getCryptoLatestQuote(symbol) {
+  const params = new URLSearchParams({ symbols: symbol })
+  const { data } = await axios.get(`${ALPACA_API_BASE_URL}/v1beta3/crypto/us/latest/quotes?${params}`, { headers: HEADERS })
+  const q = data.quotes && data.quotes[symbol]
+  return { quote: q || null }
+}
+
+export async function getCryptoLatestTrade(symbol) {
+  const params = new URLSearchParams({ symbols: symbol })
+  const { data } = await axios.get(`${ALPACA_API_BASE_URL}/v1beta3/crypto/us/latest/trades?${params}`, { headers: HEADERS })
+  const t = data.trades && data.trades[symbol]
+  return { trade: t || null }
+}
+
+export async function getCryptoLatestBar(symbol) {
+  const params = new URLSearchParams({ symbols: symbol })
+  const { data } = await axios.get(`${ALPACA_API_BASE_URL}/v1beta3/crypto/us/latest/bars?${params}`, { headers: HEADERS })
+  const b = data.bars && data.bars[symbol]
+  return { bar: b || null }
+}
+
 // Crypto bars use a separate endpoint (/v1beta3/crypto/us/bars) where the
 // symbol is a query param, not a path segment (symbols like BTC/USD contain
 // a slash which cannot be embedded in a URL path).

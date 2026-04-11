@@ -330,10 +330,22 @@ export async function getStockMarketStatus(stock) {
     }
   }
 
-  // Priority 3: Get official market status from Alpaca (reuse cached data).
+  // Priority 3: Crypto assets trade 24/7 — always open regardless of exchange.
+  const isCrypto = stock.symbol?.includes('/') || String(stock.exchange || '').toUpperCase() === 'CRYPTO'
+  if (isCrypto) {
+    return {
+      status: 'open',
+      message: 'Crypto — 24/7',
+      nextOpen: null,
+      nextClose: null,
+      reason: 'crypto_always_open'
+    }
+  }
+
+  // Priority 4: Get official market status from Alpaca (reuse cached data).
   const globalMarketStatus = await getMarketStatus()
 
-  // Priority 4: Apply exchange-specific rules using consolidated exchange list.
+  // Priority 5: Apply exchange-specific rules using consolidated exchange list.
   const exchange = stock.exchange || 'Unknown'
 
   if (!US_EXCHANGES.includes(exchange)) {
@@ -541,7 +553,41 @@ export async function getPrice(symbol) {
     return state.stockPrices[symbol]
   }
 
-  // Try multiple endpoints in order of preference for different market conditions.
+  // Crypto symbols contain a slash (e.g. BTC/USD). Use the dedicated crypto
+  // endpoints instead of the stock IEX endpoints which return 404 for crypto.
+  const isCrypto = symbol.includes('/')
+
+  if (isCrypto) {
+    const endpoints = [
+      { type: 'quote', fn: () => AlpacaClient.getCryptoLatestQuote(symbol), price: d => d.quote?.ap || d.quote?.bp || d.quote?.c || 0 },
+      { type: 'trade', fn: () => AlpacaClient.getCryptoLatestTrade(symbol), price: d => d.trade?.p || 0 },
+      { type: 'bar',   fn: () => AlpacaClient.getCryptoLatestBar(symbol),   price: d => d.bar?.c || 0 }
+    ]
+
+    for (const endpoint of endpoints) {
+      try {
+        console.log(`💰 Fetching ${symbol} crypto price from ${endpoint.type} endpoint...`)
+        const data = await endpoint.fn()
+        const price = endpoint.price(data)
+        if (price > 0) {
+          console.log(`💲 Got ${symbol} crypto price: $${price.toFixed(6)} from ${endpoint.type}`)
+          state.stockPrices[symbol] = price
+          return price
+        }
+      }
+      catch (error) {
+        console.warn(`⚠️ Failed to fetch crypto ${symbol} from ${endpoint.type}: ${error.message}`)
+        if (error.response?.status === 429) {
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        }
+      }
+    }
+
+    console.warn(`⚠️ No price data available for crypto ${symbol} from any endpoint`)
+    return 0
+  }
+
+  // Stock / ETF path — try IEX endpoints in order of preference.
   const endpoints = [
     { type: 'quote', priority: 1 },
     { type: 'trade', priority: 2 },
@@ -1592,10 +1638,13 @@ export function startPricePolling(subscribedStocks, broadcast) {
           if (newPrice > 0 && newPrice !== cachedPrice) {
             const stockData = state.allStocks.find(s => s.symbol === symbol)
             if (stockData) {
-              // Reuse the global market status instead of recalculating per stock.
-              const stockMarketStatus = US_EXCHANGES.includes(stockData.exchange)
-                ? marketStatus
-                : { status: 'closed', message: `${stockData.exchange} Exchange` }
+              // Reuse the global market status; crypto is always open.
+              const isCryptoSymbol = symbol.includes('/') || String(stockData.exchange || '').toUpperCase() === 'CRYPTO'
+              const stockMarketStatus = isCryptoSymbol
+                ? { status: 'open', message: 'Crypto — 24/7' }
+                : US_EXCHANGES.includes(stockData.exchange)
+                  ? marketStatus
+                  : { status: 'closed', message: `${stockData.exchange} Exchange` }
 
               priceUpdates.push({
                 type: 'price',
