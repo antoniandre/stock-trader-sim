@@ -32,7 +32,7 @@
     .w-divider.no-grow(v-if="!isCollapsed")
     .w-flex.column.px4.py4.no-grow.pa4.gap3.sidebar-footer(v-if="!isCollapsed")
       .w-flex.align-center
-        .user-avatar.w-flex.align-center.justify-center
+        .user-avatar.w-flex.align-center.justify-center.no-grow
           icon(v-if="!currentUser" icon="mdi:account-off-outline")
           span(v-else) {{ userInitials }}
         .ml3.user-summary
@@ -40,13 +40,17 @@
           p.size--sm.grey {{ userSecondaryLine }}
           p.size--xs.op6.mt1(v-if="authModeLabel") {{ authModeLabel }}
       .w-flex.justify-end.gap2(v-if="showAuthActions")
-        w-button.align-self-start(sm route="/auth") {{ authActionLabel }}
-        w-button.align-self-start(
+        w-button.align-self-start(sm route="/auth" round height="24") {{ authActionLabel }}
+        w-button.align-self-start.w-button--icon(
           v-if="authState.user"
           sm
-          text
-          color="error"
-          @click="handleSignOut") Log out
+          bg-color="error"
+          @click="handleSignOut"
+          tooltip="Log out"
+          round
+          width="24"
+          height="24")
+          icon(icon="line-md:logout")
 
   //- Resize Handle
   .resize-handle(
