@@ -12,10 +12,10 @@
   .day-trading-bot-panel__toolbar
     .w-flex.align-center.gap2.wrap
       span.size--sm.op6 Risk profile
-      w-button(
+      w-button.px1.lh2(
         v-for="option in riskProfiles"
         :key="option"
-        xs
+        sm
         round
         :outline="option !== selectedRiskProfile"
         @click="$emit('update:risk-profile', option)") {{ option }}
@@ -27,17 +27,19 @@
     .day-trading-bot-panel__hero
       .day-trading-bot-panel__hero-main
         .size--xs.op6 Live ticker recommendation
-        .day-trading-bot-panel__action(:class="actionToneClass") {{ recommendationLabel }}
-        .size--sm.op7 Confidence {{ decision.confidence }}% · Entry {{ decision.scores.entry }} · Risk {{ decision.scores.risk }}
-        .day-trading-bot-panel__one-click(v-if="showOneClickExecute")
-          w-button(
-            color="success"
-            round
-            sm
+        .day-trading-bot-panel__action(:class="actionToneClass")
+          | {{ recommendationLabel }}
+          w-button.mt-1.ml2.px2(
+            v-if="showOneClickExecute"
+            bg-color="success"
             :loading="executeRecommendationLoading"
             :disabled="executeRecommendationDisabled"
-            :title="executeRecommendationBlocked || undefined"
-            @click="emit('execute-recommendation', decision)") {{ oneClickButtonLabel }}
+            @click="emit('execute-recommendation', decision)"
+            :tooltip="executeRecommendationBlocked || 'Buy now (1-click)'"
+            :tooltip-props="{ alignRight: true }"
+            round
+            sm) BUY
+        .size--sm.op7 Confidence {{ decision.confidence }}% · Entry {{ decision.scores.entry }} · Risk {{ decision.scores.risk }}
         .day-trading-bot-panel__badges
           .bot-pill
             .size--xs.op6 Setup
@@ -90,6 +92,17 @@
       ul.day-trading-bot-panel__reason-list
         li(v-for="reason in decision.reasons" :key="reason") {{ reason }}
 
+    w-button.mla(
+      round
+      text
+      @click="showMoreDialog = true") More...
+
+w-dialog(
+  v-model="showMoreDialog"
+  title="Backtest & strategy lab"
+  width="640"
+  :persistent="backtestLoading || evolutionLoading")
+  .day-trading-bot-panel__dialog-body
     .day-trading-bot-panel__section
       .w-flex.align-center.justify-space-between.gap2.wrap.mb3
         .size--sm.text-bold Backtest snapshot
@@ -182,8 +195,10 @@
 </template>
 
 <script setup>
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { shouldAutoFire, emitAutoExecutionEvent } from '@/api/bot-execution'
+
+const showMoreDialog = ref(false)
 
 const props = defineProps({
   decision: {
@@ -242,27 +257,27 @@ const props = defineProps({
 
 const emit = defineEmits(['refresh', 'update:risk-profile', 'run-backtest', 'run-evolution', 'auto-fire-detected', 'execute-recommendation'])
 
-// Auto-fire detection when decision changes
 watch(
   () => props.decision,
   (newDecision) => {
-    if (newDecision) {
-      const autonomousTrading = localStorage.getItem('autonomousTrading') === 'true'
-      const confidence = Number(newDecision.confidence || 0)
-      const isHighConfidence = confidence >= 80
-      const isValidAction = ['buy', 'add', 'sell', 'exit', 'trim'].includes(newDecision.action)
-      
-      if (autonomousTrading && isHighConfidence && isValidAction) {
-        // Emit event so parent can handle auto-fire
-        emitAutoExecutionEvent({
-          symbol: 'unknown', // Will be set by parent
-          action: newDecision.action,
-          confidence,
-          timestamp: new Date().toISOString()
-        })
-        // Notify parent component about auto-fire decision
-        emit('auto-fire-detected', newDecision)
-      }
+    if (!newDecision) {
+      showMoreDialog.value = false
+      return
+    }
+
+    const autonomousTrading = localStorage.getItem('autonomousTrading') === 'true'
+    const confidence = Number(newDecision.confidence || 0)
+    const isHighConfidence = confidence >= 80
+    const isValidAction = ['buy', 'add', 'sell', 'exit', 'trim'].includes(newDecision.action)
+
+    if (autonomousTrading && isHighConfidence && isValidAction) {
+      emitAutoExecutionEvent({
+        symbol: 'unknown', // Will be set by parent
+        action: newDecision.action,
+        confidence,
+        timestamp: new Date().toISOString()
+      })
+      emit('auto-fire-detected', newDecision)
     }
   }
 )
@@ -304,8 +319,6 @@ const showOneClickExecute = computed(() => {
 const executeRecommendationDisabled = computed(
   () => props.executeRecommendationLoading || Boolean(props.executeRecommendationBlocked?.trim())
 )
-
-const oneClickButtonLabel = 'Buy now (1-click)'
 
 const recommendationLabel = computed(() => props.decision?.recommendation?.label || props.decision?.action || 'No recommendation for now')
 const recommendationDetail = computed(() => props.decision?.recommendation?.detail || 'The bot is reading the latest ticker state and scoring risk in real time.')
@@ -417,6 +430,21 @@ function formatCurrency(value) {
 .day-trading-bot-panel__section {
   border-top: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
   padding-top: 1rem;
+}
+
+.day-trading-bot-panel__section--compact {
+  padding-top: 0.65rem;
+}
+
+.day-trading-bot-panel__dialog-body {
+  max-height: min(72vh, 640px);
+  overflow-y: auto;
+  padding-right: 0.15rem;
+
+  .day-trading-bot-panel__section:first-of-type {
+    border-top: none;
+    padding-top: 0;
+  }
 }
 
 .day-trading-bot-panel__reason-list,
