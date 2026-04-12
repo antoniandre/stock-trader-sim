@@ -1,6 +1,11 @@
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 
-dotenv.config()
+// Always load `api/.env` (not cwd), so `AUTH_MODE=provider` etc. apply even when
+// the process is started from the repo root.
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+dotenv.config({ path: path.join(__dirname, '.env') })
 
 // Configuration
 // --------------------------------------------------------
