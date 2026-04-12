@@ -1,5 +1,5 @@
 <template lang="pug">
-.autonomous-trading-toggle.bd1
+.autonomous-trading-toggle.bd1.bdrsr
   .w-flex.align-center.gap3
     .w-flex.align-center.gap2
       w-switch(
