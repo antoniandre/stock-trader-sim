@@ -92,6 +92,8 @@ pnpm dev
 
 ### Environment Variables
 
+The API loads **`api/.env` by file path** (see `api/config.js`), so auth and Alpaca settings apply even if you start `node api/stockbot.js` from the repo root. Copy `api/.env.example` to `api/.env`.
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ALPACA_KEY` | Your Alpaca API key | Omit for simulation |
@@ -107,10 +109,12 @@ pnpm dev
 | `FEATURE_STOP_ORDERS` | Enable stop order flows | `false` |
 | `FEATURE_API_ACCESS` | Enable partner/pro API surfaces | `false` |
 | `AUTH_MODE` | Auth behavior: `off`, `mock`, `provider` | `off` |
-| `AUTH_PROVIDER` | Hosted auth provider label for future integration | `mock` |
+| `AUTH_PROVIDER` | `mock` or `supabase` (with `SUPABASE_*` when using Supabase) | `mock` |
 | `AUTH_JWT_SECRET` | HS256 JWT secret for provider-token verification mode | unset |
 | `AUTH_JWT_ISSUER` | Expected JWT issuer in provider mode | unset |
 | `AUTH_JWT_AUDIENCE` | Expected JWT audience in provider mode | unset |
+| `SUPABASE_URL` | Supabase project URL (`AUTH_PROVIDER=supabase`) | unset |
+| `SUPABASE_JWT_SECRET` | Secret used to verify Supabase JWTs (Dashboard → Settings → API) | unset |
 | `DEV_AUTH_USER_ID` | Local mock-auth user id | `dev-user` |
 | `DEV_AUTH_EMAIL` | Local mock-auth email | `dev@example.com` |
 | `DEV_AUTH_NAME` | Local mock-auth display name | `Dev User` |
