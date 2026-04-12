@@ -11,7 +11,7 @@
     p.size--sm.op5.mt1 It may be delisted, unsupported, or mistyped.
     w-button.mt4(round @click="$router.push(tradingOverviewPath(market))") Back to markets
 
-  TickerHeader(v-if="!stockNotFound" :stock="stock" :ws-connected="wsConnected")
+  TickerHeader(v-if="!stockNotFound" :stock="stock")
 
 
   //- Stock Details & Trading
@@ -157,10 +157,7 @@
       icon="wi-cross"
       bg-color="error"
       round)
-    TickerHeader.mb2(
-      :stock="stock"
-      :ws-connected="wsConnected"
-      small)
+    TickerHeader.mb2(:stock="stock" small)
     PriceChart.small(
       :symbol="stock.symbol"
       :chart-type="chartType"
@@ -344,7 +341,6 @@ const BOT_DECISION_INTERVAL_MS = 30_000
 const {
   wsConnected,
   lastUpdate,
-  connect,
   addMessageHandler,
   removeMessageHandler,
   subscribeToStock,
@@ -2006,7 +2002,6 @@ onMounted(async () => {
   autonomousEnabled.value = localStorage.getItem('autonomousTrading') === 'true'
 
   setupWebSocket()
-  connect()
 
   // Initialize smart timeframe selection before fetching data.
   const availableTimeframe = await selectAvailableTimeframe(selectedPeriod.value, selectedTimeframe.value)
@@ -2029,9 +2024,7 @@ onMounted(async () => {
   initializeRealtimeBot()
 })
 
-// Send the unsubscribe message while the WebSocket is still open.
-// The composable's cleanup() is registered on onUnmounted (a later phase),
-// so the WS is guaranteed to be open here.
+// Send the unsubscribe message while the WebSocket is still open (singleton, app-owned).
 onBeforeUnmount(() => {
   wsUnsubscribeFromStock(stock.symbol)
   console.log(`✅ Unsubscribed from WebSocket for ${stock.symbol}`)

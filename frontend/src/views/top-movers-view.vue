@@ -18,13 +18,6 @@
         text
         round)
         icon.w-icon(icon="mdi:refresh")
-    //- Connection Status.
-    .w-flex.align-center.gap2.mla.no-grow
-      .w-icon.size--xs.success--bg(v-if="wsConnected")
-      .w-icon.size--xs.yellow--bg(v-else)
-      span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
-        | {{ wsConnected ? 'Live' : 'Polling fallback' }}
-
   //- Filter Controls
   .w-flex.wrap.align-center.gap6.mb4
     .w-flex.align-center.gap2.no-grow
@@ -174,7 +167,7 @@ const selectedExchanges = ref({}) // Object to track which exchanges are selecte
 const countdown = ref(0) // Countdown timer for next auto-refresh.
 
 // WebSocket.
-const { wsConnected, connect, addMessageHandler } = useWebSocket()
+const { addMessageHandler } = useWebSocket()
 
 // Options.
 const countOptions = [
@@ -526,7 +519,6 @@ watch(selectedCount, loadMovers)
 // Lifecycle.
 // --------------------------------------------------------
 onMounted(() => {
-  connect() // Connect to WebSocket.
   addMessageHandler('price', handlePriceUpdate) // Listen for real-time price updates.
   loadMovers(true) // Initial load with loading state.
   startAutoRefresh() // Start incremental auto-refresh.

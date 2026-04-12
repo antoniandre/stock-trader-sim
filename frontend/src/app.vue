@@ -7,7 +7,15 @@
       :is-open="sidebarOpen"
       @update:is-open="sidebarOpen = $event")
     .ova.grow.relative
-      .w-flex.justify-end.align-center.gap2.pr2.ovh
+      .w-flex.justify-end.align-center.gap3.pr2.ovh
+        //- Global market-data WebSocket status (shared singleton; see composables/web-socket.js)
+        .w-flex.align-center.gap2.no-grow.ws-status-pill(
+          role="status"
+          :aria-label="wsStatusLabel"
+          :title="wsStatusLabel")
+          .w-icon.size--xs(:class="wsStatusIconClass")
+          span.size--sm.text-no-wrap(:class="wsStatusTextClass") {{ wsStatusLabel }}
+
         //- Burger Menu Button (shown when sidebar is collapsed or always on mobile)
         w-button.pa0(
           v-if="!sidebarOpen || isMobile"
@@ -38,8 +46,23 @@
 <script setup>
 import Sidebar from '@/components/sidebar.vue'
 import TradingModeBanner from '@/components/trading-mode-banner.vue'
+import { useWebSocket } from '@/composables/web-socket.js'
 import { computed, inject, onMounted, ref, watch } from 'vue'
 import { authState } from '@/stores/auth'
+
+const { connect, wsConnected, wsReconnecting, wsStatusLabel } = useWebSocket()
+
+const wsStatusIconClass = computed(() => {
+  if (wsConnected.value) return 'success--bg'
+  if (wsReconnecting.value) return 'warning--bg'
+  return 'yellow--bg'
+})
+
+const wsStatusTextClass = computed(() => {
+  if (wsConnected.value) return 'success'
+  if (wsReconnecting.value) return 'warning'
+  return 'yellow'
+})
 
 const $waveui = inject('$waveui')
 const sidebarOpen = ref(true)
@@ -59,6 +82,8 @@ watch(() => isMobile.value, isXs => {
 })
 
 onMounted(() => {
+  connect()
+
   const savedTheme = localStorage.theme
   if (savedTheme && ['light', 'dark'].includes(savedTheme) && savedTheme !== $waveui.theme) {
     $waveui.switchTheme(savedTheme)
@@ -82,4 +107,13 @@ onMounted(() => {
 }
 
 .mh100vh {min-height: 100vh;}
+
+.ws-status-pill {
+  max-width: min(14rem, 42vw);
+  .text-no-wrap {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
 </style>

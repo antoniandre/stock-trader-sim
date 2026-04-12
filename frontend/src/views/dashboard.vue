@@ -44,7 +44,7 @@ const portfolio = reactive({
 })
 
 // Use WebSocket composable.
-const { connect, addMessageHandler } = useWebSocket()
+const { addMessageHandler } = useWebSocket()
 
 // Batch fetch all dashboard data in one call.
 async function fetchDashboardData() {
@@ -138,7 +138,6 @@ onMounted(() => {
   fetchDashboardData()
   fetchPortfolioHistoryData()
   setupWebSocket()
-  connect() // WS for real-time market data only.
 })
 
 onUnmounted(() => {

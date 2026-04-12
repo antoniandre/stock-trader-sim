@@ -10,17 +10,13 @@
           :class="`market-${currentStatus.status}`"
           :title="currentStatus.message"
           style="width: 15px")
-      .w-flex.align-center.gap4
+        .w-flex.align-center.gap4
         .w-flex.align-center.gap2.no-grow
           span.size--xs.text-upper(:class="`market-${currentStatus.status}`") {{ currentStatus.message }}
           span.size--xs.op6(v-if="currentStatus.status === 'open' && currentStatus.nextClose")
             | (closes at {{ new Date(currentStatus.nextClose).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) }} ET)
           span.size--xs.op6(v-else-if="currentStatus.nextOpen")
             | (opens {{ formatNextOpenTime }})
-        .w-flex.align-center.gap2.mla
-          .w-icon.size--xs(:class="wsConnected ? 'success--bg' : 'yellow--bg'")
-          span.size--sm(:class="wsConnected ? 'success' : 'yellow'")
-            | {{ wsConnected ? 'Live' : 'Delayed' }}
     h1.title2(v-if="!small") {{ stock.name || 'Loading...' }}
 </template>
 
@@ -40,7 +36,6 @@ const props = defineProps({
       nextClose: null
     })
   },
-  wsConnected: { type: Boolean, default: false },
   small: { type: Boolean, default: false }
 })
 
