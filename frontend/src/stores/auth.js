@@ -70,7 +70,7 @@ export async function signInWithPassword({ email, password }) {
   }
 }
 
-export async function signUpWithPassword({ email, password }) {
+export async function signUpWithPassword({ email, password, displayName }) {
   const supabase = getSupabaseClient()
   if (!supabase) throw new Error('Supabase auth is not configured.')
 
@@ -78,7 +78,12 @@ export async function signUpWithPassword({ email, password }) {
   state.error = ''
   state.notice = ''
   try {
-    const { data, error } = await supabase.auth.signUp({ email, password })
+    const trimmedName = typeof displayName === 'string' ? displayName.trim() : ''
+    const options = trimmedName
+      ? { data: { display_name: trimmedName.slice(0, 120) } }
+      : undefined
+
+    const { data, error } = await supabase.auth.signUp({ email, password, options })
     if (error) throw error
     applySession(data.session)
     state.notice = data.session ? 'Account created.' : 'Check your email to confirm your account.'

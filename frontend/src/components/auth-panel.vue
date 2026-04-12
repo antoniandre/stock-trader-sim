@@ -5,30 +5,43 @@
     p.auth-panel__copy {{ panelCopy }}
 
   form.auth-panel__form(@submit.prevent="submit")
-    w-input(v-model.trim="email" label="Email" type="email" required autocomplete="email")
-    w-input(
-      v-model="password"
-      :label="isSignUp ? 'Create password' : 'Password'"
-      type="password"
-      required
-      :autocomplete="isSignUp ? 'new-password' : 'current-password'")
-
     w-input(
       v-if="isSignUp"
-      v-model="confirmPassword"
-      label="Confirm password"
-      type="password"
-      required
-      autocomplete="new-password")
+      v-model.trim="displayName"
+      label="Display name (optional)"
+      type="text"
+      autocomplete="nickname"
+      :maxlength="120")
 
-    p.auth-panel__hint(v-if="isSignUp") Password should be at least 8 characters.
-    p.auth-panel__notice(v-if="authState.notice") {{ authState.notice }}
+    w-input(
+      v-model.trim="email"
+      label="Email"
+      type="email"
+      required
+      autocomplete="email")
+
+    .w-flex.align-center.gap2
+      w-input.xs6(
+        v-model="password"
+        :label="isSignUp ? 'Create password' : 'Password'"
+        type="password"
+        required
+        :autocomplete="isSignUp ? 'new-password' : 'current-password'")
+      w-input.xs6(
+        v-if="isSignUp"
+        v-model="confirmPassword"
+        label="Confirm password"
+        type="password"
+        required
+        autocomplete="new-password")
+
+    p.caption(v-if="isSignUp") Password should be at least 8 characters.
+    w-alert.auth-panel__notice(v-if="authState.notice" info) {{ authState.notice }}
     p.auth-panel__error(v-if="errorMessage") {{ errorMessage }}
 
-    .auth-panel__actions
+    .auth-panel__actions.mt4.justify-end
+      w-button(type="button" text @click="toggleMode") {{ switchLabel }}
       w-button(:loading="authState.loading" type="submit") {{ submitLabel }}
-      w-button(type="button" text @click="toggleMode")
-        | {{ switchLabel }}
 </template>
 
 <script setup>
@@ -42,6 +55,7 @@ const props = defineProps({
 const emit = defineEmits(['mode-change'])
 
 const email = ref('')
+const displayName = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 const isSignUp = ref(props.mode === 'signup')
@@ -50,6 +64,7 @@ const localError = ref('')
 watch(() => props.mode, value => {
   isSignUp.value = value === 'signup'
   localError.value = ''
+  if (value !== 'signup') displayName.value = ''
 })
 
 const panelTitle = computed(() => isSignUp.value ? 'Create your account' : 'Sign in')
@@ -64,6 +79,7 @@ function toggleMode() {
   const nextMode = isSignUp.value ? 'signin' : 'signup'
   isSignUp.value = nextMode === 'signup'
   confirmPassword.value = ''
+  displayName.value = ''
   localError.value = ''
   emit('mode-change', nextMode)
 }
@@ -82,7 +98,13 @@ async function submit() {
   }
 
   try {
-    if (isSignUp.value) await signUpWithPassword({ email: email.value, password: password.value })
+    if (isSignUp.value) {
+      await signUpWithPassword({
+        email: email.value,
+        password: password.value,
+        displayName: displayName.value
+      })
+    }
     else await signInWithPassword({ email: email.value, password: password.value })
   }
   catch (error) {
@@ -114,9 +136,7 @@ async function submit() {
   color: var(--w-text-light-color);
 }
 
-.auth-panel__error {
-  color: var(--w-error-color);
-}
+.auth-panel__error {color: var(--w-error-color);}
 
 .auth-panel__form {
   display: grid;
@@ -132,6 +152,8 @@ async function submit() {
   margin: -0.2rem 0 0;
   font-size: 0.85rem;
 }
+
+.auth-panel__hint--tight {margin: -0.55rem 0 0;}
 
 .auth-panel__actions {
   display: flex;
