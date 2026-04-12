@@ -38,8 +38,7 @@
         .ml3.user-summary.grow
           p.text-bold {{ userDisplayName }}
           p.size--sm.grey {{ userSecondaryLine }}
-          p.size--xs.op6.mt1(v-if="authModeLabel") {{ authModeLabel }}
-      .w-flex.column.justify-end.no-grow.gap1(v-if="showAuthActions")
+      .w-flex.column.justify-end.no-grow(v-if="showAuthActions")
         w-button.align-self-start.w-button--icon(
           route="/auth"
           text
@@ -184,11 +183,6 @@ const userInitials = computed(() => {
     .slice(0, 2)
     .map(part => part[0]?.toUpperCase() || '')
     .join('') || '?'
-})
-
-const authModeLabel = computed(() => {
-  if (!authState.enabled) return ''
-  return currentUser.value ? 'Secure session' : 'Secure sign-in'
 })
 
 const showAuthActions = computed(() => authState.enabled)
