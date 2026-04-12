@@ -27,7 +27,7 @@
 
           .unrealized-pl(:class="parseFloat(position.unrealized_pl) >= 0 ? 'currency-positive' : 'currency-negative'")
             span(v-html="formatCurrency(position.unrealized_pl, position.currency, 2, false)")
-            span.mx1 ({{ formatPercentage(position.unrealized_plpc) }}%)
+            span.mx1 ({{ formatPercentage(position.unrealized_plpc) }})
             small P/L
 
         .price-info.text-right.ml4
