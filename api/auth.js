@@ -40,15 +40,25 @@ function parseMockUserHeader(value) {
   }
 }
 
+function nameFromUserMetadata(meta) {
+  if (!meta || typeof meta !== 'object') return null
+  const display = meta.display_name ?? meta.full_name
+  if (display == null) return null
+  const s = String(display).trim()
+  return s || null
+}
+
 function normalizeUser(user) {
   if (!user || !user.id) return null
 
   const plan = normalizePlan(user.plan)
+  const metaName = nameFromUserMetadata(user.user_metadata)
+  const resolvedName = user.name ? String(user.name).trim() || null : null
 
   return {
     id: String(user.id),
     email: user.email ? String(user.email) : null,
-    name: user.name ? String(user.name) : null,
+    name: resolvedName || metaName,
     plan,
     entitlements: buildEntitlements(plan),
     authProvider: user.authProvider || AUTH_PROVIDER
@@ -82,10 +92,13 @@ async function verifyProviderJwt(token) {
 
   const { payload } = await jwtVerify(token, secret, verifyOptions)
 
+  const metaName = nameFromUserMetadata(payload.user_metadata)
+  const topName = payload.name != null ? String(payload.name).trim() || null : null
+
   return normalizeUser({
     id: payload.sub,
     email: payload.email,
-    name: payload.name,
+    name: topName || metaName,
     plan: payload.plan || payload['https://stocktrader.app/plan'] || 'free',
     authProvider: AUTH_PROVIDER
   })
