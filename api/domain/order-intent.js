@@ -1,6 +1,10 @@
 export const SUPPORTED_ORDER_TYPES = ['market', 'limit', 'stop', 'stop_limit']
 export const SUPPORTED_ORDER_SIDES = ['buy', 'sell']
 
+export function isCryptoPairSymbol(symbol) {
+  return String(symbol || '').includes('/')
+}
+
 function toNumber(value) {
   if (value === undefined || value === null || value === '') return null
   const parsed = Number(value)
@@ -35,6 +39,10 @@ export function validateOrderIntent(orderIntent, { allowTypes = SUPPORTED_ORDER_
   if (!SUPPORTED_ORDER_SIDES.includes(orderIntent.side)) errors.push('side must be buy or sell')
   if (!allowTypes.includes(orderIntent.type)) errors.push(`Only ${allowTypes.map((item) => `type=${item}`).join(' and ')} are supported`)
   if (!Number.isFinite(orderIntent.qty) || orderIntent.qty <= 0) errors.push('Quantity must be greater than 0')
+
+  if (isCryptoPairSymbol(orderIntent.symbol) && orderIntent.type === 'stop') {
+    errors.push('Crypto pairs on Alpaca support market, limit, and stop_limit — not a standalone stop. Use stop_limit or split into limit + trigger workflow.')
+  }
 
   if (orderIntent.type === 'limit' && (!Number.isFinite(orderIntent.limitPrice) || orderIntent.limitPrice <= 0)) {
     errors.push('Limit price must be greater than 0 for limit orders')

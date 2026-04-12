@@ -30,7 +30,7 @@ export class AlpacaBrokerAdapter extends BrokerAdapter {
       notes: [
         'Market and limit orders are supported.',
         'Equities: optional stop loss uses bracket orders (order_class=bracket); opening leg uses time_in_force=day.',
-        'Crypto pairs (e.g. BTC/USD): simple orders only; time_in_force is gtc or ioc per Alpaca. Bracket stops are not attached on crypto (they are unsupported and mis-TIF can leave orders pending).'
+        'Crypto pairs (e.g. BTC/USD): simple orders only; market orders use ioc for immediate fill. Limit uses gtc or ioc; stop_limit uses gtc. Standalone stop is rejected. Bracket stops are not attached on crypto.'
       ]
     }
   }

@@ -7,6 +7,14 @@ import { getMarketStatus as getMarketStatusImpl, getPrice as getPriceImpl, getAl
 import { getCurrencyInfo } from '../utils.js'
 import { getEasternTime } from '../utils.js'
 
+/** Alpaca crypto qty: avoid float noise; trim trailing zeros (docs use string qty). */
+function formatAlpacaCryptoQty(quantity) {
+  const n = Math.abs(Number(quantity))
+  if (!Number.isFinite(n) || n <= 0) return String(quantity)
+  const s = n.toFixed(8).replace(/\.?0+$/, '')
+  return s || '0'
+}
+
 // Alpaca Trading Service Implementation.
 // --------------------------------------------------------
 // Implements the TradingService interface using Alpaca API.
@@ -97,17 +105,22 @@ export class AlpacaTradingService extends TradingService {
     }
 
     try {
-      const qty = Math.abs(quantity)
+      const qtyAbs = Math.abs(quantity)
       const isCrypto = String(symbol).includes('/')
       // Alpaca crypto: only time_in_force gtc|ioc; order_class must be simple (no bracket/OTO).
-      // Equity bracket legs used time_in_force=day — that is invalid for crypto and can leave orders pending.
-      const timeInForce = isCrypto
-        ? (String(tif).toLowerCase() === 'ioc' ? 'ioc' : 'gtc')
-        : tif
+      // Market + gtc can sit in "new"/accepted on some venues; ioc forces immediate execution path.
+      // stop_limit on crypto supports gtc only (ioc is not valid for stop_limit per Alpaca).
+      const tifLower = String(tif).toLowerCase()
+      let timeInForce = tif
+      if (isCrypto) {
+        if (type === 'market') timeInForce = 'ioc'
+        else if (type === 'stop_limit') timeInForce = 'gtc'
+        else timeInForce = tifLower === 'ioc' ? 'ioc' : 'gtc'
+      }
 
       const orderData = {
         symbol,
-        qty,
+        qty: isCrypto ? formatAlpacaCryptoQty(qtyAbs) : qtyAbs,
         side,
         type,
         time_in_force: timeInForce,
@@ -115,6 +128,12 @@ export class AlpacaTradingService extends TradingService {
       }
 
       const stopN = Number(stopPx)
+
+      if (isCrypto && type === 'stop') {
+        throw new Error(
+          'Alpaca crypto supports market, limit, and stop_limit only. Use stop_limit (trigger + limit) instead of a standalone stop.'
+        )
+      }
 
       if (type === 'stop') {
         orderData.type = 'stop'
