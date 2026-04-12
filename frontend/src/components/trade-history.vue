@@ -42,6 +42,7 @@ import { computed } from 'vue'
 import TickerLogo from './ticker-logo.vue'
 import { formatCurrency } from '@/utils/formatters'
 import { tradingTickerPath } from '@/utils/trading-routes'
+import { isCryptoInstrumentSymbol, tradingMarketForSymbol } from '@/utils/symbol-matching'
 
 const props = defineProps({
   history: { type: Array, required: true },
@@ -62,5 +63,12 @@ const headers = [
 </script>
 
 <style lang="scss" scoped>
-.date-time {width: 4rem;}
+.date-time {width: 4.3rem;}
+
+.crypto-asset-tag {
+  flex-shrink: 0;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  opacity: 0.95;
+}
 </style>

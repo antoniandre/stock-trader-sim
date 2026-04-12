@@ -45,6 +45,15 @@ export function tickerRowMatchesStock(tickerSymbol, rowSymbol, market = 'stocks'
   return false
 }
 
+/** True for `BTC/USD`, `AAVEUSD`, etc. (uses canonical pair parsing). */
+export function isCryptoInstrumentSymbol(symbol) {
+  return parseCryptoPairSymbol(symbol) != null
+}
+
+export function tradingMarketForSymbol(symbol) {
+  return isCryptoInstrumentSymbol(symbol) ? 'crypto' : 'stocks'
+}
+
 /** Bracket / OCO protective leg: stays open after entry fills; omit from "open orders" list. */
 export function isBracketStopChildOrder(order) {
   const pid = order?.parent_order_id

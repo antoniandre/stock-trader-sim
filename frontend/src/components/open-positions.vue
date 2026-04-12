@@ -15,7 +15,9 @@
         .position-info.w-flex.align-center
           ticker-logo.mr3(:symbol="position.symbol")
           div
-            router-link.symbol.title3.mb1.text-bold.hover-underline(:to="tradingTickerPath(position.symbol)") {{ position.symbol }}
+            .w-flex.align-center.gap2.mb1.flex-wrap
+              router-link.symbol.title3.text-bold.hover-underline(:to="tradingTickerPath(position.symbol, tradingMarketForSymbol(position.symbol))") {{ position.symbol }}
+              w-tag.crypto-asset-tag(v-if="isCryptoInstrumentSymbol(position.symbol)" xs round outline color="grey") CRYPTO
             .qty.size--sm.op7 {{ position.qty }} share{{ position.qty > 1 ? 's' : '' }}
 
         .position-values
@@ -92,5 +94,13 @@ onMounted(() => {
 .empty-state {
   border: 2px dashed rgba(255, 255, 255, 0.1);
   border-radius: 8px;
+}
+
+/* Alpaca-style neutral crypto pill */
+.crypto-asset-tag {
+  flex-shrink: 0;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  opacity: 0.95;
 }
 </style>
