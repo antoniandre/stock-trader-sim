@@ -2,7 +2,7 @@ import { BrokerAdapter } from '../base/broker-adapter.js'
 import { getTradingService } from '../../../services/trading-service.js'
 import { IS_SIMULATION, getTradingEnvironmentLabel } from '../../../config.js'
 import { getMockAccountData } from '../../../simulation.js'
-import { normalizeBrokerError } from '../../../services/broker-error.js'
+import { getBrokerHttpErrorMeta, normalizeBrokerError } from '../../../services/broker-error.js'
 
 export class AlpacaBrokerAdapter extends BrokerAdapter {
   getIdentity() {
@@ -111,8 +111,14 @@ export class AlpacaBrokerAdapter extends BrokerAdapter {
       return { success: true, order }
     }
     catch (error) {
-      console.error('AlpacaBrokerAdapter.submitOrder:', error.message)
-      return { success: false, error: normalizeBrokerError(error, 'Order failed') }
+      const { brokerStatus, brokerCode } = getBrokerHttpErrorMeta(error)
+      console.error('AlpacaBrokerAdapter.submitOrder:', error.message, brokerStatus ? `(HTTP ${brokerStatus})` : '')
+      return {
+        success: false,
+        error: normalizeBrokerError(error, 'Order failed'),
+        ...(brokerStatus != null ? { brokerStatus } : {}),
+        ...(brokerCode != null ? { brokerCode } : {})
+      }
     }
   }
 

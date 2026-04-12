@@ -317,7 +317,16 @@ export async function cancelOrder(orderId) {
 
 function getErrorMessage(payload, fallback = 'Order failed') {
   if (!payload) return fallback
-  if (typeof payload.error === 'string') return payload.error
+  if (typeof payload.error === 'string' && payload.error.trim()) {
+    const base = payload.error.trim()
+    if (payload.brokerCode != null && String(payload.brokerCode) !== '') {
+      return `${base} (broker code ${payload.brokerCode})`
+    }
+    if (typeof payload.brokerStatus === 'number') {
+      return `${base} (HTTP ${payload.brokerStatus})`
+    }
+    return base
+  }
   if (typeof payload.message === 'string') return payload.message
   if (Array.isArray(payload.details) && payload.details.length) return payload.details.join(', ')
   if (typeof payload.data?.error === 'string') return payload.data.error
