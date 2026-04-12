@@ -10,9 +10,10 @@
         template(#item="{ item }")
           tr
             td.px1.text-bold
-              .w-flex.align-center
+              .w-flex.align-center.gap2.flex-wrap
                 ticker-logo.mr3(:symbol="item.symbol" size="sm")
-                router-link.text-bold.hover-underline(:to="tradingTickerPath(item.symbol)") {{ item.symbol }}
+                router-link.text-bold.hover-underline(:to="tradingTickerPath(item.symbol, tradingMarketForSymbol(item.symbol))") {{ item.symbol }}
+                w-tag.crypto-asset-tag(v-if="isCryptoInstrumentSymbol(item.symbol)" xs round outline color="grey") CRYPTO
             td.px1.text-center
               w-tag.px2.py1.text-bold(:class="item.side === 'buy' ? 'success--bg' : 'error--bg'" round xs)
                 | {{ item.side.toUpperCase() }}

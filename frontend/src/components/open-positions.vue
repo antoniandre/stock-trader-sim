@@ -52,6 +52,7 @@ import { ref, onMounted } from 'vue'
 import { fetchPositions } from '@/api'
 import { formatNumber, formatPercentage, formatCurrency } from '@/utils/formatters'
 import { tradingTickerPath } from '@/utils/trading-routes'
+import { isCryptoInstrumentSymbol, tradingMarketForSymbol } from '@/utils/symbol-matching'
 import TickerLogo from './ticker-logo.vue'
 
 const positions = ref([])
@@ -84,6 +85,7 @@ onMounted(() => {
 
 .position-item {
   transition: background-color 0.2s;
+
   &:hover {background-color: rgba(255, 255, 255, 0.02);}
 }
 
