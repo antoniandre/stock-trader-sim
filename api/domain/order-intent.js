@@ -17,8 +17,14 @@ export function normalizeOrderIntent(input = {}) {
   const type = String(input.type || 'market').trim().toLowerCase()
   const qty = toNumber(input.qty ?? input.quantity)
   const limitPrice = toNumber(input.limitPrice ?? input.limit_price)
-  const stopPrice = toNumber(input.stopPrice ?? input.stop_price ?? input.stopLoss)
+  let stopPrice = toNumber(input.stopPrice ?? input.stop_price ?? input.stopLoss)
   const timeInForce = String(input.timeInForce || input.time_in_force || 'gtc').trim().toLowerCase()
+
+  // Equity-only bracket stop in UI; Alpaca crypto does not attach it (see alpaca-trading-service).
+  // Drop so we do not trip orderIntentRequiresStopFeature(stopOrders) or bracket validation.
+  if (isCryptoPairSymbol(symbol) && (type === 'market' || type === 'limit')) {
+    stopPrice = null
+  }
 
   return {
     symbol,
