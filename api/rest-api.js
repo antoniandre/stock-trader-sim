@@ -14,13 +14,28 @@ import * as AlpacaClient from './clients/alpaca-client.js'
 import { broadcast } from './websocket-server.js'
 import { recordTrade } from './simulation.js'
 import { createStandardResponse, sleep, withRateLimitBackoff, tradableSymbolsEquivalent } from './utils.js'
-import { normalizeOrderIntent, validateOrderIntent, estimateOrderNotional } from './domain/order-intent.js'
+import { normalizeOrderIntent, validateOrderIntent, estimateOrderNotional, isCryptoPairSymbol } from './domain/order-intent.js'
 import { recordStrategyRun } from './services/strategy-run-recorder.js'
 import { normalizeBrokerError } from './services/broker-error.js'
 import { getTradeCandidates } from './services/trade-screener-service.js'
+import { resolveCryptoBuyVenueSymbol } from './services/crypto-usd-quote-fallback.js'
+
+function midPriceFromCryptoQuote(q) {
+  if (!q || typeof q !== 'object') return 0
+  const ap = Number(q.ap)
+  const bp = Number(q.bp)
+  if (Number.isFinite(ap) && ap > 0 && Number.isFinite(bp) && bp > 0) return (ap + bp) / 2
+  if (Number.isFinite(ap) && ap > 0) return ap
+  if (Number.isFinite(bp) && bp > 0) return bp
+  return 0
+}
 
 function orderIntentRequiresStopFeature(orderIntent) {
   if (orderIntent.type === 'stop' || orderIntent.type === 'stop_limit') return true
+  // Optional bracket stop in the UI is ignored for crypto pairs (never routed to Alpaca as a stop leg).
+  if (isCryptoPairSymbol(orderIntent.symbol) && (orderIntent.type === 'market' || orderIntent.type === 'limit')) {
+    return false
+  }
   return (orderIntent.type === 'market' || orderIntent.type === 'limit')
     && Number.isFinite(orderIntent.stopPrice) && orderIntent.stopPrice > 0
 }
@@ -418,11 +433,30 @@ export function createRestApiRoutes() {
 
       console.log(`💰 Fetching data for ${paginatedStocks.length} stocks on page ${pageNum}`)
 
+      let cryptoQuotesBySymbol = {}
+      if (normalizedMarket === 'crypto' && paginatedStocks.length > 0) {
+        try {
+          cryptoQuotesBySymbol = await AlpacaClient.getCryptoLatestQuotesForSymbols(
+            paginatedStocks.map(s => s.symbol)
+          )
+        }
+        catch (e) {
+          console.warn('⚠️ Batch crypto quotes failed, falling back per symbol:', e.message)
+        }
+      }
+
       // Fetch prices and market status in parallel.
       const comprehensiveStocks = await Promise.all(paginatedStocks.map(async (stock) => {
         try {
           // Get price (use cached if available, otherwise fetch).
           let price = state.stockPrices[stock.symbol] || 0
+          if (price === 0 && normalizedMarket === 'crypto') {
+            price = midPriceFromCryptoQuote(cryptoQuotesBySymbol[stock.symbol])
+            if (price > 0) {
+              state.stockPrices[stock.symbol] = price
+              console.log(`💲 Fetched ${stock.symbol} (batch quote): $${price.toFixed(2)}`)
+            }
+          }
           if (price === 0) {
             price = await marketDataProvider.getPrice(stock.symbol)
             if (price > 0) {
@@ -1035,28 +1069,54 @@ export function createRestApiRoutes() {
     }
   }
 
+  async function cryptoVenueMeta(orderIntent) {
+    const swap = await resolveCryptoBuyVenueSymbol(orderIntent.symbol, orderIntent.side)
+    if (!swap) {
+      return {
+        venueSymbol: orderIntent.symbol,
+        requestedSymbolForPayload: null,
+        swapped: false
+      }
+    }
+    console.log(`🔄 Crypto buy venue: ${swap.requestedSymbol} → ${swap.venueSymbol} (USD buying power)`)
+    return {
+      venueSymbol: swap.venueSymbol,
+      requestedSymbolForPayload: swap.requestedSymbol,
+      swapped: true
+    }
+  }
+
   async function getOrderPreview(input) {
     const orderIntent = normalizeOrderIntent(input)
     if (orderIntentRequiresStopFeature(orderIntent) && !FEATURE_FLAGS.stopOrders) {
       return { statusCode: 403, body: { error: 'Stop / stop-loss orders are disabled in this deployment.' } }
     }
 
-    const currentPrice = await getPrice(orderIntent.symbol).catch(() => 0)
-    const validation = validateOrderIntent(orderIntent, { referencePrice: currentPrice })
+    const venue = await cryptoVenueMeta(orderIntent)
+    const currentPrice = await getPrice(venue.venueSymbol).catch(() => 0)
+    const intentAtVenue = { ...orderIntent, symbol: venue.venueSymbol }
+    const validation = validateOrderIntent(intentAtVenue, { referencePrice: currentPrice })
     if (!validation.valid) {
       return { statusCode: 400, body: { error: 'Invalid order request', details: validation.errors } }
     }
     const positions = await getAlpacaPositions().catch(() => [])
     const position = Array.isArray(positions)
-      ? positions.find((item) => String(item.symbol || '').toUpperCase() === orderIntent.symbol) || null
+      ? positions.find((item) => {
+          const sym = String(item.symbol || '').toUpperCase()
+          return sym === orderIntent.symbol || sym === venue.venueSymbol
+            || tradableSymbolsEquivalent(item.symbol, orderIntent.symbol)
+            || tradableSymbolsEquivalent(item.symbol, venue.venueSymbol)
+        }) || null
       : null
-    const estimatedNotional = estimateOrderNotional(orderIntent, currentPrice || null)
+    const estimatedNotional = estimateOrderNotional(intentAtVenue, currentPrice || null)
 
     return {
       statusCode: 200,
       body: createStandardResponse({
         order: {
           symbol: orderIntent.symbol,
+          venue_symbol: venue.venueSymbol,
+          routes_to_usd_pair: venue.swapped,
           side: orderIntent.side,
           type: orderIntent.type,
           qty: orderIntent.qty,
@@ -1097,8 +1157,10 @@ export function createRestApiRoutes() {
         return res.status(403).json({ error: 'Stop / stop-loss orders are disabled in this deployment.' })
       }
 
-      const referencePrice = await getPrice(orderIntent.symbol).catch(() => 0)
-      const validation = validateOrderIntent(orderIntent, { referencePrice })
+      const venue = await cryptoVenueMeta(orderIntent)
+      const referencePrice = await getPrice(venue.venueSymbol).catch(() => 0)
+      const intentAtVenue = { ...orderIntent, symbol: venue.venueSymbol }
+      const validation = validateOrderIntent(intentAtVenue, { referencePrice })
       if (!validation.valid) {
         return res.status(400).json({
           error: 'Invalid order request',
@@ -1108,7 +1170,7 @@ export function createRestApiRoutes() {
 
       const broker = await getBrokerAdapter()
       const result = await broker.submitOrder({
-        symbol: orderIntent.symbol,
+        symbol: venue.venueSymbol,
         qty: orderIntent.qty,
         side: orderIntent.side,
         type: orderIntent.type,
@@ -1117,10 +1179,20 @@ export function createRestApiRoutes() {
         time_in_force: orderIntent.timeInForce
       })
       if (!result.success) {
-        return res.status(400).json({ error: result.error })
+        const body = { error: result.error }
+        if (result.brokerStatus != null) body.brokerStatus = result.brokerStatus
+        if (result.brokerCode != null) body.brokerCode = result.brokerCode
+        return res.status(400).json(body)
       }
 
-      const payload = buildOrderPayload(result)
+      let payload = buildOrderPayload(result)
+      if (venue.requestedSymbolForPayload && payload?.symbol && payload.symbol !== venue.requestedSymbolForPayload) {
+        payload = {
+          ...payload,
+          requested_symbol: venue.requestedSymbolForPayload,
+          crypto_venue_note: 'Buy was executed on the USD-quoted pair so USD buying power funds the order. Set CRYPTO_USD_QUOTE_FALLBACK=off in api/.env to submit the exact pair you request.'
+        }
+      }
 
       // Trade event — always broadcast on success so tickers refresh orders/positions.
       // Previously we only broadcast when filled_avg_price was finite; pending or odd
