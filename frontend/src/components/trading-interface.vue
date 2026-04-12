@@ -13,14 +13,14 @@
           span.size--lg.ml2.mr1.pb2 {{ item.label }}
       | Order
 
-    w-alert.pa3.bdrs2(v-if="!tickerQuotePending && !stock.price" error)
-      | Trading disabled: No current market data available
+    w-alert.bdrs2(v-if="!tickerQuotePending && !stock.price" error).
+      Trading disabled: No current market data available
 
-    w-alert.pa3.bdrs2.mb4(v-else-if="stock.price && marketGate.reason !== 'open'" warning)
-      strong {{ marketGate.title }}
-      div.mt1 {{ marketGate.message }}
+    w-alert.bdrs2.mb3(v-else-if="stock.price && marketGate.reason !== 'open'" warning)
+      strong.mr1 {{ marketGate.title }}
+      | {{ marketGate.message }}
 
-    .quick-actions.glass-box.pa4
+    .quick-actions.glass-box.pa3
       .mb2.text-upper.op6.body Quick Actions
       .w-flex.align-center.gap2
         w-button(@click="setQuickQuantity(1)" round tooltip="1 Share" width="28" height="28")
@@ -76,39 +76,45 @@
       button.grow.sell(@click="openOrderConfirmation('sell')" :disabled="!canSubmitOrder")
         strong SELL
 
-  w-dialog(v-model="showOrderConfirmation" :title="confirmationTitle" width="520")
-    .confirmation-copy(v-if="pendingOrder")
-      w-alert.pa3.bdrs2.mb4(:success="marketGate.reason === 'open'" :warning="marketGate.reason !== 'open'")
-        strong {{ pendingEnvironmentLabel }}
-        div.mt1 {{ marketGate.message }}
-        div.mt1.size--sm.op7 {{ providerSummary }}
-
-      .confirmation-grid
-        .confirmation-row
+  OrderConfirmationDialog(
+    v-model="showOrderConfirmation"
+    :title="confirmationTitle"
+    :pending="!!pendingOrder"
+    :market-gate="marketGate"
+    :environment-label="pendingEnvironmentLabel"
+    :provider-summary="providerSummary"
+    :submitting="submittingOrder"
+    :confirm-disabled="submittingOrder || marketGate.reason !== 'open'"
+    :confirm-color="pendingOrder && pendingOrder.side === 'buy' ? 'success' : 'error'"
+    :confirm-label="pendingOrder ? `Confirm ${pendingOrder.side.toUpperCase()}` : 'Confirm'"
+    @confirm="confirmOrder")
+    template(v-if="pendingOrder" #rows)
+      .order-confirmation-dialog__grid
+        .order-confirmation-dialog__row
           span.op7 Symbol
           strong {{ pendingOrder.symbol }}
-        .confirmation-row
+        .order-confirmation-dialog__row
           span.op7 Side
           strong(:class="pendingOrder.side === 'buy' ? 'success' : 'error'") {{ pendingOrder.side.toUpperCase() }}
-        .confirmation-row
+        .order-confirmation-dialog__row
           span.op7 Order type
           strong {{ pendingOrder.type.toUpperCase() }}
-        .confirmation-row
+        .order-confirmation-dialog__row
           span.op7 Quantity
           strong {{ pendingOrder.quantity }} shares
-        .confirmation-row(v-if="pendingOrder.limitPrice")
+        .order-confirmation-dialog__row(v-if="pendingOrder.limitPrice")
           span.op7 Limit price
           strong(v-html="formatCurrency(pendingOrder.limitPrice, stock.currency, 2, false)")
-        .confirmation-row(v-if="pendingOrder.stopPrice && ['stop','stop_limit'].includes(pendingOrder.type)")
+        .order-confirmation-dialog__row(v-if="pendingOrder.stopPrice && ['stop','stop_limit'].includes(pendingOrder.type)")
           span.op7 Stop (trigger)
           strong(v-html="formatCurrency(pendingOrder.stopPrice, stock.currency, 2, false)")
-        .confirmation-row(v-else-if="pendingOrder.stopPrice")
+        .order-confirmation-dialog__row(v-else-if="pendingOrder.stopPrice")
           span.op7 Stop loss (bracket)
           strong(v-html="formatCurrency(pendingOrder.stopPrice, stock.currency, 2, false)")
-        .confirmation-row
+        .order-confirmation-dialog__row
           span.op7 Estimated notional
           strong(v-html="formatCurrency(pendingOrder.estimatedNotional, stock.currency, 2, false)")
-
+    template(v-if="pendingOrder" #notes)
       p.size--sm.op7.mt4(v-if="pendingOrder.type === 'stop'") Stop: converts to a market order when the stop price is reached. Simulation only fills if the mock price has already crossed your stop; use Alpaca paper for resting stops.
       p.size--sm.op7.mt4(v-else-if="pendingOrder.type === 'stop_limit'") Stop-limit: when the stop is reached, a limit order is placed at your limit price.
       p.size--sm.op7.mt4(v-else-if="pendingOrder.type === 'market' && !pendingOrder.stopPrice") Market orders fill at the best available price and can move before execution.
@@ -117,11 +123,6 @@
       p.size--sm.op7.mt4(v-else-if="pendingOrder.stopPrice && market === 'crypto'") Crypto on Alpaca: limit orders do not use equity-style bracket stops here; only the limit is submitted.
       p.size--sm.op7.mt4(v-else-if="pendingOrder.stopPrice") Limit bracket: executes at your limit or better when marketable; a protective stop is attached.
       p.size--sm.op7.mt4(v-else) Limit orders only execute at your limit price or better. In simulation, only immediately marketable limits are filled.
-
-      .w-flex.justify-end.gap2.mt5
-        w-button(@click="showOrderConfirmation = false" text round) Cancel
-        w-button(@click="confirmOrder" :disabled="submittingOrder || marketGate.reason !== 'open'" :loading="submittingOrder" :color="pendingOrder.side === 'buy' ? 'success' : 'error'" round)
-          | Confirm {{ pendingOrder.side.toUpperCase() }}
 
   .glass-box.pa6.mt4(v-if="recentTrades.length")
     .title3.mb4 Recent Trades
@@ -140,6 +141,7 @@
 import { ref, computed, inject, watch, onMounted, onUnmounted } from 'vue'
 import { formatCurrency } from '@/utils/formatters'
 import { postOrder, fetchMarketStatus, checkHealth } from '@/api/index.js'
+import OrderConfirmationDialog from '@/components/order-confirmation-dialog.vue'
 
 const props = defineProps({
   symbol: { type: String, required: true },
@@ -391,19 +393,6 @@ onUnmounted(() => {
       border-color: var(--w-error-color);
       background-image: linear-gradient(135deg, color-mix(in srgb, var(--w-error-color) 8%, transparent), transparent 80%);
     }
-  }
-
-  .confirmation-grid {
-    display: grid;
-    gap: 0.75rem;
-  }
-
-  .confirmation-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    padding-bottom: 0.5rem;
   }
 
   .quick-actions {

@@ -160,36 +160,40 @@
         span.op5.size--sm • Desk: {{ selectedMarketLabel }}
         span.op5.size--sm(v-if="searchQuery") • Filtered by "{{ searchQuery }}"
 
-  w-dialog(v-model="showOrderConfirmation" title="Review quick order" width="520")
-    .confirmation-copy(v-if="pendingOrder")
-      w-alert.pa3.bdrs2.mb4(:success="marketGate.reason === 'open'" :warning="marketGate.reason !== 'open'")
-        strong {{ pendingEnvironmentLabel }}
-        div.mt1 {{ marketGate.message }}
-        div.mt1.size--sm.op7 {{ providerSummary }}
-      .confirmation-grid
-        .confirmation-row
+  OrderConfirmationDialog(
+    v-model="showOrderConfirmation"
+    title="Review quick order"
+    :pending="!!pendingOrder"
+    :market-gate="marketGate"
+    :environment-label="pendingEnvironmentLabel"
+    :provider-summary="providerSummary"
+    :submitting="submittingOrder"
+    :confirm-disabled="submittingOrder || marketGate.reason !== 'open'"
+    :confirm-color="pendingOrder && pendingOrder.side === 'buy' ? 'success' : 'error'"
+    :confirm-label="pendingOrder ? `Confirm ${pendingOrder.side.toUpperCase()}` : 'Confirm'"
+    @confirm="confirmListOrder")
+    template(v-if="pendingOrder" #rows)
+      .order-confirmation-dialog__grid
+        .order-confirmation-dialog__row
           span.op7 Instrument
           strong {{ pendingOrder.symbol }}
-        .confirmation-row
+        .order-confirmation-dialog__row
           span.op7 Desk
           strong {{ selectedMarketLabel }}
-        .confirmation-row
+        .order-confirmation-dialog__row
           span.op7 Side
           strong(:class="pendingOrder.side === 'buy' ? 'success' : 'error'") {{ pendingOrder.side.toUpperCase() }}
-        .confirmation-row
+        .order-confirmation-dialog__row
           span.op7 Order type
           strong MARKET
-        .confirmation-row
+        .order-confirmation-dialog__row
           span.op7 Quantity
           strong 1 {{ quantityLabel }}
-        .confirmation-row
+        .order-confirmation-dialog__row
           span.op7 Estimated notional
           strong(v-html="formatCurrency(pendingOrder.estimatedNotional, pendingOrder.currency, 2, false)")
+    template(v-if="pendingOrder" #notes)
       p.size--sm.op7.mt4 Quick orders always place a single market order. Open the detailed ticket for limit pricing or risk controls.
-      .w-flex.justify-end.gap2.mt5
-        w-button(@click="showOrderConfirmation = false" text round) Cancel
-        w-button(@click="confirmListOrder" :disabled="submittingOrder || marketGate.reason !== 'open'" :loading="submittingOrder" :color="pendingOrder.side === 'buy' ? 'success' : 'error'" round)
-          | Confirm {{ pendingOrder.side.toUpperCase() }}
 </template>
 
 <script setup>
@@ -199,6 +203,7 @@ import { useWebSocket } from '@/composables/web-socket'
 import { formatCurrency } from '@/utils/formatters'
 import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
+import OrderConfirmationDialog from '@/components/order-confirmation-dialog.vue'
 import { tradingOverviewPath, tradingTickerPath, tradingTopMoversPath } from '@/utils/trading-routes'
 
 const props = defineProps({
@@ -579,19 +584,6 @@ onBeforeUnmount(() => {
 
 .market-switcher {
   border: 1px solid color-mix(in srgb, var(--w-primary-color) 12%, transparent);
-}
-
-.confirmation-grid {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.confirmation-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  padding-bottom: 0.5rem;
 }
 
 .screener-card {
