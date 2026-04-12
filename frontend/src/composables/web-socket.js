@@ -1,6 +1,7 @@
-import { ref, onUnmounted } from 'vue'
+import { ref } from 'vue'
 
-// WebSocket Composable
+// Shared WebSocket state (singleton). Multiple `useWebSocket()` callers share one connection
+// and the same status refs so the shell (e.g. app.vue) can show a single global indicator.
 // --------------------------------------------------------
 function getDefaultWebSocketUrl() {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL
@@ -11,141 +12,135 @@ function getDefaultWebSocketUrl() {
   return `${wsProto}//${host}`
 }
 
-export function useWebSocket(url = getDefaultWebSocketUrl()) {
-  const wsConnected = ref(false)
-  const wsReconnecting = ref(false)
-  const wsStatusLabel = ref('Connecting…')
-  const lastUpdate = ref('Never')
-  let ws = null
-  let reconnectTimeout = null
-  let messageHandlers = new Map()
-  let isDestroyed = false
+const wsConnected = ref(false)
+const wsReconnecting = ref(false)
+const wsStatusLabel = ref('Connecting…')
+const lastUpdate = ref('Never')
 
-  // Connection Management
-  // --------------------------------------------------------
-  function connect() {
-    try {
-      if (ws?.readyState === WebSocket.OPEN) return
-      if (ws) ws.close()
+let connectUrl = getDefaultWebSocketUrl()
+let ws = null
+let reconnectTimeout = null
+const messageHandlers = new Map()
+let reconnectAllowed = true
 
-      wsStatusLabel.value = wsConnected.value ? 'Live' : 'Connecting…'
-      wsReconnecting.value = !wsConnected.value && lastUpdate.value !== 'Never'
-      ws = new WebSocket(url)
+function connect(url) {
+  reconnectAllowed = true
+  if (url) connectUrl = url
+  try {
+    if (ws?.readyState === WebSocket.OPEN) return
+    if (ws) ws.close()
 
-      ws.onopen = () => {
-        wsConnected.value = true
-        wsReconnecting.value = false
-        wsStatusLabel.value = 'Live'
-        if (reconnectTimeout) {
-          clearTimeout(reconnectTimeout)
-          reconnectTimeout = null
-        }
-      }
+    wsStatusLabel.value = wsConnected.value ? 'Live' : 'Connecting…'
+    wsReconnecting.value = !wsConnected.value && lastUpdate.value !== 'Never'
+    ws = new WebSocket(connectUrl)
 
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          lastUpdate.value = new Date().toLocaleTimeString()
-
-          // Call all registered handlers for this message type.
-          const handlers = messageHandlers.get(data.type) || []
-          for (const handler of handlers) {
-            try {
-              handler(data)
-            }
-            catch (handlerError) {
-              console.error('Error in WebSocket message handler:', handlerError)
-            }
-          }
-        }
-        catch (error) {
-          console.error('Error parsing WebSocket message:', error)
-        }
-      }
-
-      ws.onclose = () => {
-        wsConnected.value = false
-        wsReconnecting.value = true
-        wsStatusLabel.value = lastUpdate.value === 'Never' ? 'Connecting…' : 'Reconnecting… using cached data'
-        // Do not reconnect after the component has been destroyed.
-        if (!isDestroyed) {
-          reconnectTimeout = setTimeout(connect, 3000)
-        }
-      }
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error)
-        wsConnected.value = false
-        wsReconnecting.value = true
-        wsStatusLabel.value = 'Connection issue — retrying'
+    ws.onopen = () => {
+      wsConnected.value = true
+      wsReconnecting.value = false
+      wsStatusLabel.value = 'Live'
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout)
+        reconnectTimeout = null
       }
     }
-    catch (error) {
-      console.error('Error connecting to WebSocket:', error)
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        lastUpdate.value = new Date().toLocaleTimeString()
+
+        const handlers = messageHandlers.get(data.type) || []
+        for (const handler of handlers) {
+          try {
+            handler(data)
+          }
+          catch (handlerError) {
+            console.error('Error in WebSocket message handler:', handlerError)
+          }
+        }
+      }
+      catch (error) {
+        console.error('Error parsing WebSocket message:', error)
+      }
+    }
+
+    ws.onclose = () => {
+      wsConnected.value = false
+      wsReconnecting.value = true
+      wsStatusLabel.value = lastUpdate.value === 'Never' ? 'Connecting…' : 'Reconnecting… using cached data'
+      if (reconnectAllowed) {
+        reconnectTimeout = setTimeout(() => connect(), 3000)
+      }
+    }
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error)
       wsConnected.value = false
       wsReconnecting.value = true
       wsStatusLabel.value = 'Connection issue — retrying'
     }
   }
-
-  // Message Handling
-  // --------------------------------------------------------
-  function send(message) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(message))
-      return true
-    }
-    return false
-  }
-
-  function subscribeToStock(symbol) {
-    return send({ type: 'subscribe', symbol })
-  }
-
-  function unsubscribeFromStock(symbol) {
-    return send({ type: 'unsubscribe', symbol })
-  }
-
-  function addMessageHandler(type, handler) {
-    if (!messageHandlers.has(type)) messageHandlers.set(type, [])
-    messageHandlers.get(type).push(handler)
-  }
-
-  function removeMessageHandler(type, handler) {
-    if (!messageHandlers.has(type)) return
-    const handlers = messageHandlers.get(type)
-    const index = handlers.indexOf(handler)
-    if (index > -1) handlers.splice(index, 1)
-
-    // Clean up empty handler arrays to prevent memory leaks
-    if (handlers.length === 0) messageHandlers.delete(type)
-  }
-
-  // Cleanup
-  // --------------------------------------------------------
-  function cleanup() {
-    // Set destroyed flag first so ws.onclose does not schedule a reconnect.
-    isDestroyed = true
-    if (reconnectTimeout) {
-      clearTimeout(reconnectTimeout)
-      reconnectTimeout = null
-    }
-    if (ws) {
-      ws.close()
-      ws = null
-    }
-    messageHandlers.clear()
+  catch (error) {
+    console.error('Error connecting to WebSocket:', error)
     wsConnected.value = false
-    wsReconnecting.value = false
-    wsStatusLabel.value = 'Offline'
+    wsReconnecting.value = true
+    wsStatusLabel.value = 'Connection issue — retrying'
   }
+}
 
-  // Use onUnmounted (not onBeforeUnmount) so consuming components can still
-  // send a final WS message (e.g. unsubscribe) in their own onBeforeUnmount,
-  // which Vue always fires before any onUnmounted hooks.
-  onUnmounted(() => {
-    cleanup()
-  })
+function send(message) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(message))
+    return true
+  }
+  return false
+}
+
+function subscribeToStock(symbol) {
+  return send({ type: 'subscribe', symbol })
+}
+
+function unsubscribeFromStock(symbol) {
+  return send({ type: 'unsubscribe', symbol })
+}
+
+function addMessageHandler(type, handler) {
+  if (!messageHandlers.has(type)) messageHandlers.set(type, [])
+  messageHandlers.get(type).push(handler)
+}
+
+function removeMessageHandler(type, handler) {
+  if (!messageHandlers.has(type)) return
+  const handlers = messageHandlers.get(type)
+  const index = handlers.indexOf(handler)
+  if (index > -1) handlers.splice(index, 1)
+
+  if (handlers.length === 0) messageHandlers.delete(type)
+}
+
+/** Stops reconnects and closes the socket (e.g. tests or full sign-out flows). */
+export function destroyWebSocket() {
+  reconnectAllowed = false
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout)
+    reconnectTimeout = null
+  }
+  if (ws) {
+    ws.close()
+    ws = null
+  }
+  messageHandlers.clear()
+  wsConnected.value = false
+  wsReconnecting.value = false
+  wsStatusLabel.value = 'Offline'
+}
+
+/**
+ * Shared WebSocket API. Safe to call from many components; state and socket are singletons.
+ * Call `connect()` from `app.vue` (or any root) once on startup.
+ */
+export function useWebSocket(url = getDefaultWebSocketUrl()) {
+  if (url) connectUrl = url
 
   return {
     wsConnected,
@@ -158,6 +153,6 @@ export function useWebSocket(url = getDefaultWebSocketUrl()) {
     unsubscribeFromStock,
     addMessageHandler,
     removeMessageHandler,
-    cleanup
+    destroyWebSocket
   }
 }
