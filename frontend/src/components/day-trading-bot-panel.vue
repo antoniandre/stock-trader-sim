@@ -1,7 +1,7 @@
 <template lang="pug">
-.glass-box.pa6.bot-panel
+.glass-box.pa5.bot-panel
   header
-    .w-flex.align-center.justify-space-between.gap2.wrap
+    .w-flex.align-center.justify-space-between.gap2.wrap.mt-4
       .text-upper.size--xs.op6 Trading intelligence · {{ context.tickerSymbol }}
       w-button.w-button--icon(
         @click="$emit('refresh')"
@@ -31,42 +31,42 @@
       :disabled="autonomousToggleDisabled"
       @update:autonomous="emit('update:autonomous', $event)")
 
-  section.bot-panel__analysis
-    //- Bot fetch / API state
-    template(v-if="showServiceStatus")
-      .bot-panel__regime.bot-panel__regime--service
-        .bot-panel__regime-meta
-          span.size--xs.op6(v-if="!hasApiError") Bot status
-          w-tag.bot-panel__market-tag.w-flex.align-center.px2(round sm :bg-color="serviceStatus.tone")
-            span.bot-panel__market-tag__text {{ serviceStatus.label }}
-        p.bot-panel__error.mb0.mt1(v-if="hasApiError") {{ error }}
+  //- Bot fetch / API state
+  template(v-if="showServiceStatus")
+    .bot-panel__regime.bot-panel__regime--service
+      .bot-panel__regime-meta
+        span.size--xs.op6(v-if="!hasApiError") Bot status
+        w-tag.bot-panel__market-tag.w-flex.align-center.px2(round sm :bg-color="serviceStatus.tone")
+          span.bot-panel__market-tag__text {{ serviceStatus.label }}
+      p.bot-panel__error.mb0.mt1(v-if="hasApiError") {{ error }}
 
   p.mt2.mb0.op7(v-if="idleHint") {{ idleHint }}
 
   template(v-else-if="decision")
-    section
-      .title3.text-upper.size--sm.op7 Live recommendation
-      .bot-panel__action-line
-        .bot-panel__action(:class="actionToneClass")
-          | {{ recommendationLabel }}
-          w-button.mt-1.ml2.px2(
-            v-if="oneClickBuy.visible"
-            bg-color="success"
-            :loading="oneClickBuy.loading"
-            :disabled="oneClickBuy.disabled"
-            @click="emit('execute-recommendation', decision)"
-            :tooltip="oneClickBuy.tooltip"
-            :tooltip-props="{ alignRight: true }"
-            round
-            sm) BUY
-      p
-        span Confidence {{ decision.confidence }}%
-        span.op4.size--sm · Entry {{ decision.scores.entry }} · Risk {{ decision.scores.risk }}
+    section.gradient-card.gradient-card--tall
+      .gradient-card__wrap
+        .title3.text-upper.size--xs.op7.mt-2 Live recommendation
+        .bot-panel__action-line
+          .bot-panel__action(:class="actionToneClass")
+            | {{ recommendationLabel }}
+            w-button.mt-1.ml2.px2(
+              v-if="oneClickBuy.visible"
+              bg-color="success"
+              :loading="oneClickBuy.loading"
+              :disabled="oneClickBuy.disabled"
+              @click="emit('execute-recommendation', decision)"
+              :tooltip="oneClickBuy.tooltip"
+              :tooltip-props="{ alignRight: true }"
+              round
+              sm) BUY
+        .text-center
+          w-divider
+            span Confidence {{ decision.confidence }}%
+          .mt-1
+            em.op4.size--xs Entry {{ decision.scores.entry }} &bull; Risk {{ decision.scores.risk }}
 
-      //- One market regime pill (+ setup detail when it adds info); help lives inside the tag
-      .bot-panel__regime.mt2(v-if="marketContextTag")
-        .bot-panel__market-line
-          span.size--xs.op6 Market
+        .w-flex.align-center.gap1.mt2.mx-1.wrap.justify-center(v-if="marketContextTag")
+          //- span.size--xs.op6 Market
           w-tag.align-center.no-grow.bd0(
             round
             sm
@@ -97,14 +97,14 @@
               :tooltip-props="{ maxWidth: 300 }")
               icon(icon="mdi:help-circle-outline")
 
-      p.size--sm.mt2.mb0 {{ recommendationDetail }}
-    section.bot-panel__hero(aria-labelledby="bot-plan-heading")
+        p.mt3.contrast-o8 {{ recommendationDetail }}
+
+    section(aria-labelledby="bot-plan-heading")
       .title3.text-upper.size--sm.op7.mb2#bot-plan-heading Execution plan
-      .bot-panel__row
+      .w-flex.basis-zero.wrap.gap2
         .bot-panel__chip(v-for="pill in executionPlanPills" :key="pill.key")
           .size--xs.op6 {{ pill.label }}
           strong {{ pill.text }}
-
 
     section.bot-panel__section
       .title3.text-upper.size--sm.op7.mb2 Indicators
@@ -124,91 +124,91 @@ w-dialog(
   v-model="ui.simulationLab.show"
   title="Simulation lab"
   width="640"
-  :persistent="dialogPersistent")
-  .bot-panel__dialog
-    section.bot-panel__dialog-section
-      .w-flex.align-center.justify-space-between.gap2.wrap.mb2
-        div
-          h3.size--sm.text-bold.mb0 Backtest
-          p.size--xs.op6.mb0.mt1 Simulated P/L on recent history for the active risk profile.
-        w-button(xs round text :loading="backtestLoading" @click="$emit('run-backtest')") Run backtest
+  :persistent="dialogPersistent"
+  content-class="bot-panel__dialog ova")
+  section.bot-panel__dialog-section
+    .w-flex.align-center.justify-space-between.gap2.wrap.mb2
+      div
+        h3.size--sm.text-bold.mb0 Backtest
+        p.size--xs.op6.mb0.mt1 Simulated P/L on recent history for the active risk profile.
+      w-button(xs round text :loading="backtestLoading" @click="$emit('run-backtest')") Run backtest
 
-      .bot-panel__error(v-if="backtestError") {{ backtestError }}
-      template(v-else-if="backtest")
-        .bot-panel__stat-grid.mb3
-          .bot-panel__stat
-            .size--xs.op6 Return
-            .title3.mt1(:class="backtest.totalReturnPct >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatPct(backtest.totalReturnPct) }}%
-          .bot-panel__stat
-            .size--xs.op6 Drawdown
-            .title3.mt1 {{ formatPct(backtest.maxDrawdownPct) }}%
-          .bot-panel__stat
-            .size--xs.op6 Trades
-            .title3.mt1 {{ backtest.tradeCount }}
-          .bot-panel__stat
-            .size--xs.op6 Win rate
-            .title3.mt1 {{ formatPct(backtest.winRatePct) }}%
-          .bot-panel__stat
-            .size--xs.op6 Realized P/L
-            .title3.mt1(:class="backtest.realizedPnL >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatCurrency(backtest.realizedPnL) }}
-          .bot-panel__stat
-            .size--xs.op6 Ending equity
-            .title3.mt1 {{ formatCurrency(backtest.endingEquity) }}
-        p.size--xs.op6.mb2(v-if="backtest.captureId") Capture {{ backtest.captureId }}
+    .bot-panel__error(v-if="backtestError") {{ backtestError }}
+    template(v-else-if="backtest")
+      .bot-panel__stat-grid.mb3
+        .bot-panel__stat
+          .size--xs.op6 Return
+          .title3.mt1(:class="backtest.totalReturnPct >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatPct(backtest.totalReturnPct) }}%
+        .bot-panel__stat
+          .size--xs.op6 Drawdown
+          .title3.mt1 {{ formatPct(backtest.maxDrawdownPct) }}%
+        .bot-panel__stat
+          .size--xs.op6 Trades
+          .title3.mt1 {{ backtest.tradeCount }}
+        .bot-panel__stat
+          .size--xs.op6 Win rate
+          .title3.mt1 {{ formatPct(backtest.winRatePct) }}%
+        .bot-panel__stat
+          .size--xs.op6 Realized P/L
+          .title3.mt1(:class="backtest.realizedPnL >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatCurrency(backtest.realizedPnL) }}
+        .bot-panel__stat
+          .size--xs.op6 Ending equity
+          .title3.mt1 {{ formatCurrency(backtest.endingEquity) }}
+      p.size--xs.op6.mb2(v-if="backtest.captureId") Capture {{ backtest.captureId }}
 
-        template(v-if="backtestComparisons.length")
-          p.size--xs.op6.mb2 Risk profile comparison (by simulated return)
-          .bot-panel__row
-            .bot-panel__compare(
-              v-for="item in rankedComparisons"
-              :key="item.riskProfile"
-              :class="{ 'bot-panel__compare--current': item.riskProfile === selectedRiskProfile }")
-              .w-flex.align-center.justify-space-between.gap2
-                strong {{ item.riskProfile }}
-                span.size--xs.op6 {{ item.tradeCount }} trades
-              .size--sm.mt1(:class="item.totalReturnPct >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatPct(item.totalReturnPct) }}%
-              .size--xs.op6 Drawdown {{ formatPct(item.maxDrawdownPct) }}% · Win {{ formatPct(item.winRatePct) }}%
-      p.size--sm.op6(v-else-if="!backtestLoading") No backtest loaded yet — run one to see drawdown, win rate, and equity for this profile.
+      template(v-if="backtestComparisons.length")
+        p.size--xs.op6.mb2 Risk profile comparison (by simulated return)
+        .bot-panel__row
+          .bot-panel__compare(
+            v-for="item in rankedComparisons"
+            :key="item.riskProfile"
+            :class="{ 'bot-panel__compare--current': item.riskProfile === selectedRiskProfile }")
+            .w-flex.align-center.justify-space-between.gap2
+              strong {{ item.riskProfile }}
+              span.size--xs.op6 {{ item.tradeCount }} trades
+            .size--sm.mt1(:class="item.totalReturnPct >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatPct(item.totalReturnPct) }}%
+            .size--xs.op6 Drawdown {{ formatPct(item.maxDrawdownPct) }}% · Win {{ formatPct(item.winRatePct) }}%
+    p.size--sm.op6(v-else-if="!backtestLoading") No backtest loaded yet — run one to see drawdown, win rate, and equity for this profile.
 
-    w-divider.my4
+  w-divider.my4
 
-    section.bot-panel__dialog-section
-      .w-flex.align-center.justify-space-between.gap2.wrap.mb2
-        div
-          h3.size--sm.text-bold.mb0 Strategy evolution
-          p.size--xs.op6.mb0.mt1 Explores variants offline; results do not change your live recommendation until you adopt logic elsewhere.
-        w-button(xs round text :loading="evolutionLoading" @click="$emit('run-evolution')") Evolve
+  section.bot-panel__dialog-section
+    .w-flex.align-center.justify-space-between.gap2.wrap.mb2
+      div
+        h3.size--sm.text-bold.mb0 Strategy evolution
+        p.size--xs.op6.mb0.mt1 Explores variants offline; results do not change your live recommendation until you adopt logic elsewhere.
+      w-button(xs round text :loading="evolutionLoading" @click="$emit('run-evolution')") Evolve
 
-      .bot-panel__error(v-if="evolutionError") {{ evolutionError }}
-      template(v-else-if="evolution")
-        .bot-panel__row.mb3
-          .bot-panel__chip
-            .size--xs.op6 Evaluated
-            strong {{ evolution.evaluatedCount }}
-          .bot-panel__chip
-            .size--xs.op6 Survivors
-            strong {{ evolution.survivors.length }}
-          .bot-panel__chip(v-if="bestSurvivor")
-            .size--xs.op6 Best score
-            strong {{ bestSurvivor.score }}
-          .bot-panel__chip(v-if="evolution.captureId")
-            .size--xs.op6 Capture
-            strong {{ evolution.captureId }}
+    .bot-panel__error(v-if="evolutionError") {{ evolutionError }}
+    template(v-else-if="evolution")
+      .bot-panel__row.mb3
+        .bot-panel__chip
+          .size--xs.op6 Evaluated
+          strong {{ evolution.evaluatedCount }}
+        .bot-panel__chip
+          .size--xs.op6 Survivors
+          strong {{ evolution.survivors.length }}
+        .bot-panel__chip(v-if="bestSurvivor")
+          .size--xs.op6 Best score
+          strong {{ bestSurvivor.score }}
+        .bot-panel__chip(v-if="evolution.captureId")
+          .size--xs.op6 Capture
+          strong {{ evolution.captureId }}
 
-        template(v-for="(block, blockIdx) in evolutionBlocks" :key="block.key")
-          w-divider.my4(v-if="blockIdx > 0")
-          h4.size--sm.text-bold.mb2 {{ block.title }}
-          .bot-panel__strategy-list
-            .bot-panel__strategy(
-              v-for="item in block.items"
-              :key="item.id"
-              :class="{ 'bot-panel__strategy--muted': block.muted }")
-              .w-flex.align-center.justify-space-between.gap2
-                strong {{ item.id }}
-                span.size--xs.op6 {{ item.family }}
-              p.size--sm.mt1.mb0(v-if="item.description") {{ item.description }}
-              p.size--sm.mt2.mb0(v-if="item.summaryLine") {{ item.summaryLine }}
-      p.size--sm.op6(v-else-if="!evolutionLoading") No evolution run yet — evolve to score and rank strategy ideas for this symbol.
+      template(v-for="(block, blockIdx) in evolutionBlocks" :key="block.key")
+        w-divider.my4(v-if="blockIdx > 0")
+        h4.size--sm.text-bold.mb2 {{ block.title }}
+        .bot-panel__strategy-list
+          .bot-panel__strategy(
+            v-for="item in block.items"
+            :key="item.id"
+            :class="{ 'bot-panel__strategy--muted': block.muted }")
+            .w-flex.align-center.justify-space-between.gap2
+              strong {{ item.id }}
+              span.size--xs.op6 {{ item.family }}
+            p.size--sm.mt1.mb0(v-if="item.description") {{ item.description }}
+            p.size--sm.mt2.mb0(v-if="item.summaryLine") {{ item.summaryLine }}
+    p.size--sm.op6(v-else-if="!evolutionLoading") No evolution run yet — evolve to score and rank strategy ideas for this symbol.
 </template>
 
 <script setup>
@@ -584,19 +584,15 @@ watch(
 )
 </script>
 
-<style lang="scss" scoped>
+<style lang="scss">
 .bot-panel {
-  --bp-gap: 0.75rem;
-  --bp-surface: color-mix(in srgb, var(--w-contrast-bg-color) 6%, transparent);
-  --bp-edge: color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
-
   display: grid;
   gap: 0.875rem;
 
   &__row {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--bp-gap);
+    gap: 8px;
   }
 
   &__autonomous.bsrsr {
@@ -613,7 +609,7 @@ watch(
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: var(--bp-gap) 1rem;
+    gap: 8px 1rem;
   }
 
   /** Loading / degraded: single pill, right-aligned; no help icon or duplicate error copy. */
@@ -656,7 +652,7 @@ watch(
   &__hero {
     display: grid;
     gap: 0.5rem;
-    padding: 1rem 1.1rem;
+    padding: 1rem 0.8rem;
     border-radius: 18px;
     background: linear-gradient(
       135deg,
@@ -669,7 +665,7 @@ watch(
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem var(--bp-gap);
+    gap: 0.5rem 8px;
   }
 
   &__action {
@@ -677,29 +673,16 @@ watch(
     font-weight: 700;
     text-transform: capitalize;
 
-    &--buy,
-    &--add {
-      color: var(--w-success-color);
-    }
-
-    &--trim,
-    &--wait {
-      color: var(--w-warning-color);
-    }
-
-    &--exit {
-      color: var(--w-error-color);
-    }
-
-    &--hold {
-      color: var(--w-primary-color);
-    }
+    &--buy, &--add {color: var(--w-success-color);}
+    &--trim, &--wait {color: var(--w-warning-color);}
+    &--exit {color: var(--w-error-color);}
+    &--hold {color: var(--w-primary-color);}
   }
 
   &__stat-grid {
     display: grid;
-    gap: var(--bp-gap);
-    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 8px;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
   }
 
   &__chip,
@@ -708,49 +691,38 @@ watch(
   &__compare {
     padding: 0.85rem 0.95rem;
     border-radius: 16px;
-    background: var(--bp-surface);
+    background: color-mix(in srgb, var(--w-contrast-bg-color) 6%, transparent);
   }
 
-  &__chip {
-    min-width: 100px;
-  }
+  &__chip {min-width: 100px;}
 
   &__section {
     padding-top: 1rem;
-    border-top: 1px solid var(--bp-edge);
+    border-top: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, transparent);
   }
 
   &__dialog {
     max-height: min(72vh, 640px);
     overflow-y: auto;
-    padding-right: 0.15rem;
   }
 
-  &__dialog-section:first-of-type h3 {
-    margin-top: 0;
-  }
+  &__dialog-section:first-of-type h3 {margin-top: 0;}
 
-  &__reasons,
+  &__reasons {
+    display: grid;
+    gap: 0.3rem;
+    padding-left: 1rem;
+  }
   &__strategy-list {
     display: grid;
     gap: 0.6rem;
-    margin: 0;
-  }
-
-  &__reasons {
-    padding-left: 1rem;
   }
 
   &__compare--current {
     outline: 1px solid color-mix(in srgb, var(--w-primary-color) 45%, transparent);
   }
 
-  &__strategy--muted {
-    opacity: 0.72;
-  }
-
-  &__error {
-    color: var(--w-error-color);
-  }
+  &__strategy--muted {opacity: 0.72;}
+  &__error {color: var(--w-error-color);}
 }
 </style>
