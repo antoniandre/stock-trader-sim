@@ -136,6 +136,15 @@ export async function getCryptoLatestQuote(symbol) {
   return { quote: q || null }
 }
 
+/** One REST round-trip for many pairs (comma-separated `symbols`). */
+export async function getCryptoLatestQuotesForSymbols(symbols) {
+  const list = [...new Set((symbols || []).map(s => String(s || '').trim()).filter(Boolean))]
+  if (!list.length) return {}
+  const params = new URLSearchParams({ symbols: list.join(',') })
+  const { data } = await axios.get(`${ALPACA_API_BASE_URL}/v1beta3/crypto/us/latest/quotes?${params}`, { headers: HEADERS })
+  return data.quotes && typeof data.quotes === 'object' ? data.quotes : {}
+}
+
 export async function getCryptoLatestTrade(symbol) {
   const params = new URLSearchParams({ symbols: symbol })
   const { data } = await axios.get(`${ALPACA_API_BASE_URL}/v1beta3/crypto/us/latest/trades?${params}`, { headers: HEADERS })
