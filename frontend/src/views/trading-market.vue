@@ -145,9 +145,9 @@
                 span.op5 Fetching...
             td.w-table__cell.pl2.pr4.py2.text-center
               .w-flex.align-center.justify-center.gap2(@click.stop)
-                w-button.px2(@click="openListOrderConfirmation(stock, 'buy')" color="success" outline round sm :disabled="stock.price === 0")
+                w-button.px2(@click="openListOrderConfirmation(stock, 'buy')" color="success" outline round sm :disabled="stock.price === 0 || stock.tradable === false")
                   strong.size--xs BUY
-                w-button.px2(@click="openListOrderConfirmation(stock, 'sell')" color="error" outline round sm :disabled="stock.price === 0")
+                w-button.px2(@click="openListOrderConfirmation(stock, 'sell')" color="error" outline round sm :disabled="stock.price === 0 || stock.tradable === false")
                   strong.size--xs SELL
 
     .w-flex.align-center.justify-between.mt4(v-if="totalPages > 1")
@@ -168,7 +168,7 @@
     :environment-label="pendingEnvironmentLabel"
     :provider-summary="providerSummary"
     :submitting="submittingOrder"
-    :confirm-disabled="submittingOrder || marketGate.reason !== 'open'"
+    :confirm-disabled="submittingOrder || marketGate.reason !== 'open' || pendingOrder?.tradable === false"
     :confirm-color="pendingOrder && pendingOrder.side === 'buy' ? 'success' : 'error'"
     :confirm-label="pendingOrder ? `Confirm ${pendingOrder.side.toUpperCase()}` : 'Confirm'"
     @confirm="confirmListOrder")
@@ -449,11 +449,16 @@ async function prevPage() {
 }
 
 function openListOrderConfirmation(stock, side) {
+  if (stock.tradable === false) {
+    $waveui.notify('This symbol is not tradable for your brokerage account.', 'warning')
+    return
+  }
   pendingOrder.value = {
     symbol: String(stock.symbol).toUpperCase(),
     side,
     currency: stock.currency || 'USD',
-    estimatedNotional: Number(stock.price || 0)
+    estimatedNotional: Number(stock.price || 0),
+    tradable: stock.tradable
   }
   showOrderConfirmation.value = true
 }
@@ -464,16 +469,30 @@ async function confirmListOrder() {
     $waveui.notify(marketGate.value.message, 'warning')
     return
   }
+  if (pendingOrder.value.tradable === false) {
+    $waveui.notify('This symbol is not tradable for your brokerage account.', 'warning')
+    return
+  }
 
   submittingOrder.value = true
   try {
-    await postOrder({
+    const placed = await postOrder({
       symbol: pendingOrder.value.symbol,
       qty: 1,
       side: pendingOrder.value.side,
       type: 'market'
     })
-    $waveui.notify(`Order placed: MARKET ${pendingOrder.value.side.toUpperCase()} 1 ${pendingOrder.value.symbol}`, 'success')
+    const filledSym = placed?.symbol || pendingOrder.value.symbol
+    if (placed?.requested_symbol && filledSym && placed.requested_symbol !== filledSym) {
+      $waveui.notify(
+        `Order placed on ${filledSym} (USD pair) instead of ${placed.requested_symbol} so USD buying power is used.`,
+        'success',
+        9000
+      )
+    }
+    else {
+      $waveui.notify(`Order placed: MARKET ${pendingOrder.value.side.toUpperCase()} 1 ${filledSym}`, 'success')
+    }
     showOrderConfirmation.value = false
     pendingOrder.value = null
     await refreshTradingContext()

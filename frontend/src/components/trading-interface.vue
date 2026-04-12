@@ -16,6 +16,9 @@
     w-alert.bdrs2(v-if="!tickerQuotePending && !stock.price" error).
       Trading disabled: No current market data available
 
+    w-alert.bdrs2.mb3(v-else-if="stock.tradable === false" error).
+      This symbol is flagged as not tradable for your brokerage account. You can still view charts; orders are disabled until the venue lists it as tradable.
+
     w-alert.bdrs2.mb3(v-else-if="stock.price && marketGate.reason !== 'open'" warning)
       strong.mr1 {{ marketGate.title }}
       | {{ marketGate.message }}
@@ -84,7 +87,7 @@
     :environment-label="pendingEnvironmentLabel"
     :provider-summary="providerSummary"
     :submitting="submittingOrder"
-    :confirm-disabled="submittingOrder || marketGate.reason !== 'open'"
+    :confirm-disabled="submittingOrder || marketGate.reason !== 'open' || stock.tradable === false"
     :confirm-color="pendingOrder && pendingOrder.side === 'buy' ? 'success' : 'error'"
     :confirm-label="pendingOrder ? `Confirm ${pendingOrder.side.toUpperCase()}` : 'Confirm'"
     @confirm="confirmOrder")
@@ -149,7 +152,7 @@ const props = defineProps({
   stock: {
     type: Object,
     required: true,
-    default: () => ({ price: 0, currencySymbol: '$' })
+    default: () => ({ price: 0, currencySymbol: '$', tradable: undefined })
   },
   recentTrades: { type: Array, default: () => [] },
   hasPosition: { type: Boolean, default: false },
@@ -238,7 +241,7 @@ const isOrderValid = computed(() => {
   return true
 })
 
-const canSubmitOrder = computed(() => isOrderValid.value)
+const canSubmitOrder = computed(() => isOrderValid.value && props.stock.tradable !== false)
 
 const pendingEnvironmentLabel = computed(() => {
   const env = health.value?.tradingEnvironment || (health.value?.effectiveSimulation ? 'simulation' : 'live')
@@ -328,7 +331,7 @@ async function confirmOrder() {
 
   submittingOrder.value = true
   try {
-    await postOrder({
+    const placed = await postOrder({
       symbol: pendingOrder.value.symbol,
       qty: pendingOrder.value.quantity,
       side: pendingOrder.value.side,
@@ -341,8 +344,18 @@ async function confirmOrder() {
 
     emit('order-placed')
 
+    const filledSym = placed?.symbol || pendingOrder.value.symbol
     const typeLabel = pendingOrder.value.type.toUpperCase()
-    $waveui.notify(`Order placed: ${typeLabel} ${pendingOrder.value.side.toUpperCase()} ${pendingOrder.value.quantity} ${pendingOrder.value.symbol}`, 'success')
+    if (placed?.requested_symbol && filledSym && placed.requested_symbol !== filledSym) {
+      $waveui.notify(
+        `Order placed on ${filledSym} (USD pair). You asked for ${placed.requested_symbol}; Alpaca used USD buying power.`,
+        'success',
+        9000
+      )
+    }
+    else {
+      $waveui.notify(`Order placed: ${typeLabel} ${pendingOrder.value.side.toUpperCase()} ${pendingOrder.value.quantity} ${filledSym}`, 'success')
+    }
     showOrderConfirmation.value = false
     pendingOrder.value = null
     orderForm.value.quantity = 1
