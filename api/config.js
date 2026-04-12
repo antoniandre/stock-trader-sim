@@ -74,7 +74,9 @@ export const state = {
   alpacaWebSocket: null,
   accountActivities: [], // Real trading history from Alpaca
   alpacaAccount: null, // Account information
-  sseClient: null // Server-Sent Events client for account updates
+  sseClient: null, // Server-Sent Events client for account updates
+  /** Short-lived cache for `getAssets('active','crypto')` (USD-quote routing). */
+  cryptoActiveAssetsCache: null
 }
 
 // Mock data is now in simulation.js

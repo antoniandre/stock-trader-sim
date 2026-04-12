@@ -3,6 +3,7 @@ import { IS_SIMULATION, state } from './config.js'
 import { getMarketStatus, getStockMarketStatus, startPricePolling, stopPricePolling } from './market-data.js'
 import { runSimulation, mockPrices } from './simulation.js'
 import { createAlpacaWebSocket, subscribeToSymbols, unsubscribeFromSymbols } from './clients/alpaca-websocket-client.js'
+import { SCREENER_WATCH_SYMBOLS } from './screener-watch-symbols.js'
 
 // WebSocket State.
 // --------------------------------------------------------
@@ -187,7 +188,12 @@ export function unsubscribeFromStock(symbol) {
     }
 
     if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1) {
-      unsubscribeFromSymbols(state.alpacaWebSocket, [symbol])
+      if (!SCREENER_WATCH_SYMBOLS.includes(symbol)) {
+        unsubscribeFromSymbols(state.alpacaWebSocket, [symbol])
+      }
+      else {
+        console.log(`📡 Keeping Alpaca subscription for ${symbol} (screener watchlist)`)
+      }
     }
   }
 }
@@ -336,6 +342,12 @@ export function connectAlpacaWebSocket() {
         state.stockPrices[symbol] = price
         broadcastPriceUpdate(symbol, price)
       }
+
+      if (messageData.data) {
+        import('./src/screener/screener.js').then(m => {
+          if (typeof m.ingestAlpacaTradeMessage === 'function') m.ingestAlpacaTradeMessage(messageData.data)
+        }).catch(() => {})
+      }
     }
     else if (type === 'quote') {
       console.log(`📈 Quote received: ${symbol} @ $${price}`)
@@ -345,6 +357,19 @@ export function connectAlpacaWebSocket() {
       if (shouldUpdate) {
         state.stockPrices[symbol] = price
         broadcastPriceUpdate(symbol, price)
+      }
+
+      if (messageData.data) {
+        import('./src/screener/screener.js').then(m => {
+          if (typeof m.ingestAlpacaQuoteMessage === 'function') m.ingestAlpacaQuoteMessage(messageData.data)
+        }).catch(() => {})
+      }
+    }
+    else if (type === 'bar') {
+      if (messageData.data) {
+        import('./src/screener/screener.js').then(m => {
+          if (typeof m.ingestAlpacaBarMessage === 'function') m.ingestAlpacaBarMessage(messageData.data)
+        }).catch(() => {})
       }
     }
   }
@@ -359,12 +384,13 @@ export function connectAlpacaWebSocket() {
       console.log('🔄 Stopped price polling - WebSocket now handling real-time updates')
     })
 
-    if (subscribedStocks.size > 0) {
-      const stocksArray = Array.from(subscribedStocks)
-      subscribeToSymbols(state.alpacaWebSocket, stocksArray)
+    const merged = [...new Set([...Array.from(subscribedStocks), ...SCREENER_WATCH_SYMBOLS])]
+    if (merged.length > 0) {
+      subscribeToSymbols(state.alpacaWebSocket, merged, { barSymbols: SCREENER_WATCH_SYMBOLS })
+      console.log(`📡 Subscribed to ${merged.length} Alpaca symbol(s) (client feeds + screener watchlist)`)
     }
     else {
-      console.log('📡 No stocks requested yet, waiting for subscriptions...')
+      console.log('📡 No symbols to subscribe (unexpected empty watchlist)')
     }
   }
 

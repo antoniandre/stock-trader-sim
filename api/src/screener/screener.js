@@ -13,6 +13,7 @@ import {
   getAllTradableStocks
 } from '../../market-data.js' // Assuming these are needed for filtering
 import { getEasternTime } from '../../utils.js'
+import { SCREENER_WATCH_SYMBOLS } from '../../screener-watch-symbols.js'
 
 // In-memory queue for opportunities
 const opportunityQueue = []
@@ -20,7 +21,7 @@ const MAX_QUEUE_SIZE = 100 // Limit queue size to prevent memory issues
 
 // Store recent market data for calculations
 const marketDataCache = new Map() // symbol -> { bars: [], trades: [], quotes: [], lastPrice: 0, lastVolume: 0 }
-const STOCKS_TO_WATCH = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA'] // Example: Start with a few popular stocks
+const STOCKS_TO_WATCH = SCREENER_WATCH_SYMBOLS
 
 let alpacaWebSocket = null
 let isConnected = false
@@ -116,6 +117,21 @@ export async function connectAlpacaWebSocket() {
     isConnected = false
     state.alpacaWebSocket = null // Clear from global state
   }
+}
+
+/** Feed raw Alpaca trade objects (`T: 't'`) from the shared websocket-server stream. */
+export async function ingestAlpacaTradeMessage(trade) {
+  await processTradeData(trade)
+}
+
+/** Feed raw Alpaca quote objects (`T: 'q'`). */
+export async function ingestAlpacaQuoteMessage(quote) {
+  await processQuoteData(quote)
+}
+
+/** Feed raw Alpaca minute bar objects (`T: 'b'`). */
+export async function ingestAlpacaBarMessage(bar) {
+  await processBarData(bar)
 }
 
 async function processTradeData(trade) {
@@ -305,5 +321,7 @@ export async function initializeScreener() {
     // In a real scenario, this would involve more sophisticated selection
     console.log(`Loaded ${allStocks.length} tradable stocks. Screener will watch: ${STOCKS_TO_WATCH.join(', ')}`)
   }
-  await connectAlpacaWebSocket()
+  // Do not open a second Alpaca market-data WebSocket here — stockbot uses
+  // websocket-server only; duplicate connections hit Alpaca 406 (limit exceeded).
+  // Trades for STOCKS_TO_WATCH are forwarded via ingestAlpacaTradeMessage().
 }

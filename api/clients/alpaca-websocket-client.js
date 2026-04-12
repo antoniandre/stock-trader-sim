@@ -84,6 +84,15 @@ function handleAlpacaMessage(message, onMessage, onAuthenticated) {
     return
   }
 
+  if (message.T === 'b') {
+    const symbol = message.S
+    const price = message.c
+    if (onMessage && symbol && price > 0) {
+      onMessage({ type: 'bar', symbol, price, data: message })
+    }
+    return
+  }
+
   if (message.T === 'error') {
     console.error(`❌ Alpaca WebSocket error: ${message.code} - ${message.msg}`)
 
@@ -104,13 +113,13 @@ function handleAlpacaMessage(message, onMessage, onAuthenticated) {
     return
   }
 
-  if (message.T && message.T !== 't' && message.T !== 'q' && message.T !== 'success' && message.T !== 'error') {
+  if (message.T && message.T !== 't' && message.T !== 'q' && message.T !== 'b' && message.T !== 'success' && message.T !== 'error') {
     console.log(`🔍 Unknown Alpaca message type: ${message.T}`, message)
   }
 }
 
 // Send subscription message to Alpaca WebSocket.
-export function subscribeToSymbols(ws, symbols) {
+export function subscribeToSymbols(ws, symbols, { barSymbols } = {}) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     console.warn('⚠️ Cannot subscribe - WebSocket not open')
     return false
@@ -122,8 +131,12 @@ export function subscribeToSymbols(ws, symbols) {
     quotes: symbols
   }
 
+  if (barSymbols && barSymbols.length > 0) {
+    subscribeMessage.bars = barSymbols.map(s => `*@1Min.${s}`)
+  }
+
   ws.send(JSON.stringify(subscribeMessage))
-  console.log(`📡 Subscribed to trades and quotes for:`, symbols)
+  console.log(`📡 Subscribed to trades and quotes for:`, symbols, barSymbols?.length ? `(+ ${barSymbols.length} 1Min bar feeds)` : '')
   return true
 }
 
