@@ -158,9 +158,19 @@ watch(() => isMobile.value, isXs => {
   }
 })
 
+function primaryLabelFromUser(user) {
+  if (!user) return null
+  const apiName = user.name != null && String(user.name).trim()
+  if (apiName) return apiName
+  const meta = user.user_metadata
+  const fromMeta = meta?.display_name ?? meta?.full_name
+  if (fromMeta != null && String(fromMeta).trim()) return String(fromMeta).trim()
+  return user.email || user.id || null
+}
+
 const userDisplayName = computed(() => {
   if (!currentUser.value) return 'Not signed in'
-  return currentUser.value.name || currentUser.value.email || currentUser.value.id
+  return primaryLabelFromUser(currentUser.value) || 'Signed in'
 })
 
 const userSecondaryLine = computed(() => {
@@ -196,7 +206,13 @@ async function handleSignOut() {
 async function loadCurrentUser() {
   try {
     const me = await fetchMe()
-    currentUser.value = me.user || authState.user || null
+    const apiUser = me.user
+    const session = authState.user
+    const sessionEmail = session?.email ? String(session.email).toLowerCase() : ''
+    const apiEmail = apiUser?.email ? String(apiUser.email).toLowerCase() : ''
+    // Browser session is Supabase; if API still uses mock / wrong env, emails diverge.
+    if (sessionEmail && apiEmail && sessionEmail !== apiEmail) currentUser.value = session
+    else currentUser.value = apiUser || session || null
     authSummary.value = me.auth || null
   }
   catch (error) {
@@ -205,7 +221,8 @@ async function loadCurrentUser() {
     try {
       const health = await checkHealth()
       authSummary.value = health.data?.auth || health.auth || null
-      currentUser.value = health.data?.currentUser || health.currentUser || authState.user || null
+      // `/api/health` omits email on currentUser; keep the Supabase session for the sidebar.
+      currentUser.value = authState.user || null
     }
     catch {
       authSummary.value = authState.enabled
