@@ -113,7 +113,7 @@
                 round)
 
       //- Current Position
-      .glass-box.mt4.pa6.pt4(v-if="currentPosition")
+      .glass-box.pa6.pt4(v-if="currentPosition")
         .title2.mb4 Position
         .w-flex.justify-space-between.align-center.py2
           .position-info.w-flex.align-center.gap3
