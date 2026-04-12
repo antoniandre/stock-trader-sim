@@ -130,7 +130,7 @@
             .size--sm.op6
               span(v-html="formatCurrency(marketValue, stock.currency, 2, false)")
 
-      .glass-box.mt4.pa6.pt4
+      .glass-box.pa6.pt4
         StockStatsPanel(
           :stock="stock"
           :current-price="stock.price"
