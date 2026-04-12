@@ -21,6 +21,30 @@ export function tradableSymbolsEquivalent(a, b) {
   return canonicalTradableSymbol(a) === canonicalTradableSymbol(b)
 }
 
+export function parseCryptoPairSymbol(symbol) {
+  const s = canonicalTradableSymbol(symbol)
+  const i = s.indexOf('/')
+  if (i <= 0) return null
+  const base = s.slice(0, i).toUpperCase()
+  const quote = s.slice(i + 1).toUpperCase()
+  if (!base || !quote) return null
+  return { base, quote }
+}
+
+/** Same crypto base (e.g. AAVE/USD vs AAVE/USDC) for ticker rows after venue routing. */
+export function cryptoSameBaseForTicker(a, b) {
+  const pa = parseCryptoPairSymbol(a)
+  const pb = parseCryptoPairSymbol(b)
+  if (!pa || !pb) return false
+  return pa.base === pb.base
+}
+
+export function tickerRowMatchesStock(tickerSymbol, rowSymbol, market = 'stocks') {
+  if (tradableSymbolsEquivalent(tickerSymbol, rowSymbol)) return true
+  if (String(market).toLowerCase() === 'crypto' && cryptoSameBaseForTicker(tickerSymbol, rowSymbol)) return true
+  return false
+}
+
 /** Bracket / OCO protective leg: stays open after entry fills; omit from "open orders" list. */
 export function isBracketStopChildOrder(order) {
   const pid = order?.parent_order_id

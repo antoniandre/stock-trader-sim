@@ -228,7 +228,7 @@ import DraggableTradingInterface from '@/components/draggable-trading-interface.
 import DayTradingBotPanel from '@/components/day-trading-bot-panel.vue'
 import BotAutoExecutionModal from '@/components/bot-auto-execution-modal.vue'
 import { tradingOverviewPath } from '@/utils/trading-routes'
-import { tradableSymbolsEquivalent, isBracketStopChildOrder } from '@/utils/symbol-matching'
+import { isBracketStopChildOrder, tickerRowMatchesStock } from '@/utils/symbol-matching'
 import { fireOrderAutomatically, notifyAutoExecution } from '@/api/bot-execution'
 
 const props = defineProps({
@@ -479,7 +479,7 @@ const availableTimeframes = computed(() => timeframeOptions[selectedPeriod.value
 
 // Get current position for this symbol (case-insensitive matching).
 const currentPosition = computed(() => {
-  return positions.value.find(p => tradableSymbolsEquivalent(p.symbol, stock.symbol)) || null
+  return positions.value.find(p => tickerRowMatchesStock(stock.symbol, p.symbol, props.market)) || null
 })
 
 // Get open orders for this symbol.
@@ -488,7 +488,7 @@ const openOrders = computed(() => {
     if (isBracketStopChildOrder(o)) return false
 
     const orderStatus = o.status?.toLowerCase()
-    const matchesSymbol = tradableSymbolsEquivalent(o.symbol, stock.symbol)
+    const matchesSymbol = tickerRowMatchesStock(stock.symbol, o.symbol, props.market)
     const matchesStatus = ['new', 'accepted', 'pending_new', 'pending_replace', 'pending_cancel', 'open', 'held'].includes(orderStatus)
 
     if (matchesSymbol && !matchesStatus) {
@@ -1271,8 +1271,9 @@ function handleChartViewChange(chart, action) {
   if (action === 'pan' || action === 'zoom') checkAndLoadAdditionalData(chart, action)
 }
 
-function sameTickerSymbol(a, b) {
-  return tradableSymbolsEquivalent(a, b)
+/** Row symbol (order, position, WS payload) vs ticker route symbol. */
+function sameTickerSymbol(rowSymbol, tickerSymbol) {
+  return tickerRowMatchesStock(tickerSymbol, rowSymbol, props.market)
 }
 
 function handleTrade(data) {
@@ -1296,7 +1297,7 @@ function handlePositionsUpdated(data) {
   // Apply the update directly instead of waiting for the next WS trade event.
   const allPositions = Array.isArray(data.data) ? data.data : []
   const myPosition = allPositions.find(p => sameTickerSymbol(p.symbol, stock.symbol)) || null
-  const existingIndex = positions.value.findIndex(p => tradableSymbolsEquivalent(p.symbol, stock.symbol))
+  const existingIndex = positions.value.findIndex(p => tickerRowMatchesStock(stock.symbol, p.symbol, props.market))
 
   if (myPosition) {
     if (existingIndex >= 0) positions.value[existingIndex] = myPosition
@@ -1349,7 +1350,7 @@ async function fetchTickerData() {
     }
 
     // Update positions — always sync, including removal when position is closed.
-    const existingIndex = positions.value.findIndex(p => tradableSymbolsEquivalent(p.symbol, stock.symbol))
+    const existingIndex = positions.value.findIndex(p => tickerRowMatchesStock(stock.symbol, p.symbol, props.market))
     if (data.position) {
       if (existingIndex >= 0) {
         positions.value[existingIndex] = data.position
@@ -1366,7 +1367,7 @@ async function fetchTickerData() {
     // Update orders.
     if (data.orders) {
       // Remove prior rows for this ticker (Alpaca may use HYPEUSD vs HYPE/USD for crypto).
-      orders.value = orders.value.filter(o => !tradableSymbolsEquivalent(o.symbol, stock.symbol))
+      orders.value = orders.value.filter(o => !tickerRowMatchesStock(stock.symbol, o.symbol, props.market))
       orders.value.push(...data.orders)
     }
 

@@ -13,7 +13,7 @@ import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory
 import * as AlpacaClient from './clients/alpaca-client.js'
 import { broadcast } from './websocket-server.js'
 import { recordTrade } from './simulation.js'
-import { createStandardResponse, sleep, withRateLimitBackoff, tradableSymbolsEquivalent } from './utils.js'
+import { createStandardResponse, sleep, withRateLimitBackoff, tickerSymbolMatchesRow } from './utils.js'
 import { normalizeOrderIntent, validateOrderIntent, estimateOrderNotional, isCryptoPairSymbol } from './domain/order-intent.js'
 import { recordStrategyRun } from './services/strategy-run-recorder.js'
 import { normalizeBrokerError } from './services/broker-error.js'
@@ -669,9 +669,9 @@ export function createRestApiRoutes() {
 
       if (!stockData) return res.status(404).json({ error: `Stock ${symbol} not found` })
 
-      // Find position and orders for this symbol.
-      const position = positions.find(p => tradableSymbolsEquivalent(p.symbol, symbol)) || null
-      const symbolOrders = orders.filter(o => tradableSymbolsEquivalent(o.symbol, symbol))
+      // Find position and orders for this symbol (crypto: same base matches BASE/USD venue fills).
+      const position = positions.find(p => tickerSymbolMatchesRow(symbol, p.symbol, normalizedMarket)) || null
+      const symbolOrders = orders.filter(o => tickerSymbolMatchesRow(symbol, o.symbol, normalizedMarket))
 
       res.json(createStandardResponse({
         stock: stockData,
@@ -1100,13 +1100,9 @@ export function createRestApiRoutes() {
       return { statusCode: 400, body: { error: 'Invalid order request', details: validation.errors } }
     }
     const positions = await getAlpacaPositions().catch(() => [])
+    const previewMarket = isCryptoPairSymbol(orderIntent.symbol) ? 'crypto' : 'stocks'
     const position = Array.isArray(positions)
-      ? positions.find((item) => {
-          const sym = String(item.symbol || '').toUpperCase()
-          return sym === orderIntent.symbol || sym === venue.venueSymbol
-            || tradableSymbolsEquivalent(item.symbol, orderIntent.symbol)
-            || tradableSymbolsEquivalent(item.symbol, venue.venueSymbol)
-        }) || null
+      ? positions.find((item) => tickerSymbolMatchesRow(orderIntent.symbol, item.symbol, previewMarket)) || null
       : null
     const estimatedNotional = estimateOrderNotional(intentAtVenue, currentPrice || null)
 
