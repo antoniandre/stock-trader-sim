@@ -72,7 +72,7 @@ cd frontend
 pnpm install
 ```
 
-In **development**, Vite proxies **`/api`** to `http://127.0.0.1:3000`, so the UI can call the API on the same origin as the dev server. For **production**, set `VITE_API_BASE` and usually `VITE_WS_URL` — see `frontend/.env.example`.
+In **development**, Vite proxies **`/api`** to `http://127.0.0.1:3000`, so the UI can call the API on the same origin as the dev server. For **production**, set `VITE_API_BASE` and usually `VITE_WS_URL` — see `frontend/.env.example`. For Supabase sign-in in the SPA, set **`VITE_SUPABASE_URL`** and **`VITE_SUPABASE_PUBLISHABLE_KEY`** (publishable `sb_publishable_…` key from the Supabase dashboard, not the legacy anon key name).
 
 ### 4. Start Development
 
@@ -114,7 +114,7 @@ The API loads **`api/.env` by file path** (see `api/config.js`), so auth and Alp
 | `AUTH_JWT_ISSUER` | Expected JWT issuer in provider mode | unset |
 | `AUTH_JWT_AUDIENCE` | Expected JWT audience in provider mode | unset |
 | `SUPABASE_URL` | Supabase project URL (`AUTH_PROVIDER=supabase`) | unset |
-| `SUPABASE_JWT_SECRET` | Secret used to verify Supabase JWTs (Dashboard → Settings → API) | unset |
+| `SUPABASE_JWT_SECRET` | Optional legacy HS256 JWT secret; newer projects verify via JWKS using `SUPABASE_URL` only | unset |
 | `DEV_AUTH_USER_ID` | Local mock-auth user id | `dev-user` |
 | `DEV_AUTH_EMAIL` | Local mock-auth email | `dev@example.com` |
 | `DEV_AUTH_NAME` | Local mock-auth display name | `Dev User` |
