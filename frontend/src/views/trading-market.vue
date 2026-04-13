@@ -67,7 +67,23 @@
         .gradient-card__wrap.fill-height
           .w-flex.wrap.align-center.justify-between.gap2
             .w-flex.align-center.justify-between.gap2
-              strong.title3.no-grow {{ candidate.symbol }}
+              .w-flex.align-center.gap1.no-grow
+                strong.title3.no-grow {{ candidate.symbol }}
+                w-tooltip(v-if="candidate.dailyCatalyst")
+                  template(#activator="{ on }")
+                    span.catalyst-fire-wrap(
+                      v-on="on"
+                      @click.stop
+                      tabindex="0"
+                      aria-label="Daily catalyst")
+                      icon.catalyst-fire-icon(icon="mdi:fire" width="1.15rem" height="1.15rem" aria-hidden="true")
+                  .catalyst-tooltip-content.text-left
+                    .w-flex.wrap.gap1.mb2(v-if="candidate.dailyCatalyst.catalyst_score || candidate.dailyCatalyst.priority")
+                      w-tag(v-if="candidate.dailyCatalyst.catalyst_score" xs round) {{ candidate.dailyCatalyst.catalyst_score }}
+                      w-tag(v-if="candidate.dailyCatalyst.priority" xs round outline) {{ candidate.dailyCatalyst.priority }}
+                    p.size--sm.mb2 {{ candidate.dailyCatalyst.catalyst }}
+                    p.size--xs.op7.mb1(v-if="candidate.dailyCatalyst.premarket_direction_and_gap") {{ candidate.dailyCatalyst.premarket_direction_and_gap }}
+                    p.size--xs.op6.mb0(v-if="candidate.dailyCatalyst.setup_potential") Setup: {{ candidate.dailyCatalyst.setup_potential }}
               w-tag(round xs :bg-color="candidate.side === 'buy' ? 'success' : 'error'") {{ candidate.side.toUpperCase() }}
             .w-flex.justify-between.align-center.gap1.no-grow
               span.size--xs.op6 Confidence:
@@ -601,6 +617,20 @@ onBeforeUnmount(() => {
 }
 
 .screener-card {border: 1px solid rgba(255, 255, 255, 0.06);}
+
+.catalyst-fire-wrap {
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.catalyst-fire-icon {color: #ff922b;}
+
+.catalyst-tooltip-content {
+  max-width: 20rem;
+  padding: 2px 0;
+}
 
 :deep(.no-data .w-table__cell) {background: none;}
 :deep(.w-table__header) {padding: 12px 8px; background: none;}
