@@ -46,7 +46,7 @@
     section.gradient-card.gradient-card--tall
       .gradient-card__wrap
         .title3.text-upper.size--xs.op7.mt-2 Live recommendation
-        .bot-panel__action-line
+        .bot-panel__action-line.lh1.my1
           .bot-panel__action(:class="actionToneClass")
             | {{ recommendationLabel }}
             w-button.mt-1.ml2.px2(
