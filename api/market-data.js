@@ -1,6 +1,7 @@
 import axios from 'axios'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { ALPACA_BASE_URL, ALPACA_API_BASE_URL, HEADERS, IS_SIMULATION, state } from './config.js'
-import { getEasternTime, getCurrencyInfo } from './utils.js'
+import { getEasternTime, getCurrencyInfo, sleep, withRateLimitBackoff } from './utils.js'
 import { getMockPrice, initializeMockPrices, getMockTradableStocks, generateMockHistoricalData, generateMockHistoricalDataByRange } from './simulation.js'
 import * as AlpacaClient from './clients/alpaca-client.js'
 import { broadcast } from './websocket-server.js'
@@ -99,6 +100,12 @@ export async function fetchMarketClock() {
   try {
     console.log('🕐 Fetching market clock from Alpaca...')
     const data = await AlpacaClient.getMarketClock()
+    if (!data || typeof data !== 'object') {
+      marketClockData = null
+      return null
+    }
+    // Cache TTL must use our fetch time — Alpaca's `timestamp` is clock state, not "last fetched".
+    data._fetchedAtMs = Date.now()
     marketClockData = data
     console.log(`✅ Market clock: ${data.is_open ? 'OPEN' : 'CLOSED'}`)
     return data
@@ -451,13 +458,12 @@ export async function fetchStockTrend(symbol, points = 20) {
     }
   }
 
-  // Try multiple timeframes as fallbacks for better data availability.
+  // Prefer daily periods over `1D` — `1D` triggers extra Alpaca work and amplifies 429s under load.
   const fallbackOptions = [
-    { period: '1D', timeframe: '1Hour' }, // Start with 1Hour for better availability
     { period: '1W', timeframe: '1Day' },
     { period: '1M', timeframe: '1Day' },
     { period: '3M', timeframe: '1Day' },
-    { period: '1Y', timeframe: '1Day' } // Very long fallback
+    { period: '1D', timeframe: '1Hour' }
   ]
 
   for (const option of fallbackOptions) {
@@ -708,7 +714,7 @@ export async function getAllTradableStocks() {
 // This allows users to pan back in time and zoom out without additional API calls or loading delays.
 // The frontend chart will auto-focus on recent data but keeps all historical data available.
 
-export async function getStockHistoricalData(symbol, period = '1D', timeframe = null, market = 'stocks') {
+async function getStockHistoricalDataUncached(symbol, period = '1D', timeframe = null, market = 'stocks') {
   if (IS_SIMULATION) {
     console.log(`🧪 [SIM] Generating mock data for ${symbol} (${period}, ${timeframe || 'auto'})`)
     return generateMockHistoricalData(symbol, period, timeframe)
@@ -718,33 +724,7 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
 
   try {
     const { alpacaTimeframe, limit, maxHistoricalDays } = getPeriodParameters(period, timeframe)
-    let endDate = getEasternTime()
-
-    // WORKAROUND: For 1D period, IEX historical data might be delayed
-    // Try different end dates to find the most recent available data
-    if (period === '1D') {
-      console.log(`📊 1D Period: Attempting to find most recent available data for ${symbol}`)
-
-      // Try current time first, then go back day by day if no data
-      for (let daysBack = 0; daysBack <= 7; daysBack++) {
-        const testEndDate = new Date(getEasternTime().getTime() - (daysBack * 24 * 60 * 60 * 1000))
-        const testStartDate = new Date(testEndDate.getTime() - (2 * 24 * 60 * 60 * 1000)) // 2 days range
-
-        console.log(`📅 Trying data range: ${testStartDate.toISOString().split('T')[0]} to ${testEndDate.toISOString().split('T')[0]} (${daysBack} days back)`)
-
-        try {
-          const testBars = await fetchHistoricalDataWithPagination(symbol, alpacaTimeframe, testStartDate, testEndDate, 500, 'iex', market)
-
-          if (testBars && testBars.length > 10) {
-            console.log(`✅ Found ${testBars.length} data points ${daysBack} days back - using this range`)
-            endDate = testEndDate
-            break
-          }
-        } catch (error) {
-          console.log(`⚠️ No data found ${daysBack} days back, trying further back...`)
-        }
-      }
-    }
+    const endDate = getEasternTime()
 
     // Calculate optimal start date to maximize historical data while staying within limits.
     // This gives users plenty of data to pan back through without hitting API limits.
@@ -763,6 +743,10 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
     if (!allBars || allBars.length === 0) {
       console.log(`🔍 No data found for ${symbol} with ${period}/${alpacaTimeframe} - trying smart fallback`)
 
+      if (Date.now() < alpacaBarsBackoffUntil) {
+        console.warn(`⏸ Skipping 30-day bars fallback for ${symbol}: Alpaca bars cooldown after recent 429`)
+      }
+      else {
       // Try to get data from the last 30 days with the same timeframe.
       const fallbackEndDate = new Date()
       const fallbackStartDate = new Date(fallbackEndDate.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -895,6 +879,7 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
         }
       } catch (fallbackError) {
         console.error(`❌ Fallback failed for ${symbol}:`, fallbackError.message)
+      }
       }
 
       console.error(`❌ ALPACA DATA ISSUE: No historical data returned for ${symbol}`)
@@ -1040,7 +1025,7 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
 
       // Retry with daily timeframe for free tier compatibility.
       if (timeframe !== '1Day') {
-        return getStockHistoricalData(symbol, period, '1Day')
+        return getStockHistoricalDataUncached(symbol, period, '1Day')
       }
     }
 
@@ -1055,6 +1040,26 @@ export async function getStockHistoricalData(symbol, period = '1D', timeframe = 
       warning: 'Failed to fetch historical data from Alpaca API.'
     }
   }
+}
+
+// Coalesce identical in-flight historical requests (multiple tabs / UI surfaces).
+const inflightHistorical = new Map()
+
+export async function getStockHistoricalData(symbol, period = '1D', timeframe = null, market = 'stocks') {
+  if (IS_SIMULATION) {
+    return getStockHistoricalDataUncached(symbol, period, timeframe, market)
+  }
+  const { alpacaTimeframe } = getPeriodParameters(period, timeframe)
+  const sym = String(symbol || '').trim().toUpperCase()
+  const mkt = String(market || 'stocks').toLowerCase()
+  const key = `${mkt}|${sym}|${period}|${alpacaTimeframe}`
+  const existing = inflightHistorical.get(key)
+  if (existing) return existing
+  const p = getStockHistoricalDataUncached(symbol, period, timeframe, market).finally(() => {
+    inflightHistorical.delete(key)
+  })
+  inflightHistorical.set(key, p)
+  return p
 }
 
 // Enhanced function with progressive loading strategy.
@@ -1193,7 +1198,43 @@ export async function getStockHistoricalDataProgressive(symbol, period = '1D', t
   } catch (error) {
     console.error(`❌ Progressive loading failed for ${symbol}:`, error.message)
     // Fallback to original method.
-    return getStockHistoricalData(symbol, period, timeframe)
+    return getStockHistoricalData(symbol, period, timeframe, market)
+  }
+}
+
+// Alpaca market-data bars: cap concurrent HTTP calls and briefly cool down after 429.
+const barsHttpPriority = new AsyncLocalStorage()
+
+/**
+ * Run async work with **low** priority for Alpaca bars HTTP slots (e.g. screener previous-close).
+ * Ticker/chart loads use default **high** so they dequeue ahead of background work.
+ */
+export function runAlpacaBarsAsBackground(fn) {
+  return barsHttpPriority.run({ priority: 'low' }, fn)
+}
+
+function currentAlpacaBarsHttpPriority() {
+  return barsHttpPriority.getStore()?.priority === 'low' ? 'low' : 'high'
+}
+
+let alpacaBarsBackoffUntil = 0
+let alpacaBarsInFlight = 0
+const MAX_ALPACA_BARS_IN_FLIGHT = 2
+const alpacaBarsHighWaiters = []
+const alpacaBarsLowWaiters = []
+
+async function withAlpacaBarsConcurrency(fn) {
+  const waiters = currentAlpacaBarsHttpPriority() === 'low' ? alpacaBarsLowWaiters : alpacaBarsHighWaiters
+  while (alpacaBarsInFlight >= MAX_ALPACA_BARS_IN_FLIGHT) {
+    await new Promise(resolve => waiters.push(resolve))
+  }
+  alpacaBarsInFlight++
+  try {
+    return await fn()
+  } finally {
+    alpacaBarsInFlight--
+    const next = alpacaBarsHighWaiters.shift() || alpacaBarsLowWaiters.shift()
+    if (next) next()
   }
 }
 
@@ -1217,13 +1258,29 @@ async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, e
 
   do {
     try {
+      const now = Date.now()
+      if (now < alpacaBarsBackoffUntil) {
+        await sleep(alpacaBarsBackoffUntil - now)
+      }
+
       const limit = Math.min(10000, maxLimit)
       const feedLabel = isCrypto ? 'CRYPTO' : feed.toUpperCase()
       console.log(`📊 Fetching page ${requestCount + 1} for ${symbol}${pageToken ? ' (paginated)' : ''} [${feedLabel}]`)
 
-      const data = isCrypto
-        ? await AlpacaClient.getCryptoBars(symbol, timeframe, start, end, limit, pageToken)
-        : await AlpacaClient.getBars(symbol, timeframe, start, end, limit, feed, pageToken)
+      const data = await withAlpacaBarsConcurrency(() =>
+        withRateLimitBackoff(
+          () =>
+            isCrypto
+              ? AlpacaClient.getCryptoBars(symbol, timeframe, start, end, limit, pageToken)
+              : AlpacaClient.getBars(symbol, timeframe, start, end, limit, feed, pageToken),
+          {
+            label: `bars:${symbol}`,
+            retries: 2,
+            baseDelayMs: 1200,
+            maxDelayMs: 14000
+          }
+        )
+      )
 
       if (data.bars && data.bars.length > 0) {
         allBars.push(...data.bars)
@@ -1245,11 +1302,14 @@ async function fetchHistoricalDataWithPagination(symbol, timeframe, startDate, e
         break
       }
 
-      // Small delay between requests to be respectful to API rate limits.
-      await new Promise(resolve => setTimeout(resolve, 100))
+      // Delay between pages to stay under Alpaca market-data limits (429 otherwise).
+      await sleep(200)
 
     }
     catch (error) {
+      if (error?.response?.status === 429) {
+        alpacaBarsBackoffUntil = Date.now() + 6000 + Math.floor(Math.random() * 2500)
+      }
       console.error(`❌ Error fetching paginated data for ${symbol} [${feed.toUpperCase()}]:`, error.message)
       break
     }
@@ -1587,9 +1647,9 @@ export async function initializeMarketData() {
 // Consolidated market clock management with smart caching.
 export async function getMarketClock(forceFresh = false) {
   // Use cached data if it's fresh (less than 30 seconds old).
-  if (!forceFresh && marketClockData) {
-    const cacheAge = Date.now() - new Date(marketClockData.timestamp).getTime()
-    if (cacheAge < 30000) { // 30 seconds cache.
+  if (!forceFresh && marketClockData && typeof marketClockData._fetchedAtMs === 'number') {
+    const cacheAge = Date.now() - marketClockData._fetchedAtMs
+    if (cacheAge < 30000) {
       return marketClockData
     }
   }

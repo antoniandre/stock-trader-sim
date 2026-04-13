@@ -10,6 +10,8 @@ import { SCREENER_WATCH_SYMBOLS } from './screener-watch-symbols.js'
 const subscribedStocks = new Set()
 // Per-client subscription tracking so we can clean up on disconnect.
 const clientSubscriptions = new Map() // ws → Set<symbol>
+// Trading desk (screener UI) presence — throttles server-side screener Alpaca history calls.
+const clientScreenerDeskActive = new Map() // ws → boolean
 let isAuthenticated = false
 let reconnectAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 5
@@ -69,7 +71,9 @@ function shouldUpdatePrice(symbol, newPrice, currentPrice, messageType) {
 
         // If quote deviates more than 0.5% from recent trades, it's likely stale.
         if (priceDeviation > 0.005) {
-          console.warn(`🚫 Rejecting stale quote for ${symbol}: $${newPrice} (recent trades avg: $${avgRecentTradePrice.toFixed(2)}, deviation: ${(priceDeviation * 100).toFixed(2)}%)`)
+          if (subscribedStocks.has(symbol)) {
+            console.warn(`🚫 Rejecting stale quote for ${symbol}: $${newPrice} (recent trades avg: $${avgRecentTradePrice.toFixed(2)}, deviation: ${(priceDeviation * 100).toFixed(2)}%)`)
+          }
           return false
         }
       }
@@ -77,7 +81,7 @@ function shouldUpdatePrice(symbol, newPrice, currentPrice, messageType) {
 
     // Check for significant price changes (basic validation).
     const priceChange = Math.abs(newPrice - currentPrice) / currentPrice
-    if (priceChange > 0.02) { // More than 2% change.
+    if (priceChange > 0.02 && subscribedStocks.has(symbol)) { // More than 2% change.
       console.warn(`⚠️ Large price change for ${symbol}: $${currentPrice} → $${newPrice} (${(priceChange * 100).toFixed(2)}%)`)
     }
 
@@ -250,6 +254,14 @@ export function createWebSocketServer(server) {
 
     ws.on('close', () => {
       console.log('🔌 WebSocket client disconnected')
+      const hadScreenerDesk = clientScreenerDeskActive.get(ws) === true
+      clientScreenerDeskActive.delete(ws)
+      if (hadScreenerDesk) {
+        import('./src/screener/screener.js').then(m => {
+          if (typeof m.adjustScreenerDeskViewers === 'function') m.adjustScreenerDeskViewers(-1)
+        }).catch(() => {})
+      }
+
       state.wsClients.delete(ws)
 
       // Unsubscribe all symbols this client was watching if no other client wants them.
@@ -285,6 +297,17 @@ export function createWebSocketServer(server) {
           // Only remove from global set if no other client still wants this symbol.
           const stillWanted = [...clientSubscriptions.values()].some(s => s.has(message.symbol))
           if (!stillWanted) unsubscribeFromStock(message.symbol)
+        }
+        else if (message.type === 'screener-desk') {
+          const next = Boolean(message.active)
+          const prev = clientScreenerDeskActive.get(ws) || false
+          if (prev !== next) {
+            clientScreenerDeskActive.set(ws, next)
+            const delta = next ? 1 : -1
+            import('./src/screener/screener.js').then(m => {
+              if (typeof m.adjustScreenerDeskViewers === 'function') m.adjustScreenerDeskViewers(delta)
+            }).catch(() => {})
+          }
         }
       }
       catch (error) {
@@ -334,13 +357,14 @@ export function connectAlpacaWebSocket() {
     const { type, symbol, price } = messageData
 
     if (type === 'trade') {
-      console.log(`💰 Trade received: ${symbol} @ $${price}`)
+      const clientWants = subscribedStocks.has(symbol)
+      if (clientWants) console.log(`💰 Trade received: ${symbol} @ $${price}`)
       const currentPrice = state.stockPrices[symbol]
       const shouldUpdate = shouldUpdatePrice(symbol, price, currentPrice, 'trade')
 
       if (shouldUpdate) {
         state.stockPrices[symbol] = price
-        broadcastPriceUpdate(symbol, price)
+        if (clientWants) broadcastPriceUpdate(symbol, price)
       }
 
       if (messageData.data) {
@@ -350,13 +374,14 @@ export function connectAlpacaWebSocket() {
       }
     }
     else if (type === 'quote') {
-      console.log(`📈 Quote received: ${symbol} @ $${price}`)
+      const clientWants = subscribedStocks.has(symbol)
+      if (clientWants) console.log(`📈 Quote received: ${symbol} @ $${price}`)
       const currentPrice = state.stockPrices[symbol]
       const shouldUpdate = shouldUpdatePrice(symbol, price, currentPrice, 'quote')
 
       if (shouldUpdate) {
         state.stockPrices[symbol] = price
-        broadcastPriceUpdate(symbol, price)
+        if (clientWants) broadcastPriceUpdate(symbol, price)
       }
 
       if (messageData.data) {

@@ -10,7 +10,8 @@ import {
   analyzeVolume,
   getMarketStatus,
   getStockHistoricalData,
-  getAllTradableStocks
+  getAllTradableStocks,
+  runAlpacaBarsAsBackground
 } from '../../market-data.js' // Assuming these are needed for filtering
 import { getEasternTime } from '../../utils.js'
 import { SCREENER_WATCH_SYMBOLS } from '../../screener-watch-symbols.js'
@@ -26,6 +27,21 @@ const STOCKS_TO_WATCH = SCREENER_WATCH_SYMBOLS
 let alpacaWebSocket = null
 let isConnected = false
 let onOpportunityCallback = null
+
+/** Browsers on the Trading desk increment this via WebSocket so we can poll history faster only when someone is watching. */
+let screenerDeskViewerCount = 0
+
+/** @param {number} delta +1 when a desk tab opens, -1 when it closes */
+export function adjustScreenerDeskViewers(delta) {
+  screenerDeskViewerCount = Math.max(0, screenerDeskViewerCount + delta)
+}
+
+const PREVIOUS_CLOSE_CACHE = new Map() // symbol -> { close: number, atMs: number }
+const LAST_HISTORY_PULL_MS = new Map() // symbol -> number
+
+/** Min delay between Alpaca historical pulls per symbol (stream can fire many times/sec). */
+const HISTORY_PULL_INTERVAL_DESK_MS = 20_000
+const HISTORY_PULL_INTERVAL_IDLE_MS = 60_000
 
 export function setOpportunityCallback(callback) {
   onOpportunityCallback = callback
@@ -75,7 +91,7 @@ export async function connectAlpacaWebSocket() {
                 action: 'subscribe',
                 trades: STOCKS_TO_WATCH,
                 quotes: STOCKS_TO_WATCH,
-                bars: STOCKS_TO_WATCH.map(s => `*@1Min.${s}`) // Subscribe to 1-minute bars
+                bars: STOCKS_TO_WATCH
               }))
             }
             break
@@ -210,22 +226,36 @@ async function evaluateOpportunity(symbol) {
     return false
   }
 
-  // To calculate percentage change, we need previous close. This might require a REST API call
-  // or a longer history of bars than what we keep in the real-time cache.
-  // For initial implementation, let's assume we need to fetch historical data for previous close.
+  // Previous close: do not call Alpaca on every tick — stream can be very chatty.
+  const intervalMs = screenerDeskViewerCount > 0 ? HISTORY_PULL_INTERVAL_DESK_MS : HISTORY_PULL_INTERVAL_IDLE_MS
+  const now = Date.now()
+  const lastPull = LAST_HISTORY_PULL_MS.get(symbol) || 0
   let previousClose = 0
-  try {
-    const historicalDataResponse = await getStockHistoricalData(symbol, '1D', '1Day')
-    if (historicalDataResponse && historicalDataResponse.data && historicalDataResponse.data.length >= 2) {
-      previousClose = historicalDataResponse.data[historicalDataResponse.data.length - 2].close // Previous trading day's close
-    } else {
-      // Fallback: If 1D data is not enough, get the last known close from a bar
-      if (cache.bars.length > 0) {
-        previousClose = cache.bars[0].open // Use the open of the first bar as a proxy for previous close if no full day data
+
+  if (now - lastPull >= intervalMs) {
+    try {
+      const historicalDataResponse = await runAlpacaBarsAsBackground(() =>
+        getStockHistoricalData(symbol, '1D', '1Day')
+      )
+      if (historicalDataResponse && historicalDataResponse.data && historicalDataResponse.data.length >= 2) {
+        previousClose = historicalDataResponse.data[historicalDataResponse.data.length - 2].close // Previous trading day's close
+      }
+      else if (cache.bars.length > 0) {
+        previousClose = cache.bars[0].open
+      }
+      LAST_HISTORY_PULL_MS.set(symbol, now)
+      if (previousClose > 0 && !Number.isNaN(previousClose)) {
+        PREVIOUS_CLOSE_CACHE.set(symbol, { close: previousClose, atMs: now })
       }
     }
-  } catch (error) {
-    console.warn(`Could not fetch historical data for ${symbol} to determine previous close:`, error.message)
+    catch (error) {
+      console.warn(`Could not fetch historical data for ${symbol} to determine previous close:`, error.message)
+      LAST_HISTORY_PULL_MS.set(symbol, now)
+    }
+  }
+  else {
+    const cached = PREVIOUS_CLOSE_CACHE.get(symbol)
+    if (cached && cached.close > 0) previousClose = cached.close
   }
 
   // Ensure previousClose is a valid number before using it

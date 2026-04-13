@@ -123,7 +123,10 @@ export async function getBars(symbol, timeframe, startDate, endDate, limit = nul
   if (limit) params.append('limit', limit.toString())
   if (pageToken) params.append('page_token', pageToken)
 
-  const { data } = await axios.get(`${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars?${params}`, { headers: HEADERS })
+  const { data } = await axios.get(`${ALPACA_API_BASE_URL}/v2/stocks/${symbol}/bars?${params}`, {
+    headers: HEADERS,
+    timeout: 60_000
+  })
   return data
 }
 
@@ -173,7 +176,10 @@ export async function getCryptoBars(symbol, timeframe, startDate, endDate, limit
   if (limit) params.append('limit', limit.toString())
   if (pageToken) params.append('page_token', pageToken)
 
-  const { data } = await axios.get(`${ALPACA_API_BASE_URL}/v1beta3/crypto/us/bars?${params}`, { headers: HEADERS })
+  const { data } = await axios.get(`${ALPACA_API_BASE_URL}/v1beta3/crypto/us/bars?${params}`, {
+    headers: HEADERS,
+    timeout: 60_000
+  })
   // Normalise response shape to match stocks: { bars: [...], next_page_token }
   const rawBars = (data.bars && data.bars[symbol]) || []
   return { bars: rawBars, next_page_token: data.next_page_token || null }

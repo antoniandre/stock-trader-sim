@@ -1910,7 +1910,8 @@ function handleBotAutoFire(decision) {
 
 async function onBotExecuteRecommendation(decision) {
   const d = decision || botDecision.value
-  if (!d?.executionPlan || !['buy', 'add'].includes(d.action)) return
+  // Support all action types: buy, add, sell, exit, trim
+  if (!d?.action || !['buy', 'add', 'sell', 'exit', 'trim'].includes(d.action)) return
 
   const blocked = botExecuteRecommendationBlocked.value
   if (blocked) {
@@ -2084,37 +2085,50 @@ onUnmounted(() => {
   console.log(`✅ Cleanup complete for ${stock.symbol}`)
 })
 
-watch(() => stock.symbol, async (newSymbol, oldSymbol) => {
-  if (newSymbol === oldSymbol) return
+// Route reuses this component — sync from props when symbol or market changes, then reload.
+watch(
+  [() => props.symbol, () => props.market],
+  async (next, prev) => {
+    const [symRaw, mktRaw] = next || []
+    const [prevSymRaw, prevMktRaw] = prev || []
+    const newSymbol = String(symRaw || '').trim().toUpperCase()
+    const oldSym = String(prevSymRaw || '').trim().toUpperCase()
+    const market = mktRaw || 'stocks'
+    const oldMarket = prevMktRaw || 'stocks'
 
-  tickerQuoteBootstrapPending.value = true
+    if (!newSymbol) return
+    if (newSymbol === oldSym && market === oldMarket) return
 
-  // Cancel any ongoing requests for the old symbol.
-  activeRequests.value.clear()
+    const previousWsSymbol = stock.symbol
+    stock.symbol = newSymbol
+    stockNotFound.value = false
 
-  // Clear all data for symbol change
-  priceHistory.value = []
-  historicalData.value = []
-  statsHistoricalData.value = []
-  realtimeOHLC.value = []
-  recentTrades.value = []
+    if (previousWsSymbol && previousWsSymbol !== newSymbol) {
+      wsUnsubscribeFromStock(previousWsSymbol)
+    }
 
-  // Clear timeframe cache for new symbol.
-  timeframeDataCache.value.clear()
-  dataCache.value.clear()
+    tickerQuoteBootstrapPending.value = true
 
-  // Reset state.
-  userHasPanned.value = false
-  isLoadingHistoricalData.value = false
+    activeRequests.value.clear()
+    priceHistory.value = []
+    historicalData.value = []
+    statsHistoricalData.value = []
+    realtimeOHLC.value = []
+    recentTrades.value = []
+    timeframeDataCache.value.clear()
+    dataCache.value.clear()
+    userHasPanned.value = false
+    isLoadingHistoricalData.value = false
 
-  try {
-    await Promise.all([fetchTickerData(), fetchHistoricalData()])
+    try {
+      await Promise.all([fetchTickerData(), fetchHistoricalData()])
+    }
+    finally {
+      tickerQuoteBootstrapPending.value = false
+    }
+    await refreshBotDecision()
   }
-  finally {
-    tickerQuoteBootstrapPending.value = false
-  }
-  await refreshBotDecision()
-}, { immediate: false })
+)
 
 watch(() => currentPosition.value, () => {
   refreshBotDecision()

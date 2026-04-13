@@ -271,7 +271,31 @@ const tradeCandidates = ref([])
 const tradeCandidatesLoading = ref(false)
 const tradeCandidatesMeta = ref(null)
 
-const { lastUpdate, addMessageHandler } = useWebSocket()
+const { lastUpdate, addMessageHandler, send, wsConnected } = useWebSocket()
+
+const SCREENER_CANDIDATES_REFRESH_MS = 60_000
+let tradeCandidatesInterval = null
+
+function notifyScreenerDeskPresence(active) {
+  const ok = send(JSON.stringify({ type: 'screener-desk', active }))
+  if (!ok && active) {
+    // Socket not ready yet; watch(wsConnected) will retry.
+  }
+}
+
+function startTradeCandidatesPolling() {
+  if (tradeCandidatesInterval) return
+  tradeCandidatesInterval = setInterval(() => {
+    if (!tradeCandidatesLoading.value) loadTradeCandidates()
+  }, SCREENER_CANDIDATES_REFRESH_MS)
+}
+
+function stopTradeCandidatesPolling() {
+  if (tradeCandidatesInterval) {
+    clearInterval(tradeCandidatesInterval)
+    tradeCandidatesInterval = null
+  }
+}
 const paginatedStocks = computed(() => stocks.value)
 const tradeCandidatesUsedFallback = computed(() => !!tradeCandidatesMeta.value?.usedFallback)
 
@@ -581,11 +605,17 @@ function setupWebSocket() {
   addMessageHandler('market-status-update', handleMarketStatusUpdate)
 }
 
+watch(wsConnected, online => {
+  if (online) notifyScreenerDeskPresence(true)
+})
+
 onMounted(async () => {
   loading.value = true
   try {
     await Promise.all([fetchStocks(), loadMovers(), loadTradeCandidates(), refreshTradingContext()])
     setupWebSocket()
+    notifyScreenerDeskPresence(true)
+    startTradeCandidatesPolling()
   }
   catch (mountedError) {
     console.error('Error during trading desk initialization:', mountedError)
@@ -601,6 +631,8 @@ watch(() => props.market, async () => {
 
 onBeforeUnmount(() => {
   if (searchTimeout) clearTimeout(searchTimeout)
+  stopTradeCandidatesPolling()
+  notifyScreenerDeskPresence(false)
 })
 </script>
 

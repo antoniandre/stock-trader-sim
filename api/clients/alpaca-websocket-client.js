@@ -22,10 +22,20 @@ export function createAlpacaWebSocket(onMessage, onAuthenticated, onError, onClo
 
     ws.on('message', (data) => {
       try {
-        const messages = JSON.parse(data)
+        const parsed = JSON.parse(data)
+        const messages = Array.isArray(parsed) ? parsed : [parsed]
 
-        if (Array.isArray(messages)) {
-          console.log('📨 Processing', messages.length, 'messages')
+        if (messages.length > 0) {
+          const counts = {}
+          for (const m of messages) {
+            const key = m.T != null ? String(m.T) : (m.msg != null ? 'success' : 'other')
+            counts[key] = (counts[key] || 0) + 1
+          }
+          const summary = Object.keys(counts)
+            .sort()
+            .map(k => `${k}:${counts[k]}`)
+            .join(' ')
+          console.log(`📨 Alpaca stream batch: ${messages.length} [${summary}] → fanout to app (quotes/trades/bars)`)
           for (const message of messages) {
             handleAlpacaMessage(message, onMessage, onAuthenticated)
           }
@@ -131,8 +141,9 @@ export function subscribeToSymbols(ws, symbols, { barSymbols } = {}) {
     quotes: symbols
   }
 
+  // Stock v2/iex WebSocket expects minute bars as plain symbols (not *@1Min.* — that triggers 400 invalid syntax).
   if (barSymbols && barSymbols.length > 0) {
-    subscribeMessage.bars = barSymbols.map(s => `*@1Min.${s}`)
+    subscribeMessage.bars = [...new Set(barSymbols.map(s => String(s).trim()).filter(Boolean))]
   }
 
   ws.send(JSON.stringify(subscribeMessage))

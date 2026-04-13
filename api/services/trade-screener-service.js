@@ -1,9 +1,15 @@
 import { getMarketStatus, getTopMovers, fetchStockTrend } from '../market-data.js'
+import { sleep } from '../utils.js'
 import { state } from '../config.js'
 import * as AlpacaClient from '../clients/alpaca-client.js'
 import { formatTradingDayKey, getDailyCatalystForSymbol, summarizeCatalystRow } from './daily-catalysts.js'
 
 const DEFAULT_LIMIT = 8
+
+// Bars-backed trend is expensive (Alpaca rate limits). Only enrich a small subset, sequentially.
+const TREND_ENRICH_TOP_K = 4
+const TREND_ENRICH_MIN_SCORE = 56
+const TREND_FETCH_GAP_MS = 280
 
 function clampLimit(limit) {
   const parsed = Number.parseInt(limit, 10)
@@ -94,9 +100,23 @@ function scoreCandidate(candidate, market, marketStatus) {
   }
 }
 
-async function enrichStockCandidate(candidate) {
+function applyCatalystEnrichment(candidate) {
+  const catalystRow = getDailyCatalystForSymbol(candidate.symbol)
+  if (catalystRow) {
+    candidate.dailyCatalyst = summarizeCatalystRow(catalystRow)
+    candidate.score = Math.min(100, Math.round((candidate.score || 0) + 8))
+    const reasons = [...(candidate.reasons || [])]
+    const label = `daily catalyst (${catalystRow.catalyst_score || 'on file'})`
+    if (!reasons.some(r => String(r).toLowerCase().includes('catalyst'))) {
+      reasons.unshift(label)
+    }
+    candidate.reasons = reasons.slice(0, 3)
+  }
+}
+
+async function enrichTrendFromBars(candidate, points = 6) {
   try {
-    const trend = await fetchStockTrend(candidate.symbol, 6)
+    const trend = await fetchStockTrend(candidate.symbol, points)
     const trendData = trend?.data || []
     if (trendData.length >= 2) {
       const first = Number(trendData[0]?.price || 0)
@@ -110,22 +130,32 @@ async function enrichStockCandidate(candidate) {
     }
   }
   catch (_error) {
-    // Keep screener resilient, trend detail is optional.
+    // Trend detail is optional; movers payload is still useful.
+  }
+}
+
+function symbolGetsTrendFetch(candidate, rankIndex) {
+  if (rankIndex < TREND_ENRICH_TOP_K) return true
+  if ((candidate.score || 0) >= TREND_ENRICH_MIN_SCORE) return true
+  return false
+}
+
+/**
+ * Catalyst for everyone (cheap). Bars trend only for top movers / high preview score, one at a time.
+ */
+async function enrichStockCandidatesStaged(candidates) {
+  let firstTrend = true
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i]
+    if (!symbolGetsTrendFetch(c, i)) continue
+    if (!firstTrend) await sleep(TREND_FETCH_GAP_MS)
+    firstTrend = false
+    await enrichTrendFromBars(c, 6)
   }
 
-  const catalystRow = getDailyCatalystForSymbol(candidate.symbol)
-  if (catalystRow) {
-    candidate.dailyCatalyst = summarizeCatalystRow(catalystRow)
-    candidate.score = Math.min(100, Math.round((candidate.score || 0) + 8))
-    const reasons = [...(candidate.reasons || [])]
-    const label = `daily catalyst (${catalystRow.catalyst_score || 'on file'})`
-    if (!reasons.some(r => String(r).toLowerCase().includes('catalyst'))) {
-      reasons.unshift(label)
-    }
-    candidate.reasons = reasons.slice(0, 3)
+  for (const c of candidates) {
+    applyCatalystEnrichment(c)
   }
-
-  return candidate
 }
 
 function dedupeBySymbol(items) {
@@ -212,7 +242,7 @@ export async function getTradeCandidates({ market = 'stocks', limit = DEFAULT_LI
   }
 
   if (normalizedMarket === 'stocks') {
-    candidates = await Promise.all(candidates.map(enrichStockCandidate))
+    await enrichStockCandidatesStaged(candidates)
   }
 
   return {
