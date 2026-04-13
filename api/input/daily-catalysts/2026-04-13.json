@@ -1,0 +1,134 @@
+[
+  {
+    "symbol": "XOM",
+    "catalyst": "Hormuz blockade; WTI +9.3% to $105, Brent +7.8% to $103; largest oil supply disruption in history ongoing",
+    "catalyst_score": "Strong",
+    "premarket_direction_and_gap": "Gap-up, est. +5–8%",
+    "premarket_volume": "Very high — sector-wide surge",
+    "key_levels": "R: YTD high ~$175; S: prior close ~$161",
+    "setup_potential": "Gap-and-go; ORB long; Trend continuation",
+    "priority": "High",
+    "confidence": "A"
+  },
+  {
+    "symbol": "CVX",
+    "catalyst": "Same oil shock; JPM PT raised to $216, TPH&Co upgraded to Buy Apr 9; integrated major",
+    "catalyst_score": "Strong",
+    "premarket_direction_and_gap": "Gap-up, est. +5–7%",
+    "premarket_volume": "Very high — sector sympathy",
+    "key_levels": "R: $216 analyst PT; S: prior close ~$196",
+    "setup_potential": "Gap-and-go; Trend continuation",
+    "priority": "High",
+    "confidence": "A"
+  },
+  {
+    "symbol": "COP",
+    "catalyst": "Highest-beta pure E&P to oil; no refining drag; YTD +40% confirms strong trend",
+    "catalyst_score": "Strong",
+    "premarket_direction_and_gap": "Gap-up, est. +6–9%",
+    "premarket_volume": "High",
+    "key_levels": "R: YTD highs; S: prior close",
+    "setup_potential": "Gap-and-go; Momentum continuation",
+    "priority": "High",
+    "confidence": "A"
+  },
+  {
+    "symbol": "SLB",
+    "catalyst": "Oilfield services; record $32.4B backlog; oil surge = more drilling demand; direct beneficiary",
+    "catalyst_score": "Strong",
+    "premarket_direction_and_gap": "Gap-up, est. +4–6%",
+    "premarket_volume": "High — energy sector bid",
+    "key_levels": "R: recent highs; S: prior close",
+    "setup_potential": "Gap-and-go; Sector sympathy",
+    "priority": "High",
+    "confidence": "A"
+  },
+  {
+    "symbol": "GS",
+    "catalyst": "Q1 earnings BMO today; EPS est. $16.48–$16.86; 14% avg beat history; strong IB/trading tailwinds; risk-off macro headwind",
+    "catalyst_score": "Strong",
+    "premarket_direction_and_gap": "Uncertain — risk-off tape may offset beat; watch open reaction",
+    "premarket_volume": "High — earnings catalyst",
+    "key_levels": "R: post-earnings reaction high; S: prior close",
+    "setup_potential": "Gap-and-go on beat; Reversal/VWAP reclaim on miss",
+    "priority": "High",
+    "confidence": "B"
+  },
+  {
+    "symbol": "LMT",
+    "catalyst": "$4.76B PAC-3 contract awarded Apr 10; Pentagon wartime footing agreements; Iran escalation removes ceasefire overhang",
+    "catalyst_score": "Strong",
+    "premarket_direction_and_gap": "Gap-up, est. +2–4%",
+    "premarket_volume": "High — defense bid resumes",
+    "key_levels": "R: YTD high ~$676; S: $640",
+    "setup_potential": "Trend continuation; ORB breakout",
+    "priority": "High",
+    "confidence": "A"
+  },
+  {
+    "symbol": "JPM",
+    "catalyst": "Reports tomorrow BMO; GS today is leading indicator; Dimon outlook on oil/economy critical",
+    "catalyst_score": "Moderate",
+    "premarket_direction_and_gap": "Pre-earnings positioning; risk-off pressure",
+    "premarket_volume": "Elevated",
+    "key_levels": "R: prior close; S: $305",
+    "setup_potential": "Pre-earnings range; ORB off GS read-through",
+    "priority": "Medium",
+    "confidence": "B"
+  },
+  {
+    "symbol": "C",
+    "catalyst": "Reports tomorrow BMO; CEO guided mid-teens IB fee growth; strong Buy consensus (15 Buy, 2 Hold)",
+    "catalyst_score": "Moderate",
+    "premarket_direction_and_gap": "GS read-through; risk-off headwind",
+    "premarket_volume": "Moderate",
+    "key_levels": "R: $137 analyst PT; S: prior close",
+    "setup_potential": "Pre-earnings momentum or fade",
+    "priority": "Medium",
+    "confidence": "B"
+  },
+  {
+    "symbol": "MS",
+    "catalyst": "Reports Wednesday; GS today is direct read-through; financials week in focus",
+    "catalyst_score": "Moderate",
+    "premarket_direction_and_gap": "Sympathy to GS open reaction",
+    "premarket_volume": "Moderate",
+    "key_levels": "R: prior week high; S: week low",
+    "setup_potential": "VWAP reclaim on GS beat; Fade on GS miss",
+    "priority": "Medium",
+    "confidence": "B"
+  },
+  {
+    "symbol": "HON",
+    "catalyst": "Pentagon wartime footing framework agreement; defense + industrial dual exposure",
+    "catalyst_score": "Moderate",
+    "premarket_direction_and_gap": "Gap-up, est. +1–2%",
+    "premarket_volume": "Moderate",
+    "key_levels": "R: prior week high; S: 50-day MA",
+    "setup_potential": "Trend continuation; ORB",
+    "priority": "Medium",
+    "confidence": "B"
+  },
+  {
+    "symbol": "FDX",
+    "catalyst": "Fuel surcharge shock — oil +9% crushes margins; direct earnings risk",
+    "catalyst_score": "Moderate",
+    "premarket_direction_and_gap": "Gap-down, est. -2–4%",
+    "premarket_volume": "High — negative catalyst",
+    "key_levels": "R: prior close (now resistance); S: recent lows",
+    "setup_potential": "Fade/gap fill short; VWAP fade",
+    "priority": "Medium",
+    "confidence": "B"
+  },
+  {
+    "symbol": "UPS",
+    "catalyst": "Same fuel headwind as FDX; logistics sector under oil shock pressure",
+    "catalyst_score": "Moderate",
+    "premarket_direction_and_gap": "Gap-down, est. -2–3%",
+    "premarket_volume": "Moderate",
+    "key_levels": "R: prior close; S: recent low",
+    "setup_potential": "Fade/short; Sector sympathy with FDX",
+    "priority": "Medium",
+    "confidence": "B"
+  }
+]
