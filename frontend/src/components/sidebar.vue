@@ -200,7 +200,6 @@ const authActionLabel = computed(() => authState.user ? 'Manage account' : 'Sign
 
 async function handleSignOut() {
   await signOut()
-  await loadCurrentUser()
 }
 
 async function loadCurrentUser() {
@@ -253,7 +252,7 @@ async function loadCurrentUser() {
 
 watch(() => authState.user, async () => {
   await loadCurrentUser()
-})
+}, { immediate: true })
 
 onMounted(async () => {
   const savedWidth = localStorage.getItem('sidebarWidth')
@@ -279,7 +278,6 @@ onMounted(async () => {
 
   window.addEventListener('blur', stopResize)
   document.addEventListener('mouseleave', stopResize)
-  await loadCurrentUser()
 })
 
 onUnmounted(() => {

@@ -164,27 +164,38 @@ export async function checkHealth() {
   }
 }
 
+let fetchMeInFlight = null
+
 export async function fetchMe() {
-  try {
-    const response = await fetch(`${API_BASE}/me`, {
-      headers: await getAuthHeaders()
-    })
-    const result = await response.json().catch(() => ({}))
+  if (fetchMeInFlight) return fetchMeInFlight
 
-    // Missing/invalid API JWT secret, expired token, or race before session hydrates —
-    // not a hard failure: caller can fall back to the Supabase session in the client.
-    if (response.status === 401) {
-      return { user: null, auth: result.auth ?? result.data?.auth ?? null }
+  fetchMeInFlight = (async () => {
+    try {
+      const response = await fetch(`${API_BASE}/me`, {
+        headers: await getAuthHeaders()
+      })
+      const result = await response.json().catch(() => ({}))
+
+      // Missing/invalid API JWT secret, expired token, or race before session hydrates —
+      // not a hard failure: caller can fall back to the Supabase session in the client.
+      if (response.status === 401) {
+        return { user: null, auth: result.auth ?? result.data?.auth ?? null }
+      }
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+      return result.data || result
     }
+    catch (error) {
+      console.error('Fetch me failed:', error)
+      throw error
+    }
+    finally {
+      fetchMeInFlight = null
+    }
+  })()
 
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-
-    return result.data || result
-  }
-  catch (error) {
-    console.error('Fetch me failed:', error)
-    throw error
-  }
+  return fetchMeInFlight
 }
 
 export async function fetchDayTradingDecision(payload) {
