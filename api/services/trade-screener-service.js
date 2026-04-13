@@ -1,6 +1,7 @@
 import { getMarketStatus, getTopMovers, fetchStockTrend } from '../market-data.js'
 import { state } from '../config.js'
 import * as AlpacaClient from '../clients/alpaca-client.js'
+import { formatTradingDayKey, getDailyCatalystForSymbol, summarizeCatalystRow } from './daily-catalysts.js'
 
 const DEFAULT_LIMIT = 8
 
@@ -112,6 +113,18 @@ async function enrichStockCandidate(candidate) {
     // Keep screener resilient, trend detail is optional.
   }
 
+  const catalystRow = getDailyCatalystForSymbol(candidate.symbol)
+  if (catalystRow) {
+    candidate.dailyCatalyst = summarizeCatalystRow(catalystRow)
+    candidate.score = Math.min(100, Math.round((candidate.score || 0) + 8))
+    const reasons = [...(candidate.reasons || [])]
+    const label = `daily catalyst (${catalystRow.catalyst_score || 'on file'})`
+    if (!reasons.some(r => String(r).toLowerCase().includes('catalyst'))) {
+      reasons.unshift(label)
+    }
+    candidate.reasons = reasons.slice(0, 3)
+  }
+
   return candidate
 }
 
@@ -205,6 +218,7 @@ export async function getTradeCandidates({ market = 'stocks', limit = DEFAULT_LI
   return {
     market: normalizedMarket,
     asOf: new Date().toISOString(),
+    catalystTradingDay: normalizedMarket === 'stocks' ? formatTradingDayKey() : null,
     marketStatus,
     usedFallback,
     candidates
