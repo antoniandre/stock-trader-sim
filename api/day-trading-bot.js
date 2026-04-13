@@ -1,3 +1,5 @@
+import { formatTradingDayKey, getDailyCatalystForSymbol, summarizeCatalystRow } from './services/daily-catalysts.js'
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
 }
@@ -133,6 +135,36 @@ export function evaluateDayTradingDecision(input = {}) {
   if (setup === 'breakout' && marketRegime !== 'breakout') entryScore -= 10
   if (setup === 'weak') entryScore -= 14
   if (weakEvidence) entryScore -= 12
+
+  const dailyCatalystRow = input.disableDailyCatalyst
+    ? null
+    : ('dailyCatalyst' in input ? input.dailyCatalyst : getDailyCatalystForSymbol(input.symbol))
+
+  let dailyCatalystForResponse = null
+  if (dailyCatalystRow && typeof dailyCatalystRow === 'object') {
+    const pre = String(dailyCatalystRow.premarket_direction_and_gap || '')
+    const scoreLabel = String(dailyCatalystRow.catalyst_score || '').toLowerCase()
+    const priority = String(dailyCatalystRow.priority || '').toLowerCase()
+    const gapDown = /gap-down/i.test(pre)
+    const gapUp = /gap-up/i.test(pre)
+
+    let catalystEntryDelta = 0
+    if (scoreLabel.includes('strong')) catalystEntryDelta += 5
+    else if (scoreLabel.includes('moderate')) catalystEntryDelta += 2
+    if (priority.includes('high')) catalystEntryDelta += 3
+    else if (priority.includes('medium')) catalystEntryDelta += 1
+    if (gapUp) catalystEntryDelta += 4
+    if (gapDown) catalystEntryDelta -= 7
+
+    const confLetter = String(dailyCatalystRow.confidence || '').toUpperCase()
+    if (confLetter === 'A') catalystEntryDelta += 2
+    else if (confLetter === 'B') catalystEntryDelta += 1
+
+    entryScore += catalystEntryDelta
+
+    dailyCatalystForResponse = summarizeCatalystRow(dailyCatalystRow)
+  }
+
   entryScore = clamp(entryScore, 0, 100)
 
   let riskScore = 18 + Number(strategyParams.riskBias || 0)
@@ -178,6 +210,14 @@ export function evaluateDayTradingDecision(input = {}) {
   }
   if (weakEvidence) reasons.push('Liquidity or volatility conditions make the signal unreliable')
   if (lowConfidence) reasons.push('Confidence is below the bar for a fresh trade')
+
+  if (dailyCatalystForResponse) {
+    const text = String(dailyCatalystRow.catalyst || '')
+    const clipped = text.length > 180 ? `${text.slice(0, 180)}…` : text
+    reasons.push(
+      `Daily catalyst (${dailyCatalystForResponse.catalyst_score || 'n/a'}, ${dailyCatalystForResponse.priority || 'n/a'}): ${clipped}`
+    )
+  }
 
   let action = 'hold'
   const buyThreshold = profile.buyThreshold + (setup === 'mean-revert' ? -4 : 0)
@@ -298,6 +338,8 @@ export function evaluateDayTradingDecision(input = {}) {
       unrealizedPnLPct: round(unrealizedPnLPct)
     },
     executionPlan,
+    dailyCatalyst: dailyCatalystForResponse,
+    catalystTradingDay: input.disableDailyCatalyst ? null : formatTradingDayKey(),
     recommendation: buildRecommendation({
       action,
       confidence,

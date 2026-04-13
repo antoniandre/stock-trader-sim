@@ -50,7 +50,8 @@ export function runDayTradingBacktest(input = {}) {
       spreadPct: Number(input.spreadPct ?? 0.08),
       positionQty,
       avgEntryPrice,
-      strategyParams
+      strategyParams,
+      disableDailyCatalyst: true
     })
 
     const equity = cash + positionQty * currentPrice
