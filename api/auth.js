@@ -5,12 +5,16 @@ import {
   AUTH_JWT_SECRET,
   AUTH_JWT_ISSUER,
   AUTH_JWT_AUDIENCE,
+  SUPABASE_URL,
   SUPABASE_JWT_SECRET,
   DEV_AUTH_USER_ID,
   DEV_AUTH_EMAIL,
   DEV_AUTH_NAME,
   DEV_AUTH_PLAN
 } from './config.js'
+import { logger } from './logger.js'
+
+let loggedMissingJwtSecret = false
 
 const VALID_PLANS = new Set(['free', 'pro', 'team'])
 
@@ -81,27 +85,57 @@ function getBearerToken(req) {
   return authHeader.slice('Bearer '.length).trim() || null
 }
 
+/**
+ * Issuer/audience must match the access token. `config.js` mutates process.env for
+ * Supabase after binding exports, so we derive defaults here from SUPABASE_URL.
+ */
+function providerJwtVerifyOptions() {
+  const options = {}
+  let issuer = AUTH_JWT_ISSUER ? String(AUTH_JWT_ISSUER).trim() : ''
+  let audience = AUTH_JWT_AUDIENCE ? String(AUTH_JWT_AUDIENCE).trim() : ''
+  if (AUTH_PROVIDER === 'supabase') {
+    const base = String(SUPABASE_URL || '').trim().replace(/\/+$/, '')
+    if (!issuer && base) issuer = `${base}/auth/v1`
+    if (!audience) audience = 'authenticated'
+  }
+  if (issuer) options.issuer = issuer
+  if (audience) options.audience = audience
+  return options
+}
+
 async function verifyProviderJwt(token) {
   const secretValue = AUTH_PROVIDER === 'supabase' ? (SUPABASE_JWT_SECRET || AUTH_JWT_SECRET) : AUTH_JWT_SECRET
-  if (!secretValue) throw new Error('AUTH_JWT_SECRET or SUPABASE_JWT_SECRET is required for AUTH_MODE=provider')
+  if (!secretValue) {
+    if (!loggedMissingJwtSecret) {
+      loggedMissingJwtSecret = true
+      logger.error(
+        'AUTH_MODE=provider but AUTH_JWT_SECRET and SUPABASE_JWT_SECRET are empty — JWT verification is disabled; set the HS256 JWT secret from your auth dashboard (e.g. Supabase → Project Settings → API).'
+      )
+    }
+    return null
+  }
 
   const secret = new TextEncoder().encode(secretValue)
-  const verifyOptions = {}
-  if (AUTH_JWT_ISSUER) verifyOptions.issuer = AUTH_JWT_ISSUER
-  if (AUTH_JWT_AUDIENCE) verifyOptions.audience = AUTH_JWT_AUDIENCE
+  const verifyOptions = providerJwtVerifyOptions()
 
-  const { payload } = await jwtVerify(token, secret, verifyOptions)
+  try {
+    const { payload } = await jwtVerify(token, secret, verifyOptions)
 
-  const metaName = nameFromUserMetadata(payload.user_metadata)
-  const topName = payload.name != null ? String(payload.name).trim() || null : null
+    const metaName = nameFromUserMetadata(payload.user_metadata)
+    const topName = payload.name != null ? String(payload.name).trim() || null : null
 
-  return normalizeUser({
-    id: payload.sub,
-    email: payload.email,
-    name: topName || metaName,
-    plan: payload.plan || payload['https://stocktrader.app/plan'] || 'free',
-    authProvider: AUTH_PROVIDER
-  })
+    return normalizeUser({
+      id: payload.sub,
+      email: payload.email,
+      name: topName || metaName,
+      plan: payload.plan || payload['https://stocktrader.app/plan'] || 'free',
+      authProvider: AUTH_PROVIDER
+    })
+  }
+  catch (err) {
+    logger.debug({ err: err?.message || err }, 'provider JWT verification failed')
+    return null
+  }
 }
 
 export function getAuthSummary() {
@@ -136,7 +170,7 @@ export async function attachUser(req, _res, next) {
       return next()
     }
 
-    next()
+    return next()
   }
   catch (error) {
     next(error)
