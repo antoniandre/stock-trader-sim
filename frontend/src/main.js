@@ -33,4 +33,10 @@ app.use(WaveUI, {
 app.component('Icon', Icon)
 
 initAuth()
-app.mount('#app')
+  .then(() => {
+    app.mount('#app')
+  })
+  .catch((error) => {
+    console.error('Auth bootstrap failed:', error)
+    app.mount('#app')
+  })

@@ -208,6 +208,21 @@ async function loadCurrentUser() {
     const me = await fetchMe()
     const apiUser = me.user
     const session = authState.user
+
+    if (!apiUser) {
+      currentUser.value = session || null
+      try {
+        const health = await checkHealth()
+        authSummary.value = health.data?.auth || health.auth || null
+      }
+      catch {
+        authSummary.value = me.auth || (authState.enabled
+          ? { enabled: true, provider: 'managed-auth' }
+          : null)
+      }
+      return
+    }
+
     const sessionEmail = session?.email ? String(session.email).toLowerCase() : ''
     const apiEmail = apiUser?.email ? String(apiUser.email).toLowerCase() : ''
     // Browser session is Supabase; if API still uses mock / wrong env, emails diverge.

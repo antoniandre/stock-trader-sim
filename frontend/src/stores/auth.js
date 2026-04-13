@@ -111,6 +111,7 @@ export async function signOut() {
 }
 
 export async function getAccessToken() {
+  await whenReady()
   const supabase = getSupabaseClient()
   if (!supabase) return ''
   const { data } = await supabase.auth.getSession()

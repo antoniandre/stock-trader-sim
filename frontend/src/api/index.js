@@ -169,9 +169,16 @@ export async function fetchMe() {
     const response = await fetch(`${API_BASE}/me`, {
       headers: await getAuthHeaders()
     })
+    const result = await response.json().catch(() => ({}))
+
+    // Missing/invalid API JWT secret, expired token, or race before session hydrates —
+    // not a hard failure: caller can fall back to the Supabase session in the client.
+    if (response.status === 401) {
+      return { user: null, auth: result.auth ?? result.data?.auth ?? null }
+    }
+
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
-    const result = await response.json()
     return result.data || result
   }
   catch (error) {
