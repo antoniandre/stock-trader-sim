@@ -2,7 +2,7 @@
 .ticker-header.w-flex.align-center.gap4(:class="{ 'ticker-header--small': small }")
   ticker-logo(:symbol="stock.symbol" :size="small ? 'sm' : 'lg'")
   div
-    .w-flex.align-center.justify-space-between.gap2
+    .w-flex.align-center.gap2
       w-tag.w-flex.gap2.pr1.no-grow(round :bg-color="$waveui.theme === 'dark' ? 'info-dark4' : 'info-light5'")
         strong.size--lg {{ stock.symbol }}
         icon(
