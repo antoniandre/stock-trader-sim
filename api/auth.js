@@ -1,4 +1,4 @@
-import { jwtVerify } from 'jose'
+import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify } from 'jose'
 import {
   AUTH_MODE,
   AUTH_PROVIDER,
@@ -15,6 +15,38 @@ import {
 import { logger } from './logger.js'
 
 let loggedMissingJwtSecret = false
+let loggedUuidSecretHint = false
+
+/** Cached JWKS clients keyed by full JWKS URL string. */
+const supabaseJwksClients = new Map()
+
+function looksLikeSigningKeyIdOrUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim())
+}
+
+function remoteJwksForSupabase() {
+  const base = String(SUPABASE_URL || '').trim().replace(/\/+$/, '')
+  if (!base) return null
+  const jwksUrl = `${base}/auth/v1/.well-known/jwks.json`
+  if (!supabaseJwksClients.has(jwksUrl)) {
+    supabaseJwksClients.set(jwksUrl, createRemoteJWKSet(new URL(jwksUrl)))
+  }
+  return supabaseJwksClients.get(jwksUrl)
+}
+
+function userFromJwtPayload(payload) {
+  if (!payload?.sub) return null
+  const metaName = nameFromUserMetadata(payload.user_metadata)
+  const topName = payload.name != null ? String(payload.name).trim() || null : null
+
+  return normalizeUser({
+    id: payload.sub,
+    email: payload.email,
+    name: topName || metaName,
+    plan: payload.plan || payload['https://stocktrader.app/plan'] || 'free',
+    authProvider: AUTH_PROVIDER
+  })
+}
 
 const VALID_PLANS = new Set(['free', 'pro', 'team'])
 
@@ -104,33 +136,92 @@ function providerJwtVerifyOptions() {
 }
 
 async function verifyProviderJwt(token) {
-  const secretValue = AUTH_PROVIDER === 'supabase' ? (SUPABASE_JWT_SECRET || AUTH_JWT_SECRET) : AUTH_JWT_SECRET
+  const verifyOptions = providerJwtVerifyOptions()
+
+  if (AUTH_PROVIDER === 'supabase') {
+    let header
+    try {
+      header = decodeProtectedHeader(token)
+    }
+    catch (err) {
+      logger.debug({ err: err?.message || err }, 'JWT header decode failed')
+      return null
+    }
+
+    const alg = String(header.alg || '').toUpperCase()
+    const secretValue = (SUPABASE_JWT_SECRET || AUTH_JWT_SECRET || '').trim()
+    const jwks = remoteJwksForSupabase()
+
+    if (secretValue && looksLikeSigningKeyIdOrUuid(secretValue) && !loggedUuidSecretHint) {
+      loggedUuidSecretHint = true
+      logger.warn(
+        'SUPABASE_JWT_SECRET looks like a JWT signing key id (UUID), not the legacy HS256 JWT secret. ' +
+          'New Supabase projects verify access tokens with asymmetric keys (JWKS); this API will try JWKS automatically when SUPABASE_URL is set. ' +
+          'Remove the UUID from SUPABASE_JWT_SECRET unless you still use the legacy shared secret.'
+      )
+    }
+
+    // Current Supabase "JWT signing keys" use ES256/RS256 — verify with JWKS (no shared secret on your server).
+    if (alg && alg !== 'HS256' && jwks) {
+      try {
+        const { payload } = await jwtVerify(token, jwks, verifyOptions)
+        return userFromJwtPayload(payload)
+      }
+      catch (err) {
+        logger.debug({ err: err?.message || err, alg }, 'Supabase JWKS JWT verification failed')
+        return null
+      }
+    }
+
+    // Legacy HS256 (shared JWT secret) — only if secret is a real symmetric key, not a signing-key UUID.
+    if (secretValue && !looksLikeSigningKeyIdOrUuid(secretValue)) {
+      try {
+        const secret = new TextEncoder().encode(secretValue)
+        const { payload } = await jwtVerify(token, secret, verifyOptions)
+        return userFromJwtPayload(payload)
+      }
+      catch (err) {
+        logger.debug({ err: err?.message || err }, 'Supabase HS256 JWT verification failed')
+      }
+    }
+
+    // HS256 failed or no usable secret: try JWKS (covers migration / mixed setups).
+    if (jwks) {
+      try {
+        const { payload } = await jwtVerify(token, jwks, verifyOptions)
+        return userFromJwtPayload(payload)
+      }
+      catch (err) {
+        logger.debug({ err: err?.message || err }, 'Supabase JWKS fallback verification failed')
+        return null
+      }
+    }
+
+    if (!secretValue && !loggedMissingJwtSecret) {
+      loggedMissingJwtSecret = true
+      logger.error(
+        'AUTH_MODE=provider with Supabase but SUPABASE_URL is unset and no HS256 SUPABASE_JWT_SECRET — cannot verify JWTs. Set SUPABASE_URL for JWKS, or set the legacy JWT secret.'
+      )
+    }
+    return null
+  }
+
+  const secretValue = AUTH_JWT_SECRET
   if (!secretValue) {
     if (!loggedMissingJwtSecret) {
       loggedMissingJwtSecret = true
       logger.error(
-        'AUTH_MODE=provider but AUTH_JWT_SECRET and SUPABASE_JWT_SECRET are empty — JWT verification is disabled; set the HS256 JWT secret from your auth dashboard (e.g. Supabase → Project Settings → API).'
+        'AUTH_MODE=provider but AUTH_JWT_SECRET is empty — JWT verification is disabled.'
       )
     }
     return null
   }
 
   const secret = new TextEncoder().encode(secretValue)
-  const verifyOptions = providerJwtVerifyOptions()
 
   try {
     const { payload } = await jwtVerify(token, secret, verifyOptions)
-
-    const metaName = nameFromUserMetadata(payload.user_metadata)
-    const topName = payload.name != null ? String(payload.name).trim() || null : null
-
-    return normalizeUser({
-      id: payload.sub,
-      email: payload.email,
-      name: topName || metaName,
-      plan: payload.plan || payload['https://stocktrader.app/plan'] || 'free',
-      authProvider: AUTH_PROVIDER
-    })
+    return userFromJwtPayload(payload)
   }
   catch (err) {
     logger.debug({ err: err?.message || err }, 'provider JWT verification failed')
@@ -146,7 +237,7 @@ export function getAuthSummary() {
     supportsHostedAuth: AUTH_MODE === 'provider',
     developmentBypass: AUTH_MODE === 'mock',
     tokenVerification: AUTH_MODE === 'provider'
-      ? (AUTH_PROVIDER === 'supabase' ? 'supabase-jwt' : 'jwt-hs256')
+      ? (AUTH_PROVIDER === 'supabase' ? 'supabase-jwks-or-hs256' : 'jwt-hs256')
       : 'none'
   }
 }
