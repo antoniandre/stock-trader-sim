@@ -54,7 +54,7 @@
   //- Volume filter.
   .volume-filter.w-flex.align-center.gap2.wrap.mb4
     .w-flex.align-center.gap2.no-grow
-      icon.w-icon.size--sm(icon="material-symbols-light:bar-chart")
+      icon.w-icon.size--sm(icon="mdi:chart-bar")
       span.text-upper.size--sm.op6 Volume
     w-tag.justify-start(
       v-for="option in volumeOptions"

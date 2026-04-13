@@ -66,7 +66,7 @@
           :tooltip-props="{ sm: true }"
           outline
           round)
-          icon(icon="material-symbols-light:fullscreen")
+          icon.size--lg(icon="mdi:fullscreen")
 
         //- Buy/Sell Buttons
         .w-flex.gap7(v-if="showTradingToggle")

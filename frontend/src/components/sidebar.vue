@@ -18,7 +18,7 @@
       .nav-group
         router-link.w-flex.align-center.px4.py2(to="/trading/stocks" active-class="primary")
           //- Trading Icon
-          icon.size--xl.w-icon.mr2(icon="hugeicons:trade-up")
+          icon.size--xl.w-icon.mr2(icon="mdi:trending-up")
           .title3 Trading
         .nav-submenu
           router-link.nav-submenu__item.w-flex.align-center.px4.py2(to="/trading/stocks" active-class="primary")
