@@ -123,6 +123,17 @@
     .w-flex.column.py8.align-center.justify-center(v-else)
       w-icon(color="info" size="3rem") wi-info-circle
       p.op6.mt3.mb0 No ranked candidates yet. Try refreshing once market data settles.
+
+  .glass-box.px4.py2.mt2.watchlist
+    .title3.size--sm.op4.my2 WATCHLIST
+    w-grid.gap4(:columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }")
+      ticker-card(
+        v-for="stock in paginatedStocks.slice(0, 20)"
+        :key="stock.symbol"
+        :stock="stock"
+        :market="market"
+        :hide-empty-trends="true")
+
   .w-flex.align-center.gap2.wrap.my4
     w-input.w-input.light.h-auto.grow(
       v-model="searchQuery"
@@ -133,9 +144,6 @@
       input-class="py4 px6")
       template(#icon-left)
         w-icon.ml4.mr-4(size="1.5rem") wi-search
-
-  w-grid.gap4(:columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }")
-    ticker-card(v-for="stock in paginatedStocks.slice(0, 20)" :key="stock.symbol" :stock="stock" :market="market" :hide-empty-trends="true")
 
   .w-flex.column.py12.align-center.justify-center(v-if="loading")
     w-progress(circle)
@@ -183,9 +191,19 @@
 
     .w-flex.align-center.justify-between.mt4(v-if="totalPages > 1")
       .w-flex.align-center.gap2
-        w-button(:disabled="currentPage === 1" @click="prevPage") Previous
+        w-button(
+          :disabled="currentPage === 1"
+          @click="prevPage"
+          icon="wi-chevron-left"
+          tooltip="Previous"
+          :tooltip-props="{ top: true }")
         span Page {{ currentPage }} of {{ totalPages }}
-        w-button(:disabled="currentPage === totalPages" @click="nextPage") Next
+        w-button(
+          :disabled="currentPage === totalPages"
+          @click="nextPage"
+          icon="wi-chevron-right"
+          tooltip="Next"
+          :tooltip-props="{ top: true }")
       .w-flex.align-center.gap2.wrap.justify-end
         span.op5.size--sm Showing {{ stocks.length }} of {{ totalStocks }} {{ instrumentLabel.toLowerCase() }}
         span.op5.size--sm • Desk: {{ selectedMarketLabel }}
