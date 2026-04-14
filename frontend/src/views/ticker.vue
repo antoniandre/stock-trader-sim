@@ -13,11 +13,8 @@
 
   TickerHeader(v-if="!stockNotFound" :stock="stock")
 
-
   //- Stock Details & Trading
   .w-flex.mt4.mdd-column(v-if="!stockNotFound")
-    //- Left Column: Stock Details & Chart
-
     //- Price Chart
     .glass-box.pa6.grow
       .chart-wrap
@@ -48,7 +45,7 @@
 
     //- Right Column: Stats, Positions and Trading Interface
     .spacer.ma3.no-grow
-    aside.side-panel.w-flex.lgu-column.basis-zero.gap6
+    aside.side-panel.w-flex.lgu-column.basis-zero.gap4
       TradingInterface(
         :symbol="stock.symbol"
         :market="market"
@@ -130,7 +127,7 @@
             .size--sm.op6
               span(v-html="formatCurrency(marketValue, stock.currency, 2, false)")
 
-      .glass-box.pa6.pt4
+      .glass-box.px5.py4
         StockStatsPanel(
           :stock="stock"
           :current-price="stock.price"

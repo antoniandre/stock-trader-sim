@@ -1,6 +1,6 @@
 <template lang="pug">
 .trading-interface
-  .glass-box.pa6.order-panel(:class="`order-panel--${orderForm.side}`")
+  .glass-box.px5.py4.order-panel(:class="`order-panel--${orderForm.side}`")
     .title2.mb4.w-flex.gap2
       a#buy
       | Place
