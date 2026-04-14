@@ -16,7 +16,7 @@
 
   p.op6.mb0 {{ pageSubtitle }}
 
-  .glass-box.w-flex.wrap.gap3.my4.py2.px4
+  .glass-box.w-flex.wrap.gap2.my4.py2.px4
     .w-flex.column.gap1
       .w-flex.align-center.gap2
         .title3.size--sm.op4 TOP GAINERS
@@ -48,25 +48,31 @@
         w-button(v-if="topMovers.losersDisplayCount < 15" @click="topMovers.losersDisplayCount += 15" color="info" text xs round)
           span.mb2.mt-1.size--xl ...
 
-  .glass-box.pa4.mt4
+  .glass-box.px4.py2.mt2
     .w-flex.align-center.justify-between.gap3.wrap
       .w-flex.column.gap1
-        .title3 Best potential trades
-        p.op6.mb0 Ranked {{ selectedMarketLabel.toLowerCase() }} candidates with quick reasons, so the desk has somewhere to start.
+        .w-flex.align-center.gap1
+          .title3 Best potential trades
+          w-tooltip
+            template(#activator="{ on }")
+              w-button.w-button--icon(v-on="on" @click="recommendedTrades.expanded = !recommendedTrades.expanded" text)
+                icon.size--xs(:icon="recommendedTrades.expanded ? 'line-md:minus-circle' : 'line-md:arrows-diagonal'")
+            | Expand for more details
+        p.caption Ranked {{ selectedMarketLabel.toLowerCase() }} candidates with quick reasons, so the desk has somewhere to start.
       .w-flex.align-center.gap2.no-grow
-        w-tag(v-if="tradeCandidatesUsedFallback" round sm color="warning") Fallback data
-        w-button(@click="loadTradeCandidates" :loading="tradeCandidatesLoading" text xs round) Refresh
-    .w-flex.column.py8.align-center.justify-center(v-if="tradeCandidatesLoading && !tradeCandidates.length")
+        w-tag(v-if="recommendedTrades.meta?.usedFallback" round sm color="warning") Fallback data
+        w-button(@click="loadRecommendedTrades" :loading="recommendedTrades.loading" text xs round) Refresh
+    .w-flex.column.py8.align-center.justify-center(v-if="recommendedTrades.loading && !recommendedTrades.candidates.length")
       w-progress(circle)
       p.op5.mt3 Building the screener...
-    w-grid.mt4(v-else-if="tradeCandidates.length" :columns="{ xs: 1, sm: 2, md: 3, lg: 4, xl: 4 }" gap="3")
+    w-grid.mt3(v-else-if="recommendedTrades.candidates.length" :columns="{ xs: 1, sm: 2, md: 3, lg: 4, xl: 4 }" gap="3")
       router-link.gradient-card.gradient-card--tall.clickable(
-        v-for="candidate in tradeCandidates"
+        v-for="candidate in recommendedTrades.candidates"
         :key="candidate.symbol"
         :to="tradingTickerPath(candidate.symbol, market)")
-        .gradient-card__wrap.fill-height
+        .gradient-card__wrap.fill-height.py2
           .w-flex.wrap.align-center.justify-between.gap2
-            .w-flex.align-center.justify-between.gap2
+            .w-flex.align-center.justify-between(:class="recommendedTrades.expanded ? 'gap2' : 'gap1'")
               .w-flex.align-center.gap1.no-grow
                 strong.title3.no-grow {{ candidate.symbol }}
                 w-tooltip(v-if="candidate.dailyCatalyst")
@@ -85,10 +91,14 @@
                     p.size--xs.op7.mb1(v-if="candidate.dailyCatalyst.premarket_direction_and_gap") {{ candidate.dailyCatalyst.premarket_direction_and_gap }}
                     p.size--xs.op6.mb0(v-if="candidate.dailyCatalyst.setup_potential") Setup: {{ candidate.dailyCatalyst.setup_potential }}
               w-tag(round xs :bg-color="candidate.side === 'buy' ? 'success' : 'error'") {{ candidate.side.toUpperCase() }}
-            .w-flex.justify-between.align-center.gap1.no-grow
+            .w-flex.justify-between.align-center.gap1.no-grow(v-if="recommendedTrades.expanded")
               span.size--xs.op6 Confidence:
-              w-tag.px2(round xs) {{ candidate.confidence.toUpperCase() }}
-          .w-flex.align-center.justify-between.mt2.gap2.wrap
+              w-tag(round xs :class="recommendedTrades.expanded ? 'px2' : ''") {{ candidate.confidence.toUpperCase() }}
+            w-tooltip(v-else caption)
+              template(#activator="{ on }")
+                w-tag(v-on="on" round xs :class="recommendedTrades.expanded ? 'px2' : ''") {{ candidate.confidence.toUpperCase() }}
+              | Confidence level
+          .w-flex.align-center.justify-between.wrap(v-if="recommendedTrades.expanded" :class="recommendedTrades.expanded ? 'mt2 gap2' : 'mt1 gap1'")
             .w-flex.column.bdrs3.contrast-o05--bg.px3.py2.no-grow
               span.size--xs.op6 Score
               strong.size--xl.lh0 {{ candidate.score }}
@@ -98,7 +108,11 @@
             .w-flex.column.bdrs3.contrast-o05--bg.px3.py2.no-grow(v-if="candidate.price")
               span.size--xs.op6 Price
               strong(v-html="formatCurrency(candidate.price, 'USD', 2, false)")
-          .size--sm.contrast-o7.mt2.mb0
+          .w-flex.align-center.justify-between.gap1.wrap(v-else)
+            span(v-if="candidate.price" v-html="formatCurrency(candidate.price, 'USD', 2, false)")
+            span.body(:class="candidate.changePct >= 0 ? 'currency-positive' : 'currency-negative'") {{ candidate.changePct >= 0 ? '+' : '' }}{{ candidate.changePct }}%
+            strong.size--sm.op6 &bull; Score {{ candidate.score }}
+          .size--sm.contrast-o7.mt2.mb0(v-if="recommendedTrades.expanded")
             | {{ candidate.thesis }}&nbsp;
             w-tooltip
               template(#activator="{ on }")
@@ -214,7 +228,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed, inject, watch } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, computed, inject, watch } from 'vue'
 import { fetchAllStocks, fetchTopMovers, fetchBatchTrends, fetchTradeCandidates, postOrder, fetchMarketStatus, checkHealth } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { formatCurrency } from '@/utils/formatters'
@@ -267,14 +281,17 @@ const topMovers = ref({
   gainersDisplayCount: 5,
   losersDisplayCount: 5
 })
-const tradeCandidates = ref([])
-const tradeCandidatesLoading = ref(false)
-const tradeCandidatesMeta = ref(null)
+const recommendedTrades = reactive({
+  expanded: false,
+  candidates: [],
+  loading: false,
+  meta: null
+})
 
 const { lastUpdate, addMessageHandler, send, wsConnected } = useWebSocket()
 
-const SCREENER_CANDIDATES_REFRESH_MS = 60_000
-let tradeCandidatesInterval = null
+const RECOMMENDED_TRADES_REFRESH_MS = 60_000
+let recommendedTradesPollInterval = null
 
 function notifyScreenerDeskPresence(active) {
   const ok = send(JSON.stringify({ type: 'screener-desk', active }))
@@ -283,21 +300,20 @@ function notifyScreenerDeskPresence(active) {
   }
 }
 
-function startTradeCandidatesPolling() {
-  if (tradeCandidatesInterval) return
-  tradeCandidatesInterval = setInterval(() => {
-    if (!tradeCandidatesLoading.value) loadTradeCandidates()
-  }, SCREENER_CANDIDATES_REFRESH_MS)
+function startRecommendedTradesPolling() {
+  if (recommendedTradesPollInterval) return
+  recommendedTradesPollInterval = setInterval(() => {
+    if (!recommendedTrades.loading) loadRecommendedTrades()
+  }, RECOMMENDED_TRADES_REFRESH_MS)
 }
 
-function stopTradeCandidatesPolling() {
-  if (tradeCandidatesInterval) {
-    clearInterval(tradeCandidatesInterval)
-    tradeCandidatesInterval = null
+function stopRecommendedTradesPolling() {
+  if (recommendedTradesPollInterval) {
+    clearInterval(recommendedTradesPollInterval)
+    recommendedTradesPollInterval = null
   }
 }
 const paginatedStocks = computed(() => stocks.value)
-const tradeCandidatesUsedFallback = computed(() => !!tradeCandidatesMeta.value?.usedFallback)
 
 const tableHeaders = [
   { key: 'symbol', label: 'Symbol' },
@@ -370,20 +386,20 @@ async function refreshTradingContext() {
   }
 }
 
-async function loadTradeCandidates() {
-  tradeCandidatesLoading.value = true
+async function loadRecommendedTrades() {
+  recommendedTrades.loading = true
   try {
     const payload = await fetchTradeCandidates(8, props.market)
-    tradeCandidates.value = payload?.candidates || []
-    tradeCandidatesMeta.value = payload || null
+    recommendedTrades.candidates = payload?.candidates || []
+    recommendedTrades.meta = payload || null
   }
   catch (candidateError) {
     console.error('Failed to load trade candidates:', candidateError)
-    tradeCandidates.value = []
-    tradeCandidatesMeta.value = null
+    recommendedTrades.candidates = []
+    recommendedTrades.meta = null
   }
   finally {
-    tradeCandidatesLoading.value = false
+    recommendedTrades.loading = false
   }
 }
 
@@ -612,10 +628,10 @@ watch(wsConnected, online => {
 onMounted(async () => {
   loading.value = true
   try {
-    await Promise.all([fetchStocks(), loadMovers(), loadTradeCandidates(), refreshTradingContext()])
+    await Promise.all([fetchStocks(), loadMovers(), loadRecommendedTrades(), refreshTradingContext()])
     setupWebSocket()
     notifyScreenerDeskPresence(true)
-    startTradeCandidatesPolling()
+    startRecommendedTradesPolling()
   }
   catch (mountedError) {
     console.error('Error during trading desk initialization:', mountedError)
@@ -626,12 +642,12 @@ onMounted(async () => {
 watch(() => props.market, async () => {
   searchQuery.value = ''
   currentPage.value = 1
-  await Promise.all([fetchStocks(true), loadMovers(), loadTradeCandidates(), refreshTradingContext()])
+  await Promise.all([fetchStocks(true), loadMovers(), loadRecommendedTrades(), refreshTradingContext()])
 })
 
 onBeforeUnmount(() => {
   if (searchTimeout) clearTimeout(searchTimeout)
-  stopTradeCandidatesPolling()
+  stopRecommendedTradesPolling()
   notifyScreenerDeskPresence(false)
 })
 </script>
