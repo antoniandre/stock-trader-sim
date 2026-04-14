@@ -14,7 +14,7 @@ import {
   runAlpacaBarsAsBackground
 } from '../../market-data.js' // Assuming these are needed for filtering
 import { getEasternTime } from '../../utils.js'
-import { SCREENER_WATCH_SYMBOLS } from '../../screener-watch-symbols.js'
+import { SCREENER_WATCH_SYMBOLS, initWatchlist, getWatchlist } from '../../screener-watch-symbols.js'
 
 // In-memory queue for opportunities
 const opportunityQueue = []
@@ -22,7 +22,8 @@ const MAX_QUEUE_SIZE = 100 // Limit queue size to prevent memory issues
 
 // Store recent market data for calculations
 const marketDataCache = new Map() // symbol -> { bars: [], trades: [], quotes: [], lastPrice: 0, lastVolume: 0 }
-const STOCKS_TO_WATCH = SCREENER_WATCH_SYMBOLS
+// STOCKS_TO_WATCH is computed from the pre-cached watchlist
+let STOCKS_TO_WATCH = SCREENER_WATCH_SYMBOLS
 
 let alpacaWebSocket = null
 let isConnected = false
@@ -69,6 +70,8 @@ export async function connectAlpacaWebSocket() {
   alpacaWebSocket.onopen = async () => {
     console.log('Alpaca WebSocket connected. Authenticating...')
     isConnected = true
+    // Refresh STOCKS_TO_WATCH from cache (in case watchlist was refreshed at market open)
+    STOCKS_TO_WATCH = getWatchlist()
     // Authenticate
     alpacaWebSocket.send(JSON.stringify({
       action: 'auth',
@@ -344,13 +347,16 @@ export function disconnectAlpacaWebSocket() {
 // Initial setup to get all tradable stocks for watching (can be updated later dynamically)
 export async function initializeScreener() {
   console.log('Initializing screener...')
-  // Potentially fetch all tradable stocks and filter them for the watchlist
-  const allStocks = await getAllTradableStocks()
-  if (allStocks && allStocks.length > 0) {
-    // For now, keep the hardcoded list for simplicity and faster iteration
-    // In a real scenario, this would involve more sophisticated selection
-    console.log(`Loaded ${allStocks.length} tradable stocks. Screener will watch: ${STOCKS_TO_WATCH.join(', ')}`)
-  }
+  // Preload watchlist from catalyst file + core symbols at startup
+  const startMs = Date.now()
+  await initWatchlist()
+  const elapsed = Date.now() - startMs
+  console.log(`✓ Watchlist preloaded in ${elapsed}ms`)
+  
+  // Refresh STOCKS_TO_WATCH reference after preload
+  const currentWatch = getWatchlist()
+  console.log(`Screener watching ${currentWatch.length} symbols: ${currentWatch.slice(0, 10).join(', ')} ...`)
+  
   // Do not open a second Alpaca market-data WebSocket here — stockbot uses
   // websocket-server only; duplicate connections hit Alpaca 406 (limit exceeded).
   // Trades for STOCKS_TO_WATCH are forwarded via ingestAlpacaTradeMessage().
