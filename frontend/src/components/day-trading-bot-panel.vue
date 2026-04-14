@@ -464,6 +464,18 @@ const executionPlanPills = computed(() => {
   ]
 })
 
+const positionTimeframeLabel = computed(() => {
+  if (!props.decision?.metrics?.positionQty || props.decision.metrics.positionQty <= 0) {
+    return null
+  }
+  return {
+    label: 'Position Timeframe',
+    value: 'Day Trade',
+    detail: 'Intraday hold (~20 candles max before timeout)',
+    tone: 'info'
+  }
+})
+
 const metricTiles = computed(() => {
   const d = props.decision
   if (!d?.metrics) return []
