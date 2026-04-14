@@ -278,9 +278,16 @@ export function evaluateDayTradingDecision(input = {}) {
       reasons.push('Current position still fits the measured risk')
     }
 
-    // TODO: Add position timeout when candle index tracking is available
-    // Currently, the backtest engine doesn't track when positions were opened.
-    // Once candle entry index is available, implement: timeout stale positions >20 candles without meaningful progress.
+    // POSITION TIMEOUT: Force exit after 20 candles or 2 hours without meaningful progress
+    const positionAge = input.positionOpenedAt ? Math.round(((Date.now() - input.positionOpenedAt) / (5 * 60 * 1000))) : null
+    const positionElapsedMs = input.positionOpenedAt ? (Date.now() - input.positionOpenedAt) : 0
+    const twoHoursMs = 2 * 60 * 60 * 1000
+    const positionTimeoutTriggered = positionAge && (positionAge > 20 || positionElapsedMs > twoHoursMs)
+
+    if (positionTimeoutTriggered) {
+      action = 'exit'
+      reasons.push(`Position timeout (${positionAge} candles, ${Math.round(positionElapsedMs / 1000 / 60)}min elapsed)`)
+    }
   }
 
   // Exit/trim are risk-management actions; entry/risk-based confidence can read very low
@@ -291,6 +298,45 @@ export function evaluateDayTradingDecision(input = {}) {
   }
   else if (action === 'trim') {
     confidence = clamp(Math.max(confidence, 80), 0, 100)
+  }
+
+  // BUILD LIVE TRACING OBJECT
+  const positionAge = input.positionOpenedAt ? Math.round(((Date.now() - input.positionOpenedAt) / (5 * 60 * 1000))) : null
+  const positionElapsedMs = input.positionOpenedAt ? (Date.now() - input.positionOpenedAt) : 0
+  const stopLossPct = profile.stopLossPct
+  const profitTargetPct = profile.rewardTargetPct
+  const entryPriceForTrace = positionQty > 0 ? avgEntryPrice : null
+  const stopLossPriceForTrace = entryPriceForTrace ? entryPriceForTrace * (1 - stopLossPct / 100) : null
+  const profitTargetPriceForTrace = entryPriceForTrace ? entryPriceForTrace * (1 + profitTargetPct / 100) : null
+
+  let trendStrength = 'neutral'
+  if (shortTrendPct > 0.5) trendStrength = 'bullish'
+  else if (shortTrendPct < -0.35) trendStrength = 'bearish'
+
+  let momentumLevel = 'weak'
+  if (Math.abs(momentumPct) > 0.2) momentumLevel = 'strong'
+  else if (Math.abs(momentumPct) > 0.08) momentumLevel = 'medium'
+
+  const trace = {
+    timestamp: new Date().toISOString(),
+    symbol: input.symbol || null,
+    action,
+    reasons: [...reasons],
+    positionQty: positionQty > 0 ? positionQty : null,
+    positionAge: positionAge !== null ? `${positionAge} candles (${Math.round(positionElapsedMs / 1000 / 60)}min)` : 'N/A',
+    priceMetrics: positionQty > 0 ? {
+      current: round(currentPrice),
+      entry: round(entryPriceForTrace),
+      stopLoss: round(stopLossPriceForTrace),
+      profitTarget: round(profitTargetPriceForTrace),
+      pctGain: round(unrealizedPnLPct)
+    } : null,
+    signals: {
+      trendStrength,
+      momentum: momentumLevel,
+      exitSignal: action === 'exit',
+      timeout: positionAge && (positionAge > 20 || positionElapsedMs > (2 * 60 * 60 * 1000))
+    }
   }
 
   const sizeConfidence = clamp(confidence - (setup === 'mean-revert' ? 4 : 8), 35, 90)
@@ -357,7 +403,8 @@ export function evaluateDayTradingDecision(input = {}) {
         lowConfidence
       }
     }),
-    reasons
+    reasons,
+    trace
   }
 }
 
