@@ -125,10 +125,34 @@
       p.op6.mt3.mb0 No ranked candidates yet. Try refreshing once market data settles.
 
   .glass-box.px4.py2.mt2.watchlist
-    .title3.size--sm.op4.my2 WATCHLIST
-    w-grid.gap4(:columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }")
+    .w-flex.align-center.justify-between.gap2.wrap
+      div
+        .title3.size--sm.op4 WATCHLIST
+        p.caption.op6.mb0(v-if="alpacaWatchlist.name") {{ alpacaWatchlist.name }}
+        p.caption.op6.mb0(v-else) From your Alpaca account
+        p.caption.op5.mb0(v-if="alpacaWatchlist.tradingEnvironment && !alpacaWatchlist.stocks.length && !alpacaWatchlist.loading") Watchlists follow this API environment ({{ alpacaWatchlist.tradingEnvironment }}). Paper and live accounts have separate lists.
+      .w-flex.align-center.gap2.no-grow
+        w-select.no-grow(
+          v-if="alpacaWatchlist.watchlists.length > 1"
+          v-model="alpacaWatchlist.selectedWatchlistId"
+          :items="alpacaWatchlistSelectItems"
+          outline
+          round
+          xs)
+        w-button(@click="loadAlpacaWatchlist" :loading="alpacaWatchlist.loading" text xs round) Refresh
+    .w-flex.column.py6.align-center.justify-center(v-if="alpacaWatchlist.loading && !alpacaWatchlist.stocks.length")
+      w-progress(circle xs)
+      p.op5.mt2.mb0 Loading watchlist…
+    .w-flex.column.py6.align-center.justify-center(v-else-if="alpacaWatchlist.unavailable")
+      p.op6.mb0.text-center {{ alpacaWatchlist.message }}
+    .w-flex.column.py6.align-center.justify-center(v-else-if="alpacaWatchlist.error")
+      p.error.mb0.text-center {{ alpacaWatchlist.error }}
+    .w-flex.column.py6.align-center.justify-center(v-else-if="!alpacaWatchlist.stocks.length")
+      p.op6.mb0.text-center {{ alpacaWatchlist.message || 'No symbols in this watchlist for this desk.' }}
+      p.size--xs.op5.mb0.mt2.text-center(v-if="alpacaWatchlist.alpacaError") {{ alpacaWatchlist.alpacaError }}
+    w-grid.gap4(v-else :columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }")
       ticker-card(
-        v-for="stock in paginatedStocks.slice(0, 20)"
+        v-for="stock in alpacaWatchlist.stocks"
         :key="stock.symbol"
         :stock="stock"
         :market="market"
@@ -247,7 +271,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, onBeforeUnmount, computed, inject, watch } from 'vue'
-import { fetchAllStocks, fetchTopMovers, fetchBatchTrends, fetchTradeCandidates, postOrder, fetchMarketStatus, checkHealth } from '@/api'
+import { fetchAllStocks, fetchTopMovers, fetchBatchTrends, fetchTradeCandidates, fetchAlpacaWatchlist, postOrder, fetchMarketStatus, checkHealth } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { formatCurrency } from '@/utils/formatters'
 import TickerCard from '@/components/ticker-card.vue'
@@ -305,6 +329,29 @@ const recommendedTrades = reactive({
   loading: false,
   meta: null
 })
+
+const alpacaWatchlist = reactive({
+  loading: false,
+  stocks: [],
+  watchlists: [],
+  selectedWatchlistId: null,
+  name: '',
+  unavailable: false,
+  message: null,
+  error: null,
+  alpacaError: null,
+  tradingEnvironment: null
+})
+
+/** Avoid refetch loop when the API assigns the same watchlist id we just loaded. */
+let lastLoadedAlpacaWatchlistId = null
+
+const alpacaWatchlistSelectItems = computed(() =>
+  alpacaWatchlist.watchlists.map(w => ({
+    label: w.name || w.id,
+    value: w.id
+  }))
+)
 
 const { lastUpdate, addMessageHandler, send, wsConnected } = useWebSocket()
 
@@ -420,6 +467,49 @@ async function loadRecommendedTrades() {
     recommendedTrades.loading = false
   }
 }
+
+async function loadAlpacaWatchlist() {
+  alpacaWatchlist.loading = true
+  alpacaWatchlist.error = null
+  alpacaWatchlist.alpacaError = null
+  try {
+    const data = await fetchAlpacaWatchlist({
+      market: props.market,
+      watchlistId: alpacaWatchlist.selectedWatchlistId || undefined
+    })
+    alpacaWatchlist.unavailable = !!data.unavailable
+    alpacaWatchlist.message = data.message || null
+    alpacaWatchlist.name = data.name || ''
+    alpacaWatchlist.tradingEnvironment = data.tradingEnvironment || null
+    alpacaWatchlist.alpacaError = data.alpacaError || null
+    alpacaWatchlist.watchlists = data.watchlists || []
+    alpacaWatchlist.stocks = (data.stocks || []).map(s => ({
+      ...s,
+      market: props.market,
+      marketState: s.marketState || (props.market === 'crypto' ? 'open' : 'closed'),
+      marketMessage: s.marketMessage || (props.market === 'crypto' ? 'Crypto market available' : 'Market Status Unavailable')
+    }))
+    const resolvedId = data.watchlistId || null
+    lastLoadedAlpacaWatchlistId = resolvedId
+    alpacaWatchlist.selectedWatchlistId = resolvedId
+  }
+  catch (e) {
+    console.error('Failed to load Alpaca watchlist:', e)
+    alpacaWatchlist.error = e.message || 'Failed to load watchlist'
+    alpacaWatchlist.stocks = []
+  }
+  finally {
+    alpacaWatchlist.loading = false
+  }
+}
+
+watch(
+  () => alpacaWatchlist.selectedWatchlistId,
+  async id => {
+    if (id === lastLoadedAlpacaWatchlistId) return
+    await loadAlpacaWatchlist()
+  }
+)
 
 async function loadMovers() {
   try {
@@ -589,6 +679,13 @@ function handleMarketUpdate(data) {
       existingStock.currency = stock.currency || 'USD'
       existingStock.currencySymbol = stock.currencySymbol || '$'
     }
+    const wl = alpacaWatchlist.stocks.find(s => s.symbol === stock.symbol)
+    if (wl) {
+      wl.price = stock.price
+      wl.lastSide = stock.lastSide || 'buy'
+      wl.currency = stock.currency || 'USD'
+      wl.currencySymbol = stock.currencySymbol || '$'
+    }
   })
 }
 
@@ -606,6 +703,19 @@ function handlePriceUpdate(data) {
       existingStock.nextClose = data.nextClose
     }
   }
+  const wl = alpacaWatchlist.stocks.find(s => s.symbol === data.symbol)
+  if (wl) {
+    wl.price = data.price
+    wl.lastSide = data.lastSide || 'buy'
+    wl.currency = data.currency || 'USD'
+    wl.currencySymbol = data.currencySymbol || '$'
+    if (data.marketState) {
+      wl.marketState = data.marketState
+      wl.marketMessage = data.marketMessage || 'Status Updated'
+      wl.nextOpen = data.nextOpen
+      wl.nextClose = data.nextClose
+    }
+  }
 }
 
 function handleTrade(data) {
@@ -617,6 +727,16 @@ function handleTrade(data) {
       stocks.value[stockIndex].marketMessage = data.marketMessage || 'Status Updated'
       stocks.value[stockIndex].nextOpen = data.nextOpen
       stocks.value[stockIndex].nextClose = data.nextClose
+    }
+  }
+  const wl = alpacaWatchlist.stocks.find(s => s.symbol === data.symbol)
+  if (wl) {
+    wl.price = data.price
+    if (data.marketState) {
+      wl.marketState = data.marketState
+      wl.marketMessage = data.marketMessage || 'Status Updated'
+      wl.nextOpen = data.nextOpen
+      wl.nextClose = data.nextClose
     }
   }
 }
@@ -646,7 +766,7 @@ watch(wsConnected, online => {
 onMounted(async () => {
   loading.value = true
   try {
-    await Promise.all([fetchStocks(), loadMovers(), loadRecommendedTrades(), refreshTradingContext()])
+    await Promise.all([fetchStocks(), loadMovers(), loadRecommendedTrades(), loadAlpacaWatchlist(), refreshTradingContext()])
     setupWebSocket()
     notifyScreenerDeskPresence(true)
     startRecommendedTradesPolling()
@@ -660,7 +780,9 @@ onMounted(async () => {
 watch(() => props.market, async () => {
   searchQuery.value = ''
   currentPage.value = 1
-  await Promise.all([fetchStocks(true), loadMovers(), loadRecommendedTrades(), refreshTradingContext()])
+  lastLoadedAlpacaWatchlistId = null
+  alpacaWatchlist.selectedWatchlistId = null
+  await Promise.all([fetchStocks(true), loadMovers(), loadRecommendedTrades(), loadAlpacaWatchlist(), refreshTradingContext()])
 })
 
 onBeforeUnmount(() => {
