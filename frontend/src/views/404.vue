@@ -6,3 +6,8 @@ main
     icon.w-icon.mr2(icon="mdi:arrow-left")
     | Back to Dashboard
 </template>
+
+<script setup>
+import { usePageTitle } from '@/composables/use-page-title'
+usePageTitle('404')
+</script>

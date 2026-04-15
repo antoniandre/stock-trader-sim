@@ -124,6 +124,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { fetchTopMovers, fetchBatchTrends } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { formatPercentage } from '@/utils/formatters'
+import { usePageTitle } from '@/composables/use-page-title'
 import TickerCard from '@/components/ticker-card.vue'
 import { tradingOverviewPath, tradingTickerPath } from '@/utils/trading-routes'
 
@@ -518,10 +519,12 @@ watch(selectedCount, loadMovers)
 
 // Lifecycle.
 // --------------------------------------------------------
+usePageTitle(title)
+
 onMounted(() => {
-  addMessageHandler('price', handlePriceUpdate) // Listen for real-time price updates.
-  loadMovers(true) // Initial load with loading state.
-  startAutoRefresh() // Start incremental auto-refresh.
+  addMessageHandler('price', handlePriceUpdate)
+  loadMovers(true)
+  startAutoRefresh()
 })
 
 onBeforeUnmount(() => {

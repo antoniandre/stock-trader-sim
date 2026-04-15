@@ -278,6 +278,7 @@ import TickerCard from '@/components/ticker-card.vue'
 import TickerLogo from '@/components/ticker-logo.vue'
 import OrderConfirmationDialog from '@/components/order-confirmation-dialog.vue'
 import { tradingOverviewPath, tradingTickerPath, tradingTopMoversPath } from '@/utils/trading-routes'
+import { usePageTitle } from '@/composables/use-page-title'
 
 const props = defineProps({
   market: {
@@ -286,6 +287,8 @@ const props = defineProps({
     validator: value => ['stocks', 'crypto'].includes(value)
   }
 })
+
+usePageTitle(computed(() => props.market === 'crypto' ? 'Crypto' : 'Stocks'))
 
 const $waveui = inject('$waveui')
 const stocks = ref([])
@@ -783,7 +786,7 @@ watch(() => props.market, async () => {
   lastLoadedAlpacaWatchlistId = null
   alpacaWatchlist.selectedWatchlistId = null
   await Promise.all([fetchStocks(true), loadMovers(), loadRecommendedTrades(), loadAlpacaWatchlist(), refreshTradingContext()])
-})
+}, { immediate: true })
 
 onBeforeUnmount(() => {
   if (searchTimeout) clearTimeout(searchTimeout)

@@ -30,6 +30,7 @@
 import { ref, onMounted, onUnmounted, provide, reactive } from 'vue'
 import { fetchDashboard, fetchPortfolioHistory } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
+import { usePageTitle } from '@/composables/use-page-title'
 import PortfolioChart from '@/components/portfolio-chart.vue'
 import OpenPositions from '@/components/open-positions.vue'
 import TradeHistory from '@/components/trade-history.vue'
@@ -133,8 +134,9 @@ provide('fetchHistory', () => {
   fetchPortfolioHistoryData()
 })
 
+usePageTitle('Dashboard')
+
 onMounted(() => {
-  // Use batch endpoint to fetch all dashboard data in one call.
   fetchDashboardData()
   fetchPortfolioHistoryData()
   setupWebSocket()

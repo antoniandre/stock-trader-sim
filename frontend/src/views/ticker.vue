@@ -214,6 +214,7 @@ import {
 import { formatPercentage, formatCurrency } from '@/utils/formatters'
 import { useWebSocket } from '@/composables/web-socket'
 import { useBotRealtimeEvaluation } from '@/composables/use-bot-realtime'
+import { usePageTitle } from '@/composables/use-page-title'
 import PriceChart from '@/components/price-chart.vue'
 import StockStatsPanel from '@/components/stock-stats-panel.vue'
 import TradingInterface from '@/components/trading-interface.vue'
@@ -1994,6 +1995,11 @@ function initializeRealtimeBot() {
     }
   }
 }
+
+usePageTitle(computed(() => {
+  const priceStr = stock.price ? ` · ${stock.currencySymbol}${parseFloat(stock.price).toFixed(2)}` : ''
+  return `${stock.symbol}${priceStr}`
+}))
 
 onMounted(async () => {
   // Sync autonomous toggle state from localStorage before the interval starts.
