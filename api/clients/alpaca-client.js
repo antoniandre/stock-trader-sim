@@ -215,3 +215,44 @@ export async function getTopMovers(market = 'stocks', top = 10) {
   return data
 }
 
+// Watchlists (Trading API — account watchlists in Alpaca dashboard).
+// Per https://docs.alpaca.markets/reference/getwatchlists-1 — GET /v2/watchlists returns an array.
+// Some SDKs/proxies may wrap the payload; normalize so callers always get an array of { id, name, ... }.
+// --------------------------------------------------------
+export function normalizeWatchlistsList(body) {
+  if (!body) return []
+  if (Array.isArray(body)) return body
+  if (Array.isArray(body.watchlists)) return body.watchlists
+  if (Array.isArray(body.items)) return body.items
+  if (Array.isArray(body.data)) return body.data
+  return []
+}
+
+/** Ensures `assets` is always an array (Alpaca schema marks it optional on Watchlist). */
+export function normalizeWatchlistDetail(detail) {
+  if (!detail || typeof detail !== 'object') return null
+  let assets = detail.assets
+  if (!Array.isArray(assets) && Array.isArray(detail.symbols)) {
+    assets = detail.symbols.map(s => (typeof s === 'string' ? { symbol: s } : s))
+  }
+  return { ...detail, assets: Array.isArray(assets) ? assets : [] }
+}
+
+export async function getWatchlists() {
+  const { data } = await axios.get(`${ALPACA_BASE_URL}/v2/watchlists`, { headers: HEADERS })
+  return normalizeWatchlistsList(data)
+}
+
+export async function getWatchlistById(watchlistId) {
+  const { data } = await axios.get(`${ALPACA_BASE_URL}/v2/watchlists/${encodeURIComponent(watchlistId)}`, { headers: HEADERS })
+  return normalizeWatchlistDetail(data)
+}
+
+export async function getWatchlistByName(name) {
+  const { data } = await axios.get(
+    `${ALPACA_BASE_URL}/v2/watchlists:by_name?name=${encodeURIComponent(name)}`,
+    { headers: HEADERS }
+  )
+  return normalizeWatchlistDetail(data)
+}
+

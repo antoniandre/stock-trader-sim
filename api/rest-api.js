@@ -244,6 +244,274 @@ export function createRestApiRoutes() {
     }
   })
 
+  function watchlistAssetRows(detail) {
+    if (!detail || typeof detail !== 'object') return []
+    if (Array.isArray(detail.assets)) return detail.assets
+    if (Array.isArray(detail.symbols)) {
+      return detail.symbols.map(s => (typeof s === 'string' ? { symbol: s } : s))
+    }
+    return []
+  }
+
+  function watchlistAssetMatchesMarket(asset, normalizedMarket) {
+    const sym = String(asset.symbol || '')
+    const cls = String(asset.class || '').toLowerCase()
+    const isCrypto = cls === 'crypto' || sym.includes('/')
+    if (normalizedMarket === 'crypto') return isCrypto
+    return !isCrypto
+  }
+
+  function formatAlpacaWatchlistError(err) {
+    const status = err?.response?.status
+    const body = err?.response?.data
+    let msg = err?.message || 'Alpaca request failed'
+    if (body && typeof body === 'object' && body.message) msg = String(body.message)
+    else if (typeof body === 'string' && body.trim()) msg = body.trim()
+    return status ? `${msg} (HTTP ${status})` : msg
+  }
+
+  /** Alpaca UI often names the default list "Watchlist"; docs examples use "Primary Watchlist". */
+  const WATCHLIST_BY_NAME_FALLBACKS = ['Watchlist', 'Primary Watchlist', 'Primary', 'Default']
+
+  function pickDefaultWatchlistMeta(metaList) {
+    if (!metaList.length) return null
+    const byExact = name => metaList.find(w => String(w.name || '').trim().toLowerCase() === name.toLowerCase())
+    const w = byExact('Watchlist')
+      || metaList.find(x => /primary/i.test(String(x.name || '')))
+      || metaList.find(x => /default/i.test(String(x.name || '')))
+      || metaList[0]
+    return w
+  }
+
+  async function tryWatchlistDetailByNameFallbacks() {
+    for (const n of WATCHLIST_BY_NAME_FALLBACKS) {
+      try {
+        const d = await AlpacaClient.getWatchlistByName(n)
+        if (d && d.id) return d
+      }
+      catch {
+        /* try next name */
+      }
+    }
+    return null
+  }
+
+  /** Alpaca account watchlists (Trading API — same account as ALPACA_BASE_URL / your API keys). */
+  app.get('/api/watchlist', async (req, res) => {
+    try {
+      const normalizedMarket = String(req.query.market || 'stocks').toLowerCase() === 'crypto' ? 'crypto' : 'stocks'
+      const watchlistIdQuery = req.query.watchlistId ? String(req.query.watchlistId).trim() : ''
+      const watchlistNameQuery = req.query.watchlistName ? String(req.query.watchlistName).trim() : ''
+      const tradingEnvironment = getTradingEnvironmentLabel()
+
+      if (IS_SIMULATION) {
+        return res.json(createStandardResponse({
+          unavailable: true,
+          reason: 'simulation',
+          message: 'Connect Alpaca (paper or live) to load your dashboard watchlists here.',
+          tradingEnvironment,
+          watchlistId: null,
+          name: null,
+          stocks: [],
+          watchlists: []
+        }))
+      }
+
+      const marketDataProvider = await getMarketDataProvider()
+      let watchlistsMeta = []
+      let listFetchError = null
+      try {
+        watchlistsMeta = await AlpacaClient.getWatchlists()
+      }
+      catch (e) {
+        listFetchError = formatAlpacaWatchlistError(e)
+        logger.warn({ err: e, message: listFetchError }, 'GET /v2/watchlists failed')
+      }
+
+      let detail = null
+      let detailLoadError = null
+
+      const loadDetail = async () => {
+        if (watchlistIdQuery) {
+          try {
+            detail = await AlpacaClient.getWatchlistById(watchlistIdQuery)
+          }
+          catch (e1) {
+            detailLoadError = formatAlpacaWatchlistError(e1)
+            logger.warn({ err: e1, watchlistId: watchlistIdQuery }, 'getWatchlistById failed, trying by_name with id as name')
+            try {
+              detail = await AlpacaClient.getWatchlistByName(watchlistIdQuery)
+            }
+            catch (e2) {
+              logger.warn({ err: e2 }, 'watchlist fallback by id-as-name failed')
+            }
+          }
+          return
+        }
+        if (watchlistNameQuery) {
+          try {
+            detail = await AlpacaClient.getWatchlistByName(watchlistNameQuery)
+          }
+          catch (e) {
+            detailLoadError = formatAlpacaWatchlistError(e)
+            logger.warn({ err: e, watchlistName: watchlistNameQuery }, 'getWatchlistByName failed')
+          }
+          return
+        }
+
+        if (watchlistsMeta.length) {
+          const chosen = pickDefaultWatchlistMeta(watchlistsMeta)
+          try {
+            detail = await AlpacaClient.getWatchlistById(chosen.id)
+          }
+          catch (e1) {
+            detailLoadError = formatAlpacaWatchlistError(e1)
+            logger.warn({ err: e1, id: chosen.id }, 'getWatchlistById failed for default list, trying by_name')
+            try {
+              detail = await AlpacaClient.getWatchlistByName(String(chosen.name || '').trim() || chosen.id)
+            }
+            catch (e2) {
+              logger.warn({ err: e2, name: chosen.name }, 'getWatchlistByName for chosen list failed')
+            }
+          }
+          return
+        }
+
+        // Index returned [] (paper vs live mismatch, or new account) — try common dashboard names.
+        detail = await tryWatchlistDetailByNameFallbacks()
+        if (detail) {
+          watchlistsMeta = [{ id: detail.id, name: detail.name }]
+        }
+      }
+
+      await loadDetail()
+
+      // If the index call failed (or returned nothing) we may still load the default list by name.
+      if (!detail && listFetchError) {
+        detail = await tryWatchlistDetailByNameFallbacks()
+        if (detail) {
+          watchlistsMeta = [{ id: detail.id, name: detail.name }]
+          listFetchError = null
+        }
+      }
+
+      if (!detail && listFetchError) {
+        return res.json(createStandardResponse({
+          unavailable: false,
+          tradingEnvironment,
+          watchlistId: null,
+          name: null,
+          stocks: [],
+          watchlists: [],
+          alpacaError: listFetchError,
+          message: `Could not list watchlists from Alpaca. ${tradingEnvironment === 'paper'
+            ? 'Paper and live accounts have separate lists — confirm your API keys match the dashboard you use.'
+            : 'Check API keys and account status.'}`
+        }))
+      }
+
+      if (!detail) {
+        const hint = detailLoadError
+          ? `Alpaca said: ${detailLoadError}`
+          : (listFetchError || 'No watchlist matched.')
+        return res.json(createStandardResponse({
+          unavailable: false,
+          tradingEnvironment,
+          watchlistId: null,
+          name: null,
+          stocks: [],
+          watchlists: watchlistsMeta.map(w => ({ id: w.id, name: w.name })),
+          alpacaError: detailLoadError || null,
+          message: watchlistsMeta.length
+            ? `Could not load that watchlist. ${hint}`
+            : `No watchlists returned for this API key (${tradingEnvironment}). Watchlists are per account: use paper API keys with paper-api.alpaca.markets if your list is on the paper dashboard, or live keys with api.alpaca.markets for live.`
+        }))
+      }
+
+      const rawRows = watchlistAssetRows(detail)
+      const filtered = rawRows
+        .filter(a => a && a.symbol && watchlistAssetMatchesMarket(a, normalizedMarket))
+        .slice(0, 60)
+
+      let cryptoQuotesBySymbol = {}
+      if (normalizedMarket === 'crypto' && filtered.length > 0) {
+        try {
+          cryptoQuotesBySymbol = await AlpacaClient.getCryptoLatestQuotesForSymbols(
+            filtered.map(s => s.symbol)
+          )
+        }
+        catch (e) {
+          console.warn('⚠️ Batch crypto quotes failed for watchlist:', e.message)
+        }
+      }
+
+      const stocks = await Promise.all(filtered.map(async (stock) => {
+        try {
+          let price = state.stockPrices[stock.symbol] || 0
+          if (price === 0 && normalizedMarket === 'crypto') {
+            price = midPriceFromCryptoQuote(cryptoQuotesBySymbol[stock.symbol])
+            if (price > 0) state.stockPrices[stock.symbol] = price
+          }
+          if (price === 0) {
+            price = await marketDataProvider.getPrice(stock.symbol)
+            if (price > 0) state.stockPrices[stock.symbol] = price
+          }
+
+          const marketStatusRow = await getStockMarketStatus(stock)
+
+          return {
+            symbol: stock.symbol,
+            name: stock.name || stock.symbol,
+            exchange: stock.exchange,
+            status: stock.status,
+            tradable: stock.tradable !== false,
+            price,
+            lastSide: 'buy',
+            assetClass: stock.class || normalizedMarket,
+            currency: stock.currency || 'USD',
+            currencySymbol: stock.currencySymbol || '$',
+            marketState: marketStatusRow.status,
+            marketMessage: marketStatusRow.message,
+            nextOpen: marketStatusRow.nextOpen,
+            nextClose: marketStatusRow.nextClose
+          }
+        }
+        catch (error) {
+          console.warn(`⚠️ Watchlist row failed for ${stock.symbol}: ${error.message}`)
+          return {
+            symbol: stock.symbol,
+            name: stock.name || stock.symbol,
+            exchange: stock.exchange,
+            status: stock.status,
+            tradable: stock.tradable !== false,
+            price: 0,
+            lastSide: 'buy',
+            assetClass: stock.class || normalizedMarket,
+            currency: stock.currency || 'USD',
+            currencySymbol: stock.currencySymbol || '$',
+            marketState: 'closed',
+            marketMessage: 'Data Unavailable',
+            nextOpen: null,
+            nextClose: null
+          }
+        }
+      }))
+
+      res.json(createStandardResponse({
+        unavailable: false,
+        tradingEnvironment,
+        watchlistId: detail.id || null,
+        name: detail.name || null,
+        stocks,
+        watchlists: watchlistsMeta.map(w => ({ id: w.id, name: w.name }))
+      }))
+    }
+    catch (error) {
+      logger.error({ err: error }, 'GET /api/watchlist failed')
+      res.status(500).json({ error: 'Failed to load Alpaca watchlist.' })
+    }
+  })
+
   // Portfolio endpoints.
   app.get('/api/portfolio', (req, res) => {
     const stocks = Object.entries(state.portfolio).map(([symbol, data]) => {
