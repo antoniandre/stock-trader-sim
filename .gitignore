@@ -1,3 +1,7 @@
 node_modules
 .env
 dist
+
+# Generated runtime data
+api/input/
+api/data/strategy-runs.jsonl
