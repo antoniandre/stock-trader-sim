@@ -36,7 +36,7 @@ export async function initWatchlist() {
 }
 
 /**
- * Default export: use cached watchlist. Populated at startup via initWatchlist().
- * This is used by screener.js to subscribe to Alpaca WebSocket.
+ * Legacy export kept for compatibility. Do not import this for runtime subscriptions,
+ * because it freezes the watchlist at module load time.
  */
-export const SCREENER_WATCH_SYMBOLS = getWatchlist()
+export const SCREENER_WATCH_SYMBOLS = Object.freeze([...getWatchlist()])

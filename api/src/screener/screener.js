@@ -14,7 +14,7 @@ import {
   runAlpacaBarsAsBackground
 } from '../../market-data.js' // Assuming these are needed for filtering
 import { getEasternTime } from '../../utils.js'
-import { SCREENER_WATCH_SYMBOLS, initWatchlist, getWatchlist } from '../../screener-watch-symbols.js'
+import { initWatchlist, getWatchlist } from '../../screener-watch-symbols.js'
 
 // In-memory queue for opportunities
 const opportunityQueue = []
@@ -22,8 +22,8 @@ const MAX_QUEUE_SIZE = 100 // Limit queue size to prevent memory issues
 
 // Store recent market data for calculations
 const marketDataCache = new Map() // symbol -> { bars: [], trades: [], quotes: [], lastPrice: 0, lastVolume: 0 }
-// STOCKS_TO_WATCH is computed from the pre-cached watchlist
-let STOCKS_TO_WATCH = SCREENER_WATCH_SYMBOLS
+// STOCKS_TO_WATCH is resolved from the current cached watchlist after initialization
+let STOCKS_TO_WATCH = []
 
 let alpacaWebSocket = null
 let isConnected = false

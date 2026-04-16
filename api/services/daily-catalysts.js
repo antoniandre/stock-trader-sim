@@ -6,16 +6,27 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const CATALYSTS_DIR = path.resolve(__dirname, '../input/daily-catalysts')
 
-/** @type {{ tradingDayKey: string | null, bySymbol: Map<string, object> | null }} */
-let cache = { tradingDayKey: null, bySymbol: null }
-
+/**
+ * Format a trading day key as YYYY-MM-DD based on the market timezone (America/New_York).
+ * This ensures we use the market date, not the server date, by using UTC date components
+ * which represent the market date when converted to NY timezone.
+ * @param {Date} date
+ * @returns {string} YYYY-MM-DD
+ */
 export function formatTradingDayKey(date = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', {
+  const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
-  }).format(date)
+  }).formatToParts(date)
+
+  const year = parts.find(part => part.type === 'year')?.value
+  const month = parts.find(part => part.type === 'month')?.value
+  const day = parts.find(part => part.type === 'day')?.value
+
+  if (!year || !month || !day) return ''
+  return `${year}-${month}-${day}`
 }
 
 export function buildCatalystIndex(entries) {

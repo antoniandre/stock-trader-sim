@@ -3,7 +3,7 @@ import { IS_SIMULATION, state } from './config.js'
 import { getMarketStatus, getStockMarketStatus, startPricePolling, stopPricePolling } from './market-data.js'
 import { runSimulation, mockPrices } from './simulation.js'
 import { createAlpacaWebSocket, subscribeToSymbols, unsubscribeFromSymbols } from './clients/alpaca-websocket-client.js'
-import { SCREENER_WATCH_SYMBOLS } from './screener-watch-symbols.js'
+import { getWatchlist } from './screener-watch-symbols.js'
 
 // WebSocket State.
 // --------------------------------------------------------
@@ -192,7 +192,8 @@ export function unsubscribeFromStock(symbol) {
     }
 
     if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1) {
-      if (!SCREENER_WATCH_SYMBOLS.includes(symbol)) {
+      const screenerWatchSymbols = getWatchlist()
+      if (!screenerWatchSymbols.includes(symbol)) {
         unsubscribeFromSymbols(state.alpacaWebSocket, [symbol])
       }
       else {
@@ -409,9 +410,10 @@ export function connectAlpacaWebSocket() {
       console.log('🔄 Stopped price polling - WebSocket now handling real-time updates')
     })
 
-    const merged = [...new Set([...Array.from(subscribedStocks), ...SCREENER_WATCH_SYMBOLS])]
+    const screenerWatchSymbols = getWatchlist()
+    const merged = [...new Set([...Array.from(subscribedStocks), ...screenerWatchSymbols])]
     if (merged.length > 0) {
-      subscribeToSymbols(state.alpacaWebSocket, merged, { barSymbols: SCREENER_WATCH_SYMBOLS })
+      subscribeToSymbols(state.alpacaWebSocket, merged, { barSymbols: screenerWatchSymbols })
       console.log(`📡 Subscribed to ${merged.length} Alpaca symbol(s) (client feeds + screener watchlist)`)
     }
     else {
