@@ -13,7 +13,8 @@ import 'chartjs-adapter-luxon'
 const props = defineProps({
   data: { type: Object, required: true },
   options: { type: Object, default: () => ({}) },
-  plugins: { type: Array, default: () => [] }
+  plugins: { type: Array, default: () => [] },
+  ordinalLookup: { type: Array, default: () => [] }
 })
 
 const $waveui = inject('$waveui')
@@ -100,13 +101,23 @@ const crosshairPlugin = {
 
     // Draw X-axis label (only on main chart).
     if (scales.x) {
-      const xValue = scales.x.getValueForPixel(x)
-      if (xValue) {
-        const timeLabel = new Date(xValue).toLocaleString('en-US', {
+      const rawX = scales.x.getValueForPixel(x)
+      const timeLabel = (() => {
+        if (rawX == null) return null
+        if (props.ordinalLookup.length) {
+          const ts = props.ordinalLookup[Math.round(rawX)]
+          if (!ts) return null
+          return new Date(ts).toLocaleString('en-US', {
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+          })
+        }
+        return new Date(rawX).toLocaleString('en-US', {
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
         })
-
+      })()
+      if (timeLabel) {
         ctx.font = `10px Quicksand, sans-serif`
         const labelWidth = ctx.measureText(timeLabel).width + 4
         const labelHeight = 10 + 4

@@ -154,7 +154,8 @@
         ref="candleChartRef"
         :data="enhancedCandlestickChartData"
         :options="synchronizedCandlestickChartOptions"
-        :plugins="entryPricePlugins")
+        :plugins="entryPricePlugins"
+        :ordinal-lookup="ordinalLookup")
 
     //- Drawing Tools Overlay
     DrawingTools(:chart-container="chartContainer")
@@ -169,7 +170,7 @@
         Line(
           ref="rsiChartRef"
           :plugins="[rsiBackgroundPlugin]"
-          :data="indicators.rsiChartData.value"
+          :data="ordinalRsiChartData"
           :options="synchronizedRsiChartOptions")
 
     //- MACD Pane (if enabled)
@@ -181,7 +182,7 @@
       .chart-container
         Line(
           ref="macdChartRef"
-          :data="indicators.macdChartData.value"
+          :data="ordinalMacdChartData"
           :options="synchronizedMacdChartOptions")
 
     .loading-indicator.w-flex.align-center.gap1(v-if="isLoadingAdditionalData")
@@ -375,15 +376,13 @@ const syncZoom = (sourceChart, zoomState) => {
   isInternalZoom.value = false
 }
 
-// Helper function to get visible data in a time range.
-const getVisibleDataInRange = (startTime, endTime) => {
-  const data = props.chartType === 'line' ? props.lineChartData : props.candlestickChartData
-  const chartData = data?.datasets?.[0]?.data || []
-
-  return chartData.filter(point => {
-    const pointTime = point.x
-    return pointTime >= startTime && pointTime <= endTime
-  })
+// Helper function to get visible data in an ordinal index range.
+const OVERLAY_LABELS = new Set(['Volume', 'EMA 20', 'EMA 50', 'EMA 200', 'VWAP'])
+const getVisibleDataInRange = (startIdx, endIdx) => {
+  const enhanced = props.chartType === 'line' ? enhancedLineChartData.value : enhancedCandlestickChartData.value
+  const mainDataset = enhanced?.datasets?.find(ds => !OVERLAY_LABELS.has(ds.label)) || enhanced?.datasets?.[0]
+  const chartData = mainDataset?.data || []
+  return chartData.filter(point => point.x >= startIdx && point.x <= endIdx)
 }
 
 // Helper function to calculate optimal Y-axis range for visible data
@@ -435,143 +434,74 @@ const calculateOptimalYRange = (visibleData) => {
 const focusOnRecentData = () => {
   if (hasInitialized.value || props.isLoadingHistoricalData) return
 
-  const data = props.chartType === 'line' ? props.lineChartData : props.candlestickChartData
-  const chartData = data?.datasets?.[0]?.data
+  if (!ordinalLookup.value.length) return
 
-  if (!chartData?.length) return
+  // Use ordinal-mapped enhanced data so x values are indices, not timestamps.
+  const enhanced = props.chartType === 'line' ? enhancedLineChartData.value : enhancedCandlestickChartData.value
+  const mainDataset = enhanced?.datasets?.find(ds => !OVERLAY_LABELS.has(ds.label)) || enhanced?.datasets?.[0]
+  const chartData = mainDataset?.data
 
-  // Ensure we have a reasonable amount of data before focusing.
-  if (chartData.length < 10) {
-    console.log(`📊 Auto-focus skipped: insufficient data (${chartData.length} points)`)
-    return
-  }
+  if (!chartData?.length || chartData.length < 10) return
 
-  calculateZoomLimits() // CRITICAL: Calculate zoom limits first.
+  calculateZoomLimits()
 
   const totalPoints = chartData.length
-
-  // ENHANCED: For 1D period, focus specifically on today's trading session.
-  let focusData, focusDescription
+  let focusData
 
   if (props.selectedPeriod === '1D') {
-    // Find today's data specifically for 1D period.
     const now = new Date()
+    const easternTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+    const y = easternTime.getFullYear(), m = easternTime.getMonth(), d = easternTime.getDate()
+    const sessionStartUTC = new Date(y, m, d, 9, 30, 0, 0).getTime()
+    const sessionEndUTC = new Date(y, m, d, 16, 0, 0, 0).getTime()
 
-    // Get current Eastern Time.
-    const easternTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }))
-
-    // Create today's trading session boundaries in Eastern Time.
-    const todayYear = easternTime.getFullYear()
-    const todayMonth = easternTime.getMonth()
-    const todayDate = easternTime.getDate()
-
-    // 9:30 AM ET and 4:00 PM ET in local Eastern time.
-    const sessionStartET = new Date(todayYear, todayMonth, todayDate, 9, 30, 0, 0)
-    const sessionEndET = new Date(todayYear, todayMonth, todayDate, 16, 0, 0, 0)
-
-    // Convert to UTC timestamps for comparison with chart data.
-    const sessionStartUTC = sessionStartET.getTime()
-    const sessionEndUTC = sessionEndET.getTime()
-
-    // Filter data to today's trading session specifically.
+    // Translate ordinal indices back to timestamps for session boundary comparison.
     const todaysTradingData = chartData.filter(point => {
-      return point.x >= sessionStartUTC && point.x <= sessionEndUTC
+      const ts = ordinalLookup.value[point.x]
+      return ts >= sessionStartUTC && ts <= sessionEndUTC
     })
 
     if (todaysTradingData.length > 5) {
-      // We have good data from today's trading session.
       focusData = todaysTradingData
-      focusDescription =`today's trading session (${todaysTradingData.length} points)`
     }
     else {
-      // Fallback 1: Try to find the most recent trading day's session.
-      console.log(`📊 1D Period: No data for today's session, looking for most recent trading day`)
-
-      // Look at the most recent 20% of all data points.
-      const recentPointsCount = Math.max(100, Math.floor(totalPoints * 0.2)) // At least 100 points, or 20% of data.
-      const mostRecentData = chartData.slice(-recentPointsCount)
-
-      if (mostRecentData.length) {
-        // Find the most recent trading day and get its trading session data.
-        const lastDataTime = new Date(mostRecentData[mostRecentData.length - 1].x)
-
-        // Convert to Eastern Time to get the correct date.
-        const lastDataET = new Date(lastDataTime.toLocaleString('en-US', { timeZone: 'America/New_York' }))
-        const lastYear = lastDataET.getFullYear()
-        const lastMonth = lastDataET.getMonth()
-        const lastDate = lastDataET.getDate()
-
-        // Define trading session for that day (9:30 AM - 4:00 PM ET).
-        const lastSessionStartET = new Date(lastYear, lastMonth, lastDate, 9, 30, 0, 0)
-        const lastSessionEndET = new Date(lastYear, lastMonth, lastDate, 16, 0, 0, 0)
-
-        // Convert to UTC.
-        const lastSessionStartUTC = lastSessionStartET.getTime()
-        const lastSessionEndUTC = lastSessionEndET.getTime()
-
-        // Get all data from that trading session.
-        const sessionData = chartData.filter(point => {
-          return point.x >= lastSessionStartUTC && point.x <= lastSessionEndUTC
+      // Fallback: find most recent trading day's session.
+      const recentData = chartData.slice(-Math.max(100, Math.floor(totalPoints * 0.2)))
+      const lastTs = ordinalLookup.value[recentData[recentData.length - 1]?.x]
+      if (lastTs) {
+        const et = new Date(new Date(lastTs).toLocaleString('en-US', { timeZone: 'America/New_York' }))
+        const ly = et.getFullYear(), lm = et.getMonth(), ld = et.getDate()
+        const lStart = new Date(ly, lm, ld, 9, 30, 0, 0).getTime()
+        const lEnd = new Date(ly, lm, ld, 16, 0, 0, 0).getTime()
+        const sessionData = chartData.filter(p => {
+          const ts = ordinalLookup.value[p.x]
+          return ts >= lStart && ts <= lEnd
         })
-
-        if (sessionData.length > 5) {
-          focusData = sessionData
-          focusDescription =`most recent trading session - ${lastDataET.toDateString()} (${sessionData.length} points)`
-          console.log(`📊 1D Period: Focusing on most recent trading session ${lastDataET.toDateString()} with ${sessionData.length} data points`)
-        }
-        else {
-          // Fallback 2: Use most recent data points.
-          focusData = mostRecentData
-          focusDescription =`most recent data (${mostRecentData.length} points)`
-          console.log(`📊 1D Period: Focusing on most recent ${mostRecentData.length} data points`)
-        }
+        focusData = sessionData.length > 5 ? sessionData : recentData
       }
-      else {
-        // Final fallback: Use last 100 points.
-        focusData = chartData.slice(-100)
-        focusDescription =`latest available data (${focusData.length} points)`
-        console.log(`📊 1D Period: Fallback - focusing on latest ${focusData.length} points`)
-      }
+      else focusData = chartData.slice(-100)
     }
   }
   else {
-    // For other periods, use smart focus calculation based on timeframe and period.
     const focusPoints = calculateSmartFocusPoints(totalPoints)
-    const startIndex = Math.max(0, totalPoints - focusPoints)
-    focusData = chartData.slice(startIndex)
-    focusDescription =`${focusPoints} recent points`
+    focusData = chartData.slice(Math.max(0, totalPoints - focusPoints))
   }
 
-  if (focusData.length === 0) return
+  if (!focusData?.length) return
 
-  const startTime = focusData[0].x
-  const endTime = focusData[focusData.length - 1].x
+  const startIdx = focusData[0].x
+  const endIdx = focusData[focusData.length - 1].x
+  const span = endIdx - startIdx
+  const pad = Math.max(1, Math.ceil(span * 0.05))
+  const { min: focusMin, max: focusMax } = validateZoomRange(startIdx - pad, endIdx + pad)
 
-  // Smart padding calculation based on timeframe.
-  const timeRange = endTime - startTime
-  const timePadding = calculateSmartTimePadding(timeRange)
-
-  let focusMin = new Date(startTime - timePadding)
-  let focusMax = new Date(endTime + timePadding)
-
-  // Apply zoom limits validation to initial focus.
-  const validatedRange = validateZoomRange(focusMin.getTime(), focusMax.getTime())
-  focusMin = new Date(validatedRange.min)
-  focusMax = new Date(validatedRange.max)
-
-  // Enhanced Y-axis range calculation.
-  let minPrice = Infinity
-  let maxPrice = -Infinity
-
+  let minPrice = Infinity, maxPrice = -Infinity
   focusData.forEach(point => {
     if (point.y !== undefined) {
-      // Line chart data.
-      const price = point.y
-      if (price < minPrice) minPrice = price
-      if (price > maxPrice) maxPrice = price
+      if (point.y < minPrice) minPrice = point.y
+      if (point.y > maxPrice) maxPrice = point.y
     }
     else {
-      // Candlestick data.
       const high = point.h || point.high
       const low = point.l || point.low
       if (low < minPrice) minPrice = low
@@ -579,44 +509,33 @@ const focusOnRecentData = () => {
     }
   })
 
-  // Ensure entry price (open position line) is always in the initial view.
-  if (props.entryPrice && props.entryPrice > 0) {
+  if (props.entryPrice > 0) {
     if (props.entryPrice < minPrice) minPrice = props.entryPrice
     if (props.entryPrice > maxPrice) maxPrice = props.entryPrice
   }
 
-  // Smart Y-axis padding based on price volatility.
   const priceRange = maxPrice - minPrice
-  const volatilityRatio = priceRange / ((minPrice + maxPrice) / 2) // Relative volatility.
-
-  // Adjust padding based on volatility.
-  let pricePaddingRatio = 0.02 // High volatility: less padding to show full range.
-  if (volatilityRatio < 0.02) pricePaddingRatio = 0.05 // Low volatility: more padding for better visibility.
-  else if (volatilityRatio < 0.1) pricePaddingRatio = 0.03 // Medium volatility: standard padding.
-
+  const volatilityRatio = priceRange / ((minPrice + maxPrice) / 2)
+  let pricePaddingRatio = 0.02
+  if (volatilityRatio < 0.02) pricePaddingRatio = 0.05
+  else if (volatilityRatio < 0.1) pricePaddingRatio = 0.03
   const pricePadding = priceRange * pricePaddingRatio
   const yMin = minPrice - pricePadding
   const yMax = maxPrice + pricePadding
 
   zoomRange.value = { min: focusMin, max: focusMax }
   hasInitialized.value = true
-
-  // Persist Y range reactively so it survives vue-chartjs option re-renders.
   manualYRange.value = { min: yMin, max: yMax }
 
-  // Apply the zoom to all charts.
   getAllChartInstances().forEach(chart => {
-    if (chart && chart.scales && chart.scales.x && chart.scales.x.options) {
+    if (chart?.scales?.x?.options) {
       chart.scales.x.options.min = focusMin
       chart.scales.x.options.max = focusMax
-
-      // Set Y-axis range for price charts (not indicators).
       if (chart.scales.y && !chart.canvas.parentElement.classList.contains('rsi-pane') &&
           !chart.canvas.parentElement.classList.contains('macd-pane')) {
         chart.scales.y.options.min = yMin
         chart.scales.y.options.max = yMax
       }
-
       chart.update('none')
     }
   })
@@ -683,63 +602,6 @@ function calculateSmartFocusPoints(totalPoints) {
   return Math.min(200, Math.max(100, Math.floor(totalPoints * 0.1)))
 }
 
-// Smart time padding based on timeframe.
-function calculateSmartTimePadding(timeRange) {
-  const timeframe = props.selectedTimeframe
-
-  // Base padding as percentage of time range.
-  const basePaddingRatio = {
-    '1Min': 0.05,  // 5% padding for 1-min (tight focus).
-    '5Min': 0.08,  // 8% padding for 5-min.
-    '15Min': 0.10, // 10% padding for 15-min.
-    '30Min': 0.12, // 12% padding for 30-min.
-    '1Hour': 0.15, // 15% padding for 1-hour.
-    '1Day': 0.20   // 20% padding for daily (works for 1Y and 5Y periods).
-  }
-
-  const paddingRatio = basePaddingRatio[timeframe] || 0.10
-  const calculatedPadding = timeRange * paddingRatio
-
-  // Minimum padding based on timeframe.
-  const minimumPadding = {
-    '1Min': 5 * 60 * 1000,          // 5 minutes minimum.
-    '5Min': 15 * 60 * 1000,         // 15 minutes minimum.
-    '15Min': 30 * 60 * 1000,        // 30 minutes minimum.
-    '30Min': 60 * 60 * 1000,        // 1 hour minimum.
-    '1Hour': 2 * 60 * 60 * 1000,    // 2 hours minimum.
-    '1Day': 7 * 24 * 60 * 60 * 1000 // 1 week minimum (works for 1Y and 5Y periods).
-  }
-
-  const minPadding = minimumPadding[timeframe] || 15 * 60 * 1000
-
-  return Math.max(calculatedPadding, minPadding)
-}
-
-// Helper function for display information.
-function getTimeframeDisplayInfo(timeframe, timeRange) {
-  const hours = timeRange / (60 * 60 * 1000)
-  const days = timeRange / (24 * 60 * 60 * 1000)
-
-  let coverage, description
-
-  if (hours < 1) coverage = `${Math.round(timeRange / (60 * 1000))} minutes`
-  else if (hours < 24) coverage = `${hours.toFixed(1)} hours`
-  else coverage = `${days.toFixed(1)} days`
-
-  const descriptions = {
-    '1Min': 'High-resolution intraday',
-    '5Min': 'Detailed intraday',
-    '15Min': 'Standard intraday',
-    '30Min': 'Broad intraday',
-    '1Hour': 'Hourly data',
-    '1Day': 'Daily data (optimal for 1Y/5Y periods)'
-  }
-
-  description = descriptions[timeframe] || 'Unknown timeframe'
-
-  return { coverage, description }
-}
-
 // Data Processing
 // --------------------------------------------------------
 // OHLC data processing for technical indicators.
@@ -794,6 +656,43 @@ const volumeData = computed(() => {
 
 // Technical indicators from composable.
 const indicators = useTechnicalIndicators(ohlcData, volumeData)
+
+// Ordinal (gap-free) scale support
+// Maps each trading data point to a sequential index, eliminating weekend/overnight gaps.
+const ordinalLookup = computed(() => {
+  const data = props.chartType === 'candlestick' ? props.candlestickChartData : props.lineChartData
+  const mainData = data?.datasets?.[0]?.data || []
+  return mainData
+    .map(p => p.x)
+    .filter(ts => { const d = new Date(ts).getDay(); return d !== 0 && d !== 6 })
+})
+
+function applyOrdinalMapping(data) {
+  if (!data?.datasets?.length || !ordinalLookup.value.length) return data
+  const tsToIndex = new Map(ordinalLookup.value.map((ts, i) => [ts, i]))
+  return {
+    ...data,
+    datasets: data.datasets.map(ds => ({
+      ...ds,
+      data: (ds.data || [])
+        .filter(p => tsToIndex.has(p.x))
+        .map(p => ({ ...p, x: tsToIndex.get(p.x) }))
+    }))
+  }
+}
+
+function formatOrdinalTick(ts) {
+  const d = new Date(ts)
+  if (props.selectedTimeframe === '1Day') {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+  if (props.selectedPeriod === '1D') {
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+  }
+  return d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
+  })
+}
 
 // VWAP calculation.
 const vwapData = computed(() => {
@@ -945,7 +844,7 @@ const enhancedLineChartData = computed(() => {
     })
   }
 
-  return { ...props.lineChartData, datasets }
+  return applyOrdinalMapping({ ...props.lineChartData, datasets })
 })
 
 const enhancedCandlestickChartData = computed(() => {
@@ -1052,7 +951,7 @@ const enhancedCandlestickChartData = computed(() => {
     })
   }
 
-  return { ...props.candlestickChartData, datasets }
+  return applyOrdinalMapping({ ...props.candlestickChartData, datasets })
 })
 
 // Simple RSI calculation function.
@@ -1312,93 +1211,51 @@ const currentHistogram = computed(() => {
   return lastHistogram ? lastHistogram.toFixed(4) : '--'
 })
 
+// Ordinal-mapped indicator data for RSI/MACD panes (same index space as main chart).
+const ordinalRsiChartData = computed(() => applyOrdinalMapping(indicators.rsiChartData.value))
+const ordinalMacdChartData = computed(() => applyOrdinalMapping(indicators.macdChartData.value))
+
 // Smart Zoom Management (TradingView-style)
 // --------------------------------------------------------
 const dataRange = ref({ min: null, max: null })
 const originalDataRange = ref({ min: null, max: null })
 const zoomLimits = ref({ minZoom: null, maxZoom: null })
 
-// Calculate intelligent zoom boundaries based on data.
+// Calculate intelligent zoom boundaries based on ordinal indices.
 function calculateZoomLimits() {
-  const data = props.chartType === 'line' ? props.lineChartData : props.candlestickChartData
-  const chartData = data?.datasets?.[0]?.data
+  const n = ordinalLookup.value.length
+  if (!n) return
 
-  if (!chartData || chartData.length === 0) return
+  originalDataRange.value = { min: 0, max: n - 1 }
+  dataRange.value = { min: 0, max: n - 1 }
 
-  const timestamps = chartData.map(point => point.x)
-  const minTime = Math.min(...timestamps)
-  const maxTime = Math.max(...timestamps)
-  const totalTimeRange = maxTime - minTime
-
-  // Store original data range for reference.
-  originalDataRange.value = { min: minTime, max: maxTime }
-  dataRange.value = { min: minTime, max: maxTime }
-
-  // Calculate intelligent zoom limits.
-  const minDataPoints = Math.max(5, Math.min(50, chartData.length * 0.02)) // Show at least 5 points, max 50, or 2% of data
-  const maxDataPoints = chartData.length
-
-  // Time per data point (average).
-  const avgTimePerPoint = totalTimeRange / chartData.length
-
+  const padding = Math.ceil(n * 0.1)
   zoomLimits.value = {
-    // Maximum zoom in: show minimum data points.
-    minZoom: avgTimePerPoint * minDataPoints,
-    // Maximum zoom out: show all data plus 10% padding on each side.
-    maxZoom: totalTimeRange * 1.2,
-    // Data boundaries (with padding).
-    dataMin: minTime - (totalTimeRange * 0.1),
-    dataMax: maxTime + (totalTimeRange * 0.1)
+    minZoom: 3,
+    maxZoom: n * 1.5,
+    dataMin: -padding,
+    dataMax: n - 1 + padding
   }
 }
 
 // Smart zoom validation - prevent over-zooming or losing data.
 function validateZoomRange(min, max) {
-  if (!zoomLimits.value.minZoom) return { min, max }
+  const n = ordinalLookup.value.length
+  if (!n) return { min, max }
 
-  const requestedRange = max - min
-  const limits = zoomLimits.value
+  const range = max - min
 
-  // Only prevent extreme cases.
-  // Allow users to zoom in very close (down to 2 data points) and zoom out very far.
-  const veryMinZoom = limits.minZoom * 0.1 // Allow 10x closer than calculated minimum.
-  const veryMaxZoom = limits.maxZoom * 3   // Allow 3x further than calculated maximum.
-
-  // Only prevent extreme zoom-in (less than 2 data points visible).
-  if (requestedRange < veryMinZoom) {
+  // Prevent extreme zoom-in (fewer than 2 candles visible).
+  if (range < 2) {
     const center = (min + max) / 2
-    const halfMinRange = veryMinZoom / 2
-    min = center - halfMinRange
-    max = center + halfMinRange
-    console.log(`📊 Extreme zoom-in prevented (showing minimum ${(veryMinZoom / (1000 * 60)).toFixed(1)} minutes)`)
+    min = center - 1
+    max = center + 1
   }
 
-  // Only prevent extreme zoom-out (way beyond all data).
-  if (requestedRange > veryMaxZoom) {
-    const center = (min + max) / 2
-    const halfMaxRange = veryMaxZoom / 2
-    min = center - halfMaxRange
-    max = center + halfMaxRange
-    console.log(`📊 Extreme zoom-out prevented`)
-  }
-
-  // Permissive boundaries: allow panning well beyond data.
-  const generousPadding = (limits.dataMax - limits.dataMin) * 2 // 200% padding on each side.
-  const veryGenerousMin = limits.dataMin - generousPadding
-  const veryGenerousMax = limits.dataMax + generousPadding
-
-  // Only prevent panning extremely far beyond data (way off the chart).
-  if (max < veryGenerousMin) {
-    const shift = veryGenerousMin - max
-    max = veryGenerousMin
-    min = min + shift
-  }
-
-  if (min > veryGenerousMax) {
-    const shift = min - veryGenerousMax
-    min = veryGenerousMax
-    max = max - shift
-  }
+  // Prevent panning far beyond data (200% padding on each side).
+  const padding = n
+  if (max < -padding) { const shift = -padding - max; min += shift; max = -padding }
+  if (min > n + padding) { const shift = min - (n + padding); max -= shift; min = n + padding }
 
   return { min, max }
 }
@@ -1683,15 +1540,18 @@ const baseSynchronizedOptions = computed(() => ({
   },
   scales: {
     x: {
-      type: 'time',
-      time: {
-        displayFormats: { minute: 'HH:mm', hour: 'MMM dd HH:mm' }
-      },
-      adapters: { date: { zone: Intl.DateTimeFormat().resolvedOptions().timeZone } },
-      distribution: 'linear', // Use linear distribution to eliminate gaps
+      type: 'linear',
       grid: { color: $waveui.colors.light2 },
-      ticks: { color: $waveui.colors.light1, source: 'data' },
-      offset: false, // Prevent category offset so bars align exactly at timestamps.
+      ticks: {
+        color: $waveui.colors.light1,
+        maxTicksLimit: 8,
+        callback(value) {
+          const idx = Math.round(value)
+          if (idx < 0 || idx >= ordinalLookup.value.length) return ''
+          return formatOrdinalTick(ordinalLookup.value[idx])
+        }
+      },
+      offset: false,
       min: zoomRange.value.min,
       max: zoomRange.value.max
     }
@@ -1763,7 +1623,7 @@ const createEntryPricePlugin = () => ({
     const labelPadding = 6
     const labelWidth = ctx.measureText(labelText).width + labelPadding * 2
     const labelHeight = 14
-    const labelX = chartArea.right - labelWidth
+    const labelX = chartArea.right * 0.25
     const labelY = entryY - labelHeight / 2
 
     // Draw label background.
