@@ -6,6 +6,9 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const CATALYSTS_DIR = path.resolve(__dirname, '../input/daily-catalysts')
 
+/** In-memory index for the current NY trading day (invalidated on day change). */
+let cache = { tradingDayKey: null, bySymbol: null }
+
 /**
  * Format a trading day key as YYYY-MM-DD based on the market timezone (America/New_York).
  * This ensures we use the market date, not the server date, by using UTC date components

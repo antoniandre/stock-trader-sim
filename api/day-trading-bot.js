@@ -59,8 +59,20 @@ export const RISK_PROFILES = {
     stopLossPct: 2.4,
     trailingStopPct: 1.7,
     trimFraction: 0.5,
-    rewardTargetPct: 3.4
+    rewardTargetPct: 4.0
   }
+}
+
+function validateRisk({ entryPrice, stopLossPrice, positionSize, accountEquity }) {
+  if (!Number.isFinite(entryPrice) || !Number.isFinite(stopLossPrice) || !Number.isFinite(positionSize) || !Number.isFinite(accountEquity)) {
+    return { valid: false, lossPercent: 1, detail: 'Invalid risk parameters' };
+  }
+  const lossPercent = positionSize > 0 ? (entryPrice - stopLossPrice) * positionSize / accountEquity : 0;
+  return {
+    valid: lossPercent <= 0.02,
+    lossPercent,
+    ratio: stopLossPrice > entryPrice ? (entryPrice - stopLossPrice) / (stopLossPrice - entryPrice) : 0
+  };
 }
 
 export function evaluateDayTradingDecision(input = {}) {
@@ -262,6 +274,31 @@ export function evaluateDayTradingDecision(input = {}) {
     ) {
       action = 'add'
       reasons.push('Trend and momentum support adding to the winner')
+    }
+
+    // Optional portfolio check for scale-ups: needs account equity from the client.
+    // Never blocks exit/trim (risk reduction). Uses avg entry vs profile stop %.
+    const accountEquityForRisk = Number(input.accountEquity)
+    if (
+      action === 'add'
+      && positionQty > 0
+      && Number.isFinite(accountEquityForRisk)
+      && accountEquityForRisk > 0
+    ) {
+      const riskEntryPrice = Number.isFinite(avgEntryPrice) && avgEntryPrice > 0 ? avgEntryPrice : currentPrice
+      const riskStopPrice = riskEntryPrice * (1 - profile.stopLossPct / 100)
+      const riskValidation = validateRisk({
+        entryPrice: riskEntryPrice,
+        stopLossPrice: riskStopPrice,
+        positionSize: positionQty,
+        accountEquity: accountEquityForRisk
+      })
+      if (!riskValidation.valid) {
+        action = 'hold'
+        reasons.push(
+          `Add skipped: stop risk vs equity is about ${(riskValidation.lossPercent * 100).toFixed(2)}% (above the 2% guard).`
+        )
+      }
     }
 
     // Safety: Never recommend "buy" if already positioned.
