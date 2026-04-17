@@ -21,13 +21,18 @@ const $waveui = inject('$waveui')
 // Register chart components.
 Chart.register(CandlestickController, CandlestickElement, zoomPlugin)
 
+// Share of plugins.volumeBand.height used for the volume pane (rest stays for price).
+const VOLUME_LAYER_HEIGHT_RATIO = 0.8
+
 const volumeBandPlugin = {
+  id: 'volumeBand',
   afterLayout(chart, args, opts) {
     if (!opts?.height) return
     const volScale = chart.scales?.yVolume
     if (!volScale) return
     const area = chart.chartArea
-    const band = Math.min(opts.height, area.bottom - area.top)
+    const rawBand = Math.min(opts.height, area.bottom - area.top)
+    const band = rawBand * VOLUME_LAYER_HEIGHT_RATIO
     volScale.top = area.bottom - band
     volScale.bottom = area.bottom
     volScale.height = band
