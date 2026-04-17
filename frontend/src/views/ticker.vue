@@ -724,8 +724,6 @@ function getAdditionalDataRange(period) {
 }
 
 function handleResetZoomComplete() {
-  console.log('📊 Handling reset zoom complete - resetting all states')
-
   // Reset all panning and zoom states.
   userHasPanned.value = false
   isPanning.value = false
@@ -748,8 +746,6 @@ function handleResetZoomComplete() {
 
   // Refresh historical data to ensure we have the correct current view.
   fetchHistoricalData()
-
-  console.log('📊 Reset zoom complete - ready for current time view')
 }
 
 function updateOHLCData(price, timestamp) {
