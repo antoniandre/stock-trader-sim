@@ -147,12 +147,14 @@
         v-if="chartType === 'line'"
         ref="lineChartRef"
         :data="enhancedLineChartData"
-        :options="synchronizedLineChartOptions")
+        :options="synchronizedLineChartOptions"
+        :plugins="entryPricePlugins")
       CandlestickChart.chart.chart--price.chart--candles(
         v-else
         ref="candleChartRef"
         :data="enhancedCandlestickChartData"
-        :options="synchronizedCandlestickChartOptions")
+        :options="synchronizedCandlestickChartOptions"
+        :plugins="entryPricePlugins")
 
     //- Drawing Tools Overlay
     DrawingTools(:chart-container="chartContainer")
@@ -408,6 +410,12 @@ const calculateOptimalYRange = (visibleData) => {
 
   if (minPrice === Infinity || maxPrice === -Infinity) return { yMin: null, yMax: null }
 
+  // Ensure entry price (open position line) is always in range.
+  if (props.entryPrice && props.entryPrice > 0) {
+    if (props.entryPrice < minPrice) minPrice = props.entryPrice
+    if (props.entryPrice > maxPrice) maxPrice = props.entryPrice
+  }
+
   // Add smart padding based on price volatility.
   const priceRange = maxPrice - minPrice
   const volatilityRatio = priceRange / ((minPrice + maxPrice) / 2)
@@ -473,7 +481,7 @@ const focusOnRecentData = () => {
     if (todaysTradingData.length > 5) {
       // We have good data from today's trading session.
       focusData = todaysTradingData
-      focusDescription = `today's trading session (${todaysTradingData.length} points)`
+      focusDescription =`today's trading session (${todaysTradingData.length} points)`
     }
     else {
       // Fallback 1: Try to find the most recent trading day's session.
@@ -508,20 +516,20 @@ const focusOnRecentData = () => {
 
         if (sessionData.length > 5) {
           focusData = sessionData
-          focusDescription = `most recent trading session - ${lastDataET.toDateString()} (${sessionData.length} points)`
+          focusDescription =`most recent trading session - ${lastDataET.toDateString()} (${sessionData.length} points)`
           console.log(`📊 1D Period: Focusing on most recent trading session ${lastDataET.toDateString()} with ${sessionData.length} data points`)
         }
         else {
           // Fallback 2: Use most recent data points.
           focusData = mostRecentData
-          focusDescription = `most recent data (${mostRecentData.length} points)`
+          focusDescription =`most recent data (${mostRecentData.length} points)`
           console.log(`📊 1D Period: Focusing on most recent ${mostRecentData.length} data points`)
         }
       }
       else {
         // Final fallback: Use last 100 points.
         focusData = chartData.slice(-100)
-        focusDescription = `latest available data (${focusData.length} points)`
+        focusDescription =`latest available data (${focusData.length} points)`
         console.log(`📊 1D Period: Fallback - focusing on latest ${focusData.length} points`)
       }
     }
@@ -531,7 +539,7 @@ const focusOnRecentData = () => {
     const focusPoints = calculateSmartFocusPoints(totalPoints)
     const startIndex = Math.max(0, totalPoints - focusPoints)
     focusData = chartData.slice(startIndex)
-    focusDescription = `${focusPoints} recent points`
+    focusDescription =`${focusPoints} recent points`
   }
 
   if (focusData.length === 0) return
@@ -571,6 +579,12 @@ const focusOnRecentData = () => {
     }
   })
 
+  // Ensure entry price (open position line) is always in the initial view.
+  if (props.entryPrice && props.entryPrice > 0) {
+    if (props.entryPrice < minPrice) minPrice = props.entryPrice
+    if (props.entryPrice > maxPrice) maxPrice = props.entryPrice
+  }
+
   // Smart Y-axis padding based on price volatility.
   const priceRange = maxPrice - minPrice
   const volatilityRatio = priceRange / ((minPrice + maxPrice) / 2) // Relative volatility.
@@ -586,6 +600,9 @@ const focusOnRecentData = () => {
 
   zoomRange.value = { min: focusMin, max: focusMax }
   hasInitialized.value = true
+
+  // Persist Y range reactively so it survives vue-chartjs option re-renders.
+  manualYRange.value = { min: yMin, max: yMax }
 
   // Apply the zoom to all charts.
   getAllChartInstances().forEach(chart => {
@@ -1388,9 +1405,10 @@ function validateZoomRange(min, max) {
 
 // Replace multiple reset functions with a single resetView.
 function resetView() {
-  // Clear zoom state and re-focus smartly on recent data.
   zoomRange.value = { min: null, max: null }
   hasInitialized.value = false
+  yAxisManuallySet.value = false
+  manualYRange.value = { min: null, max: null }
   zoomLimits.value = { minZoom: null, maxZoom: null }
   nextTick(focusOnRecentData)
 }
@@ -1419,15 +1437,16 @@ function handleZoomComplete(context) {
     console.log('📊 Zoom range corrected due to extreme values')
   }
 
-  // Auto-rescale Y-axis when zooming X-axis (but don't force update if range wasn't modified).
-  // Only auto-rescale if user hasn't manually zoomed Y-axis.
-  if (!yAxisDrag.isDragging) {
+  // Auto-rescale Y-axis when zooming X-axis.
+  // Skip if user has manually set the Y range via Y-axis drag.
+  if (!yAxisDrag.isDragging && !yAxisManuallySet.value) {
     const visibleData = getVisibleDataInRange(min, max)
     const { yMin, yMax } = calculateOptimalYRange(visibleData)
 
     if (yMin !== null && yMax !== null && chart.scales.y &&
         !chart.canvas.parentElement.classList.contains('rsi-pane') &&
         !chart.canvas.parentElement.classList.contains('macd-pane')) {
+      manualYRange.value = { min: yMin, max: yMax }
       chart.scales.y.options.min = yMin
       chart.scales.y.options.max = yMax
     }
@@ -1461,13 +1480,21 @@ function handlePanComplete(context) {
     console.log('📊 Pan range corrected due to extreme values')
   }
 
-  // Auto-rescale Y-axis when panning (but don't force update if range wasn't modified).
+  // Auto-rescale Y-axis when panning.
+  // Skip if user has manually set the Y range via Y-axis drag.
+  if (yAxisManuallySet.value) {
+    if (rangeWasModified) chart.update('none')
+    syncZoom(chart, { min, max })
+    return
+  }
+
   const visibleData = getVisibleDataInRange(min, max)
   const { yMin, yMax } = calculateOptimalYRange(visibleData)
 
   if (yMin !== null && yMax !== null && chart.scales.y &&
       !chart.canvas.parentElement.classList.contains('rsi-pane') &&
       !chart.canvas.parentElement.classList.contains('macd-pane')) {
+    manualYRange.value = { min: yMin, max: yMax }
     chart.scales.y.options.min = yMin
     chart.scales.y.options.max = yMax
   }
@@ -1481,6 +1508,8 @@ function handlePanComplete(context) {
 }
 
 // Y-axis drag zoom.
+const yAxisManuallySet = ref(false)
+const manualYRange = ref({ min: null, max: null }) // Reactive Y range — survives vue-chartjs option re-renders.
 const yAxisDrag = { isDragging: false, chart: null, startY: 0, startMin: 0, startMax: 0 }
 
 function startYAxisDrag(e) {
@@ -1561,6 +1590,7 @@ function updateYAxisZoom(e) {
 
   // Only update the chart being dragged.
   if (chart.scales.y.options) {
+    manualYRange.value = { min: newMin, max: newMax }
     chart.scales.y.options.min = newMin
     chart.scales.y.options.max = newMax
     chart.update('none')
@@ -1571,6 +1601,7 @@ function updateYAxisZoom(e) {
 }
 
 function endYAxisDrag() {
+  if (yAxisDrag.isDragging) yAxisManuallySet.value = true
   if (yAxisDrag.chart?.canvas) yAxisDrag.chart.canvas.style.cursor = 'default'
   window.removeEventListener('mousemove', updateYAxisZoom)
   window.removeEventListener('mouseup', endYAxisDrag)
@@ -1701,7 +1732,7 @@ const baseYAxisConfig = {
 // Entry price line plugin - creates a plugin function that returns the plugin object.
 const createEntryPricePlugin = () => ({
   id: 'entryPriceLine',
-  afterDraw: (chart) => {
+  afterDraw: chart => {
     if (!props.entryPrice || props.entryPrice <= 0) return
 
     const ctx = chart.ctx
@@ -1719,8 +1750,8 @@ const createEntryPricePlugin = () => ({
 
     // Draw horizontal line at entry price.
     ctx.strokeStyle = $waveui.colors.primary
-    ctx.setLineDash([5, 5]) // Dashed line.
-    ctx.lineWidth = 2
+    ctx.setLineDash([0]) // Dashed line.
+    ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(chartArea.left, entryY)
     ctx.lineTo(chartArea.right, entryY)
@@ -1728,10 +1759,10 @@ const createEntryPricePlugin = () => ({
 
     // Draw label on the right side.
     const labelText = `Entry: $${props.entryPrice.toFixed(2)}`
-    ctx.font = '12px sans-serif'
-    const labelPadding = 8
+    ctx.font = '11px sans-serif'
+    const labelPadding = 6
     const labelWidth = ctx.measureText(labelText).width + labelPadding * 2
-    const labelHeight = 20
+    const labelHeight = 14
     const labelX = chartArea.right - labelWidth
     const labelY = entryY - labelHeight / 2
 
@@ -1752,18 +1783,19 @@ const createEntryPricePlugin = () => ({
 })
 
 // Synchronized chart options for each pane.
+const entryPricePlugins = [createEntryPricePlugin()]
+
 const synchronizedLineChartOptions = computed(() => {
-  const plugins = { ...baseSynchronizedOptions.value.plugins }
-  if (props.entryPrice && props.entryPrice > 0) {
-    plugins.entryPriceLine = createEntryPricePlugin()
-  }
+  const yConfig = manualYRange.value.min !== null
+    ? { ...baseYAxisConfig, min: manualYRange.value.min, max: manualYRange.value.max }
+    : baseYAxisConfig
   return {
     ...baseSynchronizedOptions.value,
-    plugins,
+    plugins: { ...baseSynchronizedOptions.value.plugins },
     scales: {
       ...baseSynchronizedOptions.value.scales,
       x: { ...baseSynchronizedOptions.value.scales.x, display: true },
-      y: baseYAxisConfig
+      y: yConfig
     }
   }
 })
@@ -1773,16 +1805,16 @@ const synchronizedCandlestickChartOptions = computed(() => {
     ...baseSynchronizedOptions.value.plugins,
     volumeBand: { height: VOLUME_BAND_HEIGHT } // Reserve space for volume band.
   }
-  if (props.entryPrice && props.entryPrice > 0) {
-    plugins.entryPriceLine = createEntryPricePlugin()
-  }
+  const yConfig = manualYRange.value.min !== null
+    ? { ...baseYAxisConfig, min: manualYRange.value.min, max: manualYRange.value.max }
+    : baseYAxisConfig
   return {
     ...baseSynchronizedOptions.value,
     plugins,
     scales: {
       ...baseSynchronizedOptions.value.scales,
       x: { ...baseSynchronizedOptions.value.scales.x, display: true },
-      y: baseYAxisConfig,
+      y: yConfig,
       yVolume: {
         position: 'right',
         display: false,

@@ -12,7 +12,8 @@ import 'chartjs-adapter-luxon'
 
 const props = defineProps({
   data: { type: Object, required: true },
-  options: { type: Object, default: () => ({}) }
+  options: { type: Object, default: () => ({}) },
+  plugins: { type: Array, default: () => [] }
 })
 
 const $waveui = inject('$waveui')
@@ -168,7 +169,7 @@ function createChart() {
     type: 'candlestick',
     data: validData,
     options: mergedOptions,
-    plugins: [volumeBandPlugin, crosshairPlugin]
+    plugins: [volumeBandPlugin, crosshairPlugin, ...props.plugins]
   })
 }
 

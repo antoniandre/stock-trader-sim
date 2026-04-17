@@ -36,6 +36,7 @@
           :last-update="lastUpdate"
           :is-refreshing="isRefreshing"
           :is-transitioning-timeframe="isTransitioningTimeframe"
+          :entry-price="avgEntryPrice"
           @change-chart-type="changeChartType"
           @change-period="changePeriod"
           @change-timeframe="changeTimeframe"
