@@ -11,17 +11,6 @@
         :is-refreshing="isRefreshing"
         :is-transitioning-timeframe="isTransitioningTimeframe"
         @refresh-price="emit('refresh-price')")
-      .ohlcv.size--xs(v-if="currentOHLC" :class="ohlcColorClass")
-        span.base-color.ml1 O
-        strong {{ formatPrice(currentOHLC.open) }}
-        span.base-color.ml1 H
-        strong {{ formatPrice(currentOHLC.high) }}
-        span.base-color.ml1 L
-        strong {{ formatPrice(currentOHLC.low) }}
-        span.base-color.ml1 C
-        strong {{ formatPrice(currentOHLC.close) }}
-        span.base-color.ml1 V
-        strong {{ formatVolume(currentOHLC.volume) }}
 
   //- Chart Controls
   .chart-controls.w-flex.justify-space-between.align-center.mb2
@@ -156,7 +145,8 @@
         :data="enhancedCandlestickChartData"
         :options="synchronizedCandlestickChartOptions"
         :plugins="entryPricePlugins"
-        :ordinal-lookup="ordinalLookup")
+        :ordinal-lookup="ordinalLookup"
+        @hover-ohlc="onHoverOhlc")
 
       w-transition-fade(appear)
         w-button.price-chart__reset-button(
@@ -170,6 +160,21 @@
 
     //- Drawing Tools Overlay
     DrawingTools(:chart-container="chartContainer")
+
+    //- OHLCV over plot (hover updates; Chart.js tooltip disabled on main chart).
+    .price-chart__ohlcv.size--xs(
+      v-if="hasChartHeader && displayOHLC"
+      :class="ohlcDisplayColorClass")
+      span.base-color O
+      strong {{ formatPrice(displayOHLC.open) }}
+      span.base-color.ml1 H
+      strong {{ formatPrice(displayOHLC.high) }}
+      span.base-color.ml1 L
+      strong {{ formatPrice(displayOHLC.low) }}
+      span.base-color.ml1 C
+      strong {{ formatPrice(displayOHLC.close) }}
+      span.base-color.ml1 V
+      strong {{ formatVolume(displayOHLC.volume) }}
 
     //- RSI Pane (if enabled)
     .chart.chart--rsi.mt-1.ml6(v-show="showRSI && chartType === 'candlestick'")
@@ -325,6 +330,13 @@ const lineChartRef = ref(null)
 const candleChartRef = ref(null)
 const rsiChartRef = ref(null)
 const macdChartRef = ref(null)
+
+/** Candle under crosshair; cleared on leave — `displayOHLC` falls back to last bar. */
+const hoverOHLC = ref(null)
+
+function onHoverOhlc(payload) {
+  hoverOHLC.value = payload
+}
 
 // Indicator visibility toggles.
 const showEMA = ref(true)
@@ -1139,73 +1151,58 @@ const macdChartOptions = computed(() => ({
 
 // Current Values for Display
 // --------------------------------------------------------
-const currentOHLC = computed(() => {
-  if (props.chartType === 'candlestick' && props.candlestickChartData?.datasets?.[0]?.data) {
-    const dataPoints = props.candlestickChartData.datasets[0].data
-    if (dataPoints.length === 0) return null
-
-    // Get the last point (most recent data).
-    const lastPoint = dataPoints[dataPoints.length - 1]
-    if (!lastPoint) return null
-
-    // If the last point has volume, use it.
-    if (lastPoint.volume && lastPoint.volume > 0) {
-      return {
-        open: lastPoint.o || 0,
-        high: lastPoint.h || 0,
-        low: lastPoint.l || 0,
-        close: lastPoint.c || 0,
-        volume: lastPoint.volume
-      }
-    }
-
-    // Otherwise, find the most recent point with volume (from historical data).
-    // Search backwards from the end to find the last point with actual volume.
-    for (let i = dataPoints.length - 1; i >= 0; i--) {
-      const point = dataPoints[i]
-      if (point && point.volume && point.volume > 0) {
-        // Use the last point's OHLC but with the historical volume.
-        return {
-          open: lastPoint.o || 0,
-          high: lastPoint.h || 0,
-          low: lastPoint.l || 0,
-          close: lastPoint.c || 0,
-          volume: point.volume
-        }
-      }
-    }
-
-    // Fallback: use last point even if volume is 0 (for pre-market or after-hours).
-    return {
-      open: lastPoint.o || 0,
-      high: lastPoint.h || 0,
-      low: lastPoint.l || 0,
-      close: lastPoint.c || 0,
-      volume: 0
-    }
+// Must match the main price series actually drawn (ordinal filter, overlays unshifted, etc.).
+function ohlcFromCandlePoint(point) {
+  if (!point) return null
+  return {
+    open: point.o ?? point.open ?? 0,
+    high: point.h ?? point.high ?? 0,
+    low: point.l ?? point.low ?? 0,
+    close: point.c ?? point.close ?? 0,
+    volume: point.volume ?? point.v ?? 0
   }
-  else if (props.chartType === 'line' && props.lineChartData?.datasets?.[0]?.data) {
-    const lastPoint = props.lineChartData.datasets[0].data.slice(-1)[0]
-    if (lastPoint) {
-      const price = lastPoint.y || 0
-      return {
-        open: price,
-        high: price,
-        low: price,
-        close: price,
-        volume: 0 // Line charts don't have volume data.
-      }
+}
+
+const lastBarOHLC = computed(() => {
+  if (props.chartType === 'candlestick') {
+    const enhanced = enhancedCandlestickChartData.value
+    const mainDataset = enhanced?.datasets?.find(ds => !OVERLAY_LABELS.has(ds.label)) || enhanced?.datasets?.[0]
+    const dataPoints = mainDataset?.data
+    if (!dataPoints?.length) return null
+    return ohlcFromCandlePoint(dataPoints[dataPoints.length - 1])
+  }
+  if (props.chartType === 'line') {
+    const enhanced = enhancedLineChartData.value
+    const mainDataset = enhanced?.datasets?.find(ds => !OVERLAY_LABELS.has(ds.label)) || enhanced?.datasets?.[0]
+    const lastPoint = mainDataset?.data?.slice(-1)[0]
+    if (!lastPoint) return null
+    const price = lastPoint.y ?? 0
+    return {
+      open: price,
+      high: price,
+      low: price,
+      close: price,
+      volume: 0
     }
   }
   return null
 })
 
-const ohlcColorClass = computed(() => {
-  if (!currentOHLC.value) return ''
-  const { open, close } = currentOHLC.value
+const displayOHLC = computed(() => hoverOHLC.value ?? lastBarOHLC.value)
+
+const ohlcDisplayColorClass = computed(() => {
+  if (!displayOHLC.value) return ''
+  const { open, close } = displayOHLC.value
   // Green (success) if price is increasing or stable, red (error) if declining.
   return close >= open ? 'success' : 'error'
 })
+
+watch(
+  () => [props.chartType, props.symbol],
+  () => {
+    hoverOHLC.value = null
+  }
+)
 
 const currentRSI = computed(() => {
   const rsiData = indicators.rsiChartData.value?.datasets?.[0]?.data
@@ -1758,7 +1755,10 @@ const synchronizedLineChartOptions = computed(() => {
     : baseYAxisConfig
   return {
     ...baseSynchronizedOptions.value,
-    plugins: { ...baseSynchronizedOptions.value.plugins },
+    plugins: {
+      ...baseSynchronizedOptions.value.plugins,
+      tooltip: { enabled: false }
+    },
     scales: {
       ...baseSynchronizedOptions.value.scales,
       x: { ...baseSynchronizedOptions.value.scales.x, display: true },
@@ -1770,6 +1770,7 @@ const synchronizedLineChartOptions = computed(() => {
 const synchronizedCandlestickChartOptions = computed(() => {
   const plugins = {
     ...baseSynchronizedOptions.value.plugins,
+    tooltip: { enabled: false },
     volumeBand: { height: VOLUME_BAND_HEIGHT } // Reserve space for volume band.
   }
   const yConfig = manualYRange.value.min !== null
@@ -1917,12 +1918,6 @@ defineExpose({
     }
   }
 
-  .ohlcv {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-  }
-
   .chart-controls {
     flex-wrap: wrap;
     gap: 1rem;
@@ -2016,6 +2011,23 @@ defineExpose({
     .charts {
       position: relative;
       height: 400px;
+    }
+
+    .price-chart__ohlcv {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      z-index: 1;
+      top: 0.4rem;
+      left: 3.3rem;
+      pointer-events: none;
+      padding: 0.12rem 0.3rem 0.14rem;
+      border-radius: 4px;
+      flex-wrap: wrap;
+      row-gap: 2px;
+      box-shadow: 0 1px 2px rgba(#000, 0.06);
+      backdrop-filter: blur(4px);
     }
 
     .price-chart__reset-button {

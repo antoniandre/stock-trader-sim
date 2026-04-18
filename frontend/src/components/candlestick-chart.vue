@@ -17,7 +17,53 @@ const props = defineProps({
   ordinalLookup: { type: Array, default: () => [] }
 })
 
+const emit = defineEmits(['hover-ohlc'])
+
 const $waveui = inject('$waveui')
+
+// Datasets that are not the main OHLC series (ordinal-mapped overlays).
+const OVERLAY_DATASET_LABELS = new Set(['Volume', 'VWAP', 'EMA 20', 'EMA 50', 'EMA 200'])
+
+function candlePointAtOrdinalIndex(chart, idx) {
+  for (const ds of chart.data.datasets || []) {
+    if (OVERLAY_DATASET_LABELS.has(ds.label)) continue
+    const p = ds.data?.find(point => Math.round(point.x) === idx)
+    if (p && (p.o != null || p.c != null || p.h != null || p.open != null)) return p
+  }
+  return null
+}
+
+function emitHoverOhlcForCrosshair(chart) {
+  if (!chart.crosshair?.draw) {
+    emit('hover-ohlc', null)
+    return
+  }
+  const xPix = chart.crosshair.x
+  const rawX = chart.scales.x?.getValueForPixel(xPix)
+  if (rawX == null || Number.isNaN(rawX)) {
+    emit('hover-ohlc', null)
+    return
+  }
+  const idx = Math.round(rawX)
+  if (props.ordinalLookup.length) {
+    if (idx < 0 || idx >= props.ordinalLookup.length || !props.ordinalLookup[idx]) {
+      emit('hover-ohlc', null)
+      return
+    }
+  }
+  const point = candlePointAtOrdinalIndex(chart, idx)
+  if (!point) {
+    emit('hover-ohlc', null)
+    return
+  }
+  emit('hover-ohlc', {
+    open: point.o ?? point.open ?? 0,
+    high: point.h ?? point.high ?? 0,
+    low: point.l ?? point.low ?? 0,
+    close: point.c ?? point.close ?? 0,
+    volume: point.volume ?? point.v ?? 0
+  })
+}
 
 // Register chart components.
 Chart.register(CandlestickController, CandlestickElement, zoomPlugin)
@@ -53,7 +99,10 @@ const crosshairPlugin = {
     chart.crosshair.x = x
     chart.crosshair.y = y
 
-    if (type === 'mousemove' && inChartArea) chart.draw()
+    emitHoverOhlcForCrosshair(chart)
+
+    // Redraw on every move so crosshair clears when leaving the plot.
+    if (type === 'mousemove') chart.draw()
   },
   afterDraw(chart) {
     if (!chart.crosshair.draw) return
@@ -164,6 +213,7 @@ const crosshairPlugin = {
 
 const chartCanvas = ref(null)
 let chartInstance = null
+let canvasPointerLeave = null
 
 // Chart Configuration
 // --------------------------------------------------------
@@ -196,6 +246,13 @@ function createChart() {
     options: mergedOptions,
     plugins: [volumeBandPlugin, crosshairPlugin, ...props.plugins]
   })
+
+  canvasPointerLeave = () => {
+    emit('hover-ohlc', null)
+    if (chartInstance?.crosshair) chartInstance.crosshair.draw = false
+    chartInstance?.draw()
+  }
+  chartInstance.canvas.addEventListener('pointerleave', canvasPointerLeave)
 }
 
 function updateChart() {
@@ -223,6 +280,10 @@ function validateChartData(data) {
 
 function destroyChart() {
   if (chartInstance) {
+    if (canvasPointerLeave) {
+      chartInstance.canvas.removeEventListener('pointerleave', canvasPointerLeave)
+      canvasPointerLeave = null
+    }
     chartInstance.destroy()
     chartInstance = null
   }
