@@ -51,7 +51,8 @@
           width="26"
           height="26"
           @click="resetView"
-          tooltip="Reset Zoom"
+          :disabled="isRecenterDisabled"
+          :tooltip="isRecenterDisabled ? 'Already centered on latest data' : 'Reset zoom (snap to latest)'"
           :tooltip-props="{ sm: true }"
           outline
           round)
@@ -156,6 +157,16 @@
         :options="synchronizedCandlestickChartOptions"
         :plugins="entryPricePlugins"
         :ordinal-lookup="ordinalLookup")
+
+      w-transition-fade(appear)
+        w-button.price-chart__reset-button(
+          v-if="!isRecenterDisabled"
+          @click.stop="resetView"
+          tooltip="Reset chart view"
+          :tooltip-props="{ sm: true }"
+          text
+          round)
+          icon(icon="mdi:restore")
 
     //- Drawing Tools Overlay
     DrawingTools(:chart-container="chartContainer")
@@ -434,95 +445,12 @@ const calculateOptimalYRange = (visibleData) => {
 const focusOnRecentData = () => {
   if (hasInitialized.value || props.isLoadingHistoricalData) return
 
-  if (!ordinalLookup.value.length) return
-
-  // Use ordinal-mapped enhanced data so x values are indices, not timestamps.
-  const enhanced = props.chartType === 'line' ? enhancedLineChartData.value : enhancedCandlestickChartData.value
-  const mainDataset = enhanced?.datasets?.find(ds => !OVERLAY_LABELS.has(ds.label)) || enhanced?.datasets?.[0]
-  const chartData = mainDataset?.data
-
-  if (!chartData?.length || chartData.length < 10) return
+  const bounds = computeRecentDataFocusBounds()
+  if (!bounds) return
 
   calculateZoomLimits()
 
-  const totalPoints = chartData.length
-  let focusData
-
-  if (props.selectedPeriod === '1D') {
-    const now = new Date()
-    const easternTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
-    const y = easternTime.getFullYear(), m = easternTime.getMonth(), d = easternTime.getDate()
-    const sessionStartUTC = new Date(y, m, d, 9, 30, 0, 0).getTime()
-    const sessionEndUTC = new Date(y, m, d, 16, 0, 0, 0).getTime()
-
-    // Translate ordinal indices back to timestamps for session boundary comparison.
-    const todaysTradingData = chartData.filter(point => {
-      const ts = ordinalLookup.value[point.x]
-      return ts >= sessionStartUTC && ts <= sessionEndUTC
-    })
-
-    if (todaysTradingData.length > 5) {
-      focusData = todaysTradingData
-    }
-    else {
-      // Fallback: find most recent trading day's session.
-      const recentData = chartData.slice(-Math.max(100, Math.floor(totalPoints * 0.2)))
-      const lastTs = ordinalLookup.value[recentData[recentData.length - 1]?.x]
-      if (lastTs) {
-        const et = new Date(new Date(lastTs).toLocaleString('en-US', { timeZone: 'America/New_York' }))
-        const ly = et.getFullYear(), lm = et.getMonth(), ld = et.getDate()
-        const lStart = new Date(ly, lm, ld, 9, 30, 0, 0).getTime()
-        const lEnd = new Date(ly, lm, ld, 16, 0, 0, 0).getTime()
-        const sessionData = chartData.filter(p => {
-          const ts = ordinalLookup.value[p.x]
-          return ts >= lStart && ts <= lEnd
-        })
-        focusData = sessionData.length > 5 ? sessionData : recentData
-      }
-      else focusData = chartData.slice(-100)
-    }
-  }
-  else {
-    const focusPoints = calculateSmartFocusPoints(totalPoints)
-    focusData = chartData.slice(Math.max(0, totalPoints - focusPoints))
-  }
-
-  if (!focusData?.length) return
-
-  const startIdx = focusData[0].x
-  const endIdx = focusData[focusData.length - 1].x
-  const span = endIdx - startIdx
-  const pad = Math.max(1, Math.ceil(span * 0.05))
-  const { min: focusMin, max: focusMax } = validateZoomRange(startIdx - pad, endIdx + pad)
-
-  let minPrice = Infinity, maxPrice = -Infinity
-  focusData.forEach(point => {
-    if (point.y !== undefined) {
-      if (point.y < minPrice) minPrice = point.y
-      if (point.y > maxPrice) maxPrice = point.y
-    }
-    else {
-      const high = point.h || point.high
-      const low = point.l || point.low
-      if (low < minPrice) minPrice = low
-      if (high > maxPrice) maxPrice = high
-    }
-  })
-
-  if (props.entryPrice > 0) {
-    if (props.entryPrice < minPrice) minPrice = props.entryPrice
-    if (props.entryPrice > maxPrice) maxPrice = props.entryPrice
-  }
-
-  const priceRange = maxPrice - minPrice
-  const volatilityRatio = priceRange / ((minPrice + maxPrice) / 2)
-  let pricePaddingRatio = 0.02
-  if (volatilityRatio < 0.02) pricePaddingRatio = 0.05
-  else if (volatilityRatio < 0.1) pricePaddingRatio = 0.03
-  const pricePadding = priceRange * pricePaddingRatio
-  const yMin = minPrice - pricePadding
-  const yMax = maxPrice + pricePadding
-
+  const { focusMin, focusMax, yMin, yMax } = bounds
   zoomRange.value = { min: focusMin, max: focusMax }
   hasInitialized.value = true
   manualYRange.value = { min: yMin, max: yMax }
@@ -954,6 +882,95 @@ const enhancedCandlestickChartData = computed(() => {
   return applyOrdinalMapping({ ...props.candlestickChartData, datasets })
 })
 
+/** X/Y bounds for the initial "snap to latest" view (same math as focusOnRecentData). Pure — no ref writes. */
+function computeRecentDataFocusBounds() {
+  if (!ordinalLookup.value.length) return null
+
+  const enhanced = props.chartType === 'line' ? enhancedLineChartData.value : enhancedCandlestickChartData.value
+  const mainDataset = enhanced?.datasets?.find(ds => !OVERLAY_LABELS.has(ds.label)) || enhanced?.datasets?.[0]
+  const chartData = mainDataset?.data
+
+  if (!chartData?.length || chartData.length < 10) return null
+
+  const totalPoints = chartData.length
+  let focusData
+
+  if (props.selectedPeriod === '1D') {
+    const now = new Date()
+    const easternTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+    const y = easternTime.getFullYear(), m = easternTime.getMonth(), d = easternTime.getDate()
+    const sessionStartUTC = new Date(y, m, d, 9, 30, 0, 0).getTime()
+    const sessionEndUTC = new Date(y, m, d, 16, 0, 0, 0).getTime()
+
+    const todaysTradingData = chartData.filter(point => {
+      const ts = ordinalLookup.value[point.x]
+      return ts >= sessionStartUTC && ts <= sessionEndUTC
+    })
+
+    if (todaysTradingData.length > 5) {
+      focusData = todaysTradingData
+    }
+    else {
+      const recentData = chartData.slice(-Math.max(100, Math.floor(totalPoints * 0.2)))
+      const lastTs = ordinalLookup.value[recentData[recentData.length - 1]?.x]
+      if (lastTs) {
+        const et = new Date(new Date(lastTs).toLocaleString('en-US', { timeZone: 'America/New_York' }))
+        const ly = et.getFullYear(), lm = et.getMonth(), ld = et.getDate()
+        const lStart = new Date(ly, lm, ld, 9, 30, 0, 0).getTime()
+        const lEnd = new Date(ly, lm, ld, 16, 0, 0, 0).getTime()
+        const sessionData = chartData.filter(p => {
+          const ts = ordinalLookup.value[p.x]
+          return ts >= lStart && ts <= lEnd
+        })
+        focusData = sessionData.length > 5 ? sessionData : recentData
+      }
+      else focusData = chartData.slice(-100)
+    }
+  }
+  else {
+    const focusPoints = calculateSmartFocusPoints(totalPoints)
+    focusData = chartData.slice(Math.max(0, totalPoints - focusPoints))
+  }
+
+  if (!focusData?.length) return null
+
+  const startIdx = focusData[0].x
+  const endIdx = focusData[focusData.length - 1].x
+  const span = endIdx - startIdx
+  const pad = Math.max(1, Math.ceil(span * 0.05))
+  const { min: focusMin, max: focusMax } = validateZoomRange(startIdx - pad, endIdx + pad)
+
+  let minPrice = Infinity, maxPrice = -Infinity
+  focusData.forEach(point => {
+    if (point.y !== undefined) {
+      if (point.y < minPrice) minPrice = point.y
+      if (point.y > maxPrice) maxPrice = point.y
+    }
+    else {
+      const high = point.h || point.high
+      const low = point.l || point.low
+      if (low < minPrice) minPrice = low
+      if (high > maxPrice) maxPrice = high
+    }
+  })
+
+  if (props.entryPrice > 0) {
+    if (props.entryPrice < minPrice) minPrice = props.entryPrice
+    if (props.entryPrice > maxPrice) maxPrice = props.entryPrice
+  }
+
+  const priceRange = maxPrice - minPrice
+  const volatilityRatio = priceRange / ((minPrice + maxPrice) / 2)
+  let pricePaddingRatio = 0.02
+  if (volatilityRatio < 0.02) pricePaddingRatio = 0.05
+  else if (volatilityRatio < 0.1) pricePaddingRatio = 0.03
+  const pricePadding = priceRange * pricePaddingRatio
+  const yMin = minPrice - pricePadding
+  const yMax = maxPrice + pricePadding
+
+  return { focusMin, focusMax, yMin, yMax }
+}
+
 // Simple RSI calculation function.
 function calculateSimpleRSI(prices, period = 14) {
   if (!prices || prices.length < period) return []
@@ -1368,6 +1385,18 @@ function handlePanComplete(context) {
 const yAxisManuallySet = ref(false)
 const manualYRange = ref({ min: null, max: null }) // Reactive Y range — survives vue-chartjs option re-renders.
 const yAxisDrag = { isDragging: false, chart: null, startY: 0, startMin: 0, startMax: 0 }
+
+const isRecenterDisabled = computed(() => {
+  if (props.isLoadingHistoricalData) return true
+  const bounds = computeRecentDataFocusBounds()
+  if (!bounds) return true
+  const { focusMin, focusMax } = bounds
+  const zr = zoomRange.value
+  if (zr.min == null || zr.max == null) return false
+  const eps = 0.15
+  const xMatch = Math.abs(zr.min - focusMin) < eps && Math.abs(zr.max - focusMax) < eps
+  return xMatch && !yAxisManuallySet.value
+})
 
 function startYAxisDrag(e) {
   // Get chart from the event target (the canvas that was clicked).
@@ -1909,6 +1938,26 @@ defineExpose({
     .charts {
       position: relative;
       height: 400px;
+    }
+
+    .price-chart__reset-pill {
+      position: absolute;
+      z-index: 12;
+      left: 50%;
+      bottom: 0.9rem;
+      transform: translateX(-50%);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.2rem 0.45rem 0.22rem;
+      font-size: 0.65rem;
+      color: var(--w-base-color);
+      background: color-mix(in srgb, var(--w-base-bg-color) 8%, transparent);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+
+      &:active {transform: translateX(-50%) scale(0.98);}
     }
 
     .chart {
