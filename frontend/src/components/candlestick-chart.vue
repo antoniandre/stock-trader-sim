@@ -64,6 +64,16 @@ const crosshairPlugin = {
 
     if (!chartArea || x < chartArea.left || x > chartArea.right) return
 
+    const rawX = scales.x ? scales.x.getValueForPixel(x) : null
+    // Ordinal charts (parent passes ordinalLookup) can pan/zoom into empty padding — no bar there.
+    const hasBarAtCrosshairX = (() => {
+      if (rawX == null || Number.isNaN(rawX)) return false
+      if (!props.ordinalLookup.length) return true
+      const idx = Math.round(rawX)
+      if (idx < 0 || idx >= props.ordinalLookup.length) return false
+      return Boolean(props.ordinalLookup[idx])
+    })()
+
     ctx.save()
 
     // Draw vertical line.
@@ -101,9 +111,8 @@ const crosshairPlugin = {
 
     // Draw X-axis label (only on main chart).
     if (scales.x) {
-      const rawX = scales.x.getValueForPixel(x)
       const timeLabel = (() => {
-        if (rawX == null) return null
+        if (rawX == null || Number.isNaN(rawX)) return null
         if (props.ordinalLookup.length) {
           const ts = props.ordinalLookup[Math.round(rawX)]
           if (!ts) return null
@@ -131,10 +140,10 @@ const crosshairPlugin = {
       }
     }
 
-    // Draw Y-axis label if within chart Y area.
-    if (isWithinChartY && scales.y) {
+    // Draw Y-axis label only when the cursor X is over a real bar (not empty chart padding).
+    if (isWithinChartY && scales.y && hasBarAtCrosshairX) {
       const yValue = scales.y.getValueForPixel(y)
-      if (yValue) {
+      if (yValue != null && Number.isFinite(yValue)) {
         const priceLabel = `$${yValue.toFixed(2)}`
 
         ctx.font = '10px Quicksand, sans-serif'

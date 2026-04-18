@@ -212,6 +212,7 @@
 import { ref, computed, inject, watch, nextTick, onBeforeUnmount, markRaw } from 'vue'
 import { Line } from 'vue-chartjs'
 import { Chart, BarController, BarElement } from 'chart.js'
+import { getRelativePosition } from 'chart.js/helpers'
 import 'chart.js/auto'
 import 'chartjs-chart-financial'
 import 'chartjs-adapter-luxon'
@@ -276,6 +277,8 @@ const buttonsColors = computed(() => {
 // Register Chart.js plugins and components.
 // Plugin to reserve a fixed-height band at the bottom for the volume scale, sharing the same X scale.
 const VOLUME_BAND_HEIGHT = 115 // Pixels.
+// Same object reference required for removeEventListener capture matching.
+const Y_AXIS_POINTER_CAPTURE = { capture: true }
 
 // RSI background plugin - register globally but only apply to RSI charts
 const rsiBackgroundPlugin = {
@@ -1255,6 +1258,29 @@ function calculateZoomLimits() {
   }
 }
 
+// Keep the X viewport overlapping real series indices [0, n - 1] (no panning into empty space).
+function clampXViewToSeries(min, max, n) {
+  if (n == null || n < 1) return { min, max }
+  const range = max - min
+  if (range <= 0) return { min, max }
+
+  let a = min
+  let b = max
+
+  if (b < 0) {
+    const shift = -b
+    a += shift
+    b += shift
+  }
+  if (a > n - 1) {
+    const shift = a - (n - 1)
+    a -= shift
+    b -= shift
+  }
+
+  return { min: a, max: b }
+}
+
 // Smart zoom validation - prevent over-zooming or losing data.
 function validateZoomRange(min, max) {
   const n = ordinalLookup.value.length
@@ -1269,12 +1295,27 @@ function validateZoomRange(min, max) {
     max = center + 1
   }
 
-  // Prevent panning far beyond data (200% padding on each side).
-  const padding = n
-  if (max < -padding) { const shift = -padding - max; min += shift; max = -padding }
-  if (min > n + padding) { const shift = min - (n + padding); max -= shift; min = n + padding }
+  const clamped = clampXViewToSeries(min, max, n)
+  return clamped
+}
 
-  return { min, max }
+// While panning, enforce the same X rails (plugin may otherwise leave the scale unchanged when blocked).
+function handlePanClamp(context) {
+  const chart = context.chart
+  if (!chart?.scales?.x) return
+
+  const n = ordinalLookup.value.length
+  if (!n) return
+
+  const xs = chart.scales.x
+  const min = xs.min
+  const max = xs.max
+  const { min: cmin, max: cmax } = clampXViewToSeries(min, max, n)
+  if (cmin === min && cmax === max) return
+
+  xs.options.min = cmin
+  xs.options.max = cmax
+  chart.update('none')
 }
 
 // Replace multiple reset functions with a single resetView.
@@ -1384,7 +1425,7 @@ function handlePanComplete(context) {
 // Y-axis drag zoom.
 const yAxisManuallySet = ref(false)
 const manualYRange = ref({ min: null, max: null }) // Reactive Y range — survives vue-chartjs option re-renders.
-const yAxisDrag = { isDragging: false, chart: null, startY: 0, startMin: 0, startMax: 0 }
+const yAxisDrag = { isDragging: false, chart: null, startY: 0, startMin: 0, startMax: 0, pointerId: null }
 
 const isRecenterDisabled = computed(() => {
   if (props.isLoadingHistoricalData) return true
@@ -1398,53 +1439,82 @@ const isRecenterDisabled = computed(() => {
   return xMatch && !yAxisManuallySet.value
 })
 
+function chartFromCanvas(canvas) {
+  let chart = Chart.getChart(canvas)
+  if (!chart) {
+    const fromRef = getActiveChart()
+    if (fromRef?.canvas === canvas) chart = fromRef
+  }
+  return chart
+}
+
+// Price Y-axis strip: right of plot (ticks/labels), same coords as Chart.js layout (getRelativePosition).
+function isPointerOnPriceYAxisStrip(chart, event) {
+  const ca = chart?.chartArea
+  if (!ca || chart.scales?.y == null || chart.width == null) return false
+  const { x, y } = getRelativePosition(event, chart)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false
+  if (x < ca.right || x > chart.width) return false
+  if (y < ca.top || y > ca.bottom) return false
+  return true
+}
+
+function onYAxisStripPointerMoveHover(e) {
+  if (yAxisDrag.isDragging) return
+  const canvas = e.currentTarget
+  const chart = chartFromCanvas(canvas)
+  if (!chart) return
+  canvas.style.cursor = isPointerOnPriceYAxisStrip(chart, e) ? 'ns-resize' : ''
+}
+
+function onYAxisStripPointerLeave(e) {
+  if (!yAxisDrag.isDragging) e.currentTarget.style.cursor = ''
+}
+
+function onWindowYAxisPointerMove(e) {
+  updateYAxisZoom(e)
+}
+
+function onWindowYAxisPointerEnd() {
+  endYAxisDrag()
+}
+
+// pointerdown (capture) runs before chartjs-plugin-zoom / Hammer so we can own vertical scale drags.
 function startYAxisDrag(e) {
-  // Get chart from the event target (the canvas that was clicked).
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+
   const canvas = e.currentTarget || e.target
   if (!canvas) return
 
-  // Get chart instance from canvas - Chart.js stores it on the canvas.
-  let chart = Chart.getChart(canvas)
-  if (!chart) {
-    // Fallback: try to find chart from refs.
-    const chartFromRefs = getActiveChart()
-    if (!chartFromRefs || chartFromRefs.canvas !== canvas) return
-    chart = chartFromRefs
-  }
+  const chart = chartFromCanvas(canvas)
+  if (!chart) return
 
-  // Verify it's not an indicator chart.
   const isRSIChart = chart === rsiChartRef.value?.chart
   const isMACDChart = chart === macdChartRef.value?.chart
   if (isRSIChart || isMACDChart) return
 
-  if (!chart?.chartArea || !chart?.scales?.y) {
-    console.log('Y-axis drag start: Chart not ready', { chart: !!chart, chartArea: !!chart?.chartArea, scales: !!chart?.scales?.y })
-    return
-  }
+  if (!chart.chartArea || !chart.scales?.y) return
+  if (!isPointerOnPriceYAxisStrip(chart, e)) return
 
-  const rect = chart.canvas.getBoundingClientRect()
-  const scaleX = chart.canvas.width / rect.width
-  const x = ((e.clientX ?? e.touches?.[0]?.clientX) - rect.left) * scaleX
-  console.log('Y-axis drag: Click detected', { x, chartAreaRight: chart.chartArea.right, threshold: chart.chartArea.right - 30 })
-
-  if (x < chart.chartArea.right - 30) return
-
-  const y = e.clientY ?? e.touches?.[0]?.clientY
-  if (!y) return
-
-  console.log('Y-axis drag: Starting drag')
   yAxisDrag.isDragging = true
   yAxisDrag.chart = markRaw(chart)
-  yAxisDrag.startY = y
+  yAxisDrag.pointerId = e.pointerId
+  yAxisDrag.startY = e.clientY
   yAxisDrag.startMin = chart.scales.y.min
   yAxisDrag.startMax = chart.scales.y.max
 
-  window.addEventListener('mousemove', updateYAxisZoom, { passive: false })
-  window.addEventListener('mouseup', endYAxisDrag)
-  window.addEventListener('touchmove', updateYAxisZoom, { passive: false })
-  window.addEventListener('touchend', endYAxisDrag)
+  try {
+    if (typeof canvas.setPointerCapture === 'function') canvas.setPointerCapture(e.pointerId)
+  }
+  catch {
+    // setPointerCapture can throw if not eligible; drag still works without it.
+  }
 
-  chart.canvas.style.cursor = 'ns-resize'
+  window.addEventListener('pointermove', onWindowYAxisPointerMove, { passive: false })
+  window.addEventListener('pointerup', onWindowYAxisPointerEnd)
+  window.addEventListener('pointercancel', onWindowYAxisPointerEnd)
+
+  canvas.style.cursor = 'ns-resize'
   e.preventDefault()
   e.stopPropagation()
   e.stopImmediatePropagation()
@@ -1487,13 +1557,21 @@ function updateYAxisZoom(e) {
 }
 
 function endYAxisDrag() {
+  const canvas = yAxisDrag.chart?.canvas
+  const pid = yAxisDrag.pointerId
   if (yAxisDrag.isDragging) yAxisManuallySet.value = true
-  if (yAxisDrag.chart?.canvas) yAxisDrag.chart.canvas.style.cursor = 'default'
-  window.removeEventListener('mousemove', updateYAxisZoom)
-  window.removeEventListener('mouseup', endYAxisDrag)
-  window.removeEventListener('touchmove', updateYAxisZoom)
-  window.removeEventListener('touchend', endYAxisDrag)
-  Object.assign(yAxisDrag, { isDragging: false, chart: null, startY: 0, startMin: 0, startMax: 0 })
+  if (canvas && pid != null && typeof canvas.releasePointerCapture === 'function') {
+    try {
+      if (canvas.hasPointerCapture(pid)) canvas.releasePointerCapture(pid)
+    } catch {
+      // ignore
+    }
+  }
+  if (canvas) canvas.style.cursor = ''
+  window.removeEventListener('pointermove', onWindowYAxisPointerMove)
+  window.removeEventListener('pointerup', onWindowYAxisPointerEnd)
+  window.removeEventListener('pointercancel', onWindowYAxisPointerEnd)
+  Object.assign(yAxisDrag, { isDragging: false, chart: null, startY: 0, startMin: 0, startMax: 0, pointerId: null })
 }
 
 // Attach listeners when chart is ready.
@@ -1512,14 +1590,13 @@ function attachYAxisListeners() {
   charts.forEach(chart => {
     if (!chart?.canvas) return
 
-    // Remove existing listeners first
-    chart.canvas.removeEventListener('mousedown', startYAxisDrag, { capture: true })
-    chart.canvas.removeEventListener('touchstart', startYAxisDrag, { capture: true })
+    chart.canvas.removeEventListener('pointerdown', startYAxisDrag, Y_AXIS_POINTER_CAPTURE)
+    chart.canvas.removeEventListener('pointermove', onYAxisStripPointerMoveHover)
+    chart.canvas.removeEventListener('pointerleave', onYAxisStripPointerLeave)
 
-    // Add new listeners with capture phase to intercept before zoom plugin
-    chart.canvas.addEventListener('mousedown', startYAxisDrag, { capture: true })
-    chart.canvas.addEventListener('touchstart', startYAxisDrag, { capture: true, passive: false })
-    console.log('Y-axis drag: Listeners attached to chart canvas', chart.canvas)
+    chart.canvas.addEventListener('pointerdown', startYAxisDrag, Y_AXIS_POINTER_CAPTURE)
+    chart.canvas.addEventListener('pointermove', onYAxisStripPointerMoveHover, { passive: true })
+    chart.canvas.addEventListener('pointerleave', onYAxisStripPointerLeave)
   })
 }
 
@@ -1601,6 +1678,7 @@ const baseSynchronizedOptions = computed(() => ({
         enabled: true,
         mode: 'x',
         threshold: 5, // Lower threshold for more responsive panning (was 10).
+        onPan: handlePanClamp,
         onPanComplete: handlePanComplete
       },
       limits: {
@@ -1940,7 +2018,7 @@ defineExpose({
       height: 400px;
     }
 
-    .price-chart__reset-pill {
+    .price-chart__reset-button {
       position: absolute;
       z-index: 12;
       left: 50%;
