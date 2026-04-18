@@ -552,6 +552,7 @@ onUnmounted(() => {
             background: rgba(59, 130, 246, 0.8);
             border-color: rgba(59, 130, 246, 1);
             box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+            color: #fff;
           }
         }
       }

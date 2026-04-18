@@ -90,7 +90,7 @@ html div.w-app .primary--bg {color: white;}
 }
 
 .glass-box {
-  border: 1px solid color-mix(in srgb, var(--w-contrast-bg-color) 8%, var(--w-base-bg-color));
+  border: 0.5px solid color-mix(in srgb, var(--w-contrast-bg-color) 12%, var(--w-base-bg-color));
   background: var(--w-glass-bg-color) radial-gradient(20rem circle at 90% 10%, var(--w-glass-radial-gradient), #ffffff00);
   box-shadow: 0 0 12px color-mix(in srgb, var(--w-base-bg-color) 100%, transparent);
   border-radius: 12px;
