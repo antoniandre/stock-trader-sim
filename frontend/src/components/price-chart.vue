@@ -149,14 +149,14 @@
         @hover-ohlc="onHoverOhlc")
 
       w-transition-fade(appear)
-        w-button.price-chart__reset-button(
-          v-if="!isRecenterDisabled"
-          @click.stop="resetView"
-          tooltip="Reset chart view"
-          :tooltip-props="{ sm: true }"
-          text
-          round)
-          icon(icon="mdi:restore")
+        div(v-if="!isRecenterDisabled")
+          w-button.price-chart__reset-button(
+            @click.stop="resetView"
+            tooltip="Reset chart view"
+            :tooltip-props="{ sm: true }"
+            text
+            round)
+            icon(icon="mdi:restore")
 
     //- Drawing Tools Overlay
     DrawingTools(:chart-container="chartContainer")

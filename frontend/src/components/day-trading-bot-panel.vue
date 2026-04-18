@@ -26,7 +26,7 @@
       round
       outline)
 
-  .bot-panel__autonomous.bsrsr
+  .bot-panel__autonomous
     AutonomousTradingToggle(
       :disabled="autonomousToggleDisabled"
       @update:autonomous="emit('update:autonomous', $event)")
@@ -607,9 +607,10 @@ watch(
     gap: 8px;
   }
 
-  &__autonomous.bsrsr {
+  &__autonomous {
     width: 100%;
     padding-block: 4px;
+    border-radius: 1.5em;
   }
 
   &__analysis {
