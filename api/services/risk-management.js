@@ -1,6 +1,6 @@
 /**
  * Risk Management Framework
- * 
+ *
  * Handles position sizing, P/L ratio logic, stop-loss/profit-target exits,
  * and daily risk limits for trading operations.
  */
@@ -247,4 +247,36 @@ export function clearTradeState() {
   tradeState.activeTrades.clear()
   tradeState.dailyLosses = 0
   tradeState.lastResetDate = new Date().toDateString()
+}
+
+/**
+ * Seed dailyLosses from today's Alpaca equity delta after a cold restart.
+ *
+ * Uses `equity - last_equity` from the cached account object.  `last_equity`
+ * is the equity at the end of the previous trading day, so the delta captures
+ * all intraday P&L (realized + unrealized).  If it's negative we treat the
+ * absolute value as the conservative daily-loss baseline; if positive (net
+ * gain day so far) nothing changes.
+ *
+ * Call this once on startup, after `getAlpacaAccount()` has populated
+ * `state.alpacaAccount`.
+ */
+export function seedDailyLossesFromAlpaca() {
+  const account = state.alpacaAccount
+  if (!account) return
+
+  const equity     = Number(account.equity)
+  const lastEquity = Number(account.last_equity)
+  if (!Number.isFinite(equity) || !Number.isFinite(lastEquity) || lastEquity <= 0) return
+
+  const todayPnL = equity - lastEquity
+  if (todayPnL < 0) {
+    const newLosses = Math.abs(todayPnL)
+    // Don't overwrite a higher in-process value (e.g. restart mid-session with trades already recorded).
+    if (newLosses > tradeState.dailyLosses) {
+      tradeState.dailyLosses = newLosses
+      logger.info({ dailyLosses: newLosses, todayPnL }, 'Seeded dailyLosses from Alpaca equity delta after restart')
+      console.log(`📊 Daily-loss seed: $${newLosses.toFixed(2)} (today Δequity: $${todayPnL.toFixed(2)})`)
+    }
+  }
 }
