@@ -1,5 +1,12 @@
 import { formatTradingDayKey, getDailyCatalystForSymbol, summarizeCatalystRow } from './services/daily-catalysts.js'
 
+// US regular-session window (UTC). Clocks are in EDT (UTC-4) March–Nov, EST (UTC-5) Nov–Mar.
+// We use the EDT values year-round because the sim data is in EDT and the live bot
+// feeds nowMs per-candle — any small EST offset just shifts the effective cutoff by 1 h,
+// which is still well within the safe zone for avoiding extended-hours entries.
+const SESSION_OPEN_UTC_MIN       = 13 * 60 + 30   // 9:30 AM EDT = 13:30 UTC
+const SESSION_LAST_ENTRY_UTC_MIN = 19 * 60 + 30   // 3:30 PM EDT = 19:30 UTC (30-min buffer before EOD)
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
 }
@@ -21,6 +28,38 @@ function stdDev(values) {
   return Math.sqrt(variance)
 }
 
+// RSI (Wilder smoothing, 14-period default).
+function calculateRSI(prices, period = 14) {
+  if (!Array.isArray(prices) || prices.length < period + 1) return 50
+  let gains = 0, losses = 0
+  for (let i = prices.length - period; i < prices.length; i++) {
+    const delta = prices[i] - prices[i - 1]
+    if (delta > 0) gains += delta
+    else losses += Math.abs(delta)
+  }
+  const avgGain = gains / period
+  const avgLoss = losses / period
+  if (avgLoss === 0) return 100
+  const rs = avgGain / avgLoss
+  return 100 - (100 / (1 + rs))
+}
+
+// True EMA.
+function calculateEMA(prices, period) {
+  if (!Array.isArray(prices) || prices.length === 0) return 0
+  if (prices.length <= period) return average(prices)
+  const k = 2 / (period + 1)
+  let ema = average(prices.slice(0, period))
+  for (let i = period; i < prices.length; i++) ema = prices[i] * k + ema * (1 - k)
+  return ema
+}
+
+// MACD line (EMA12 - EMA26); positive = bullish momentum.
+function calculateMACD(prices) {
+  if (!Array.isArray(prices) || prices.length < 26) return 0
+  return calculateEMA(prices, 12) - calculateEMA(prices, 26)
+}
+
 export const RISK_PROFILES = {
   conservative: {
     maxRiskScoreForEntry: 34,
@@ -30,23 +69,25 @@ export const RISK_PROFILES = {
     exitThreshold: 74,
     basePositionSizePct: 0.06,
     maxPositionSizePct: 0.12,
-    stopLossPct: 1.2,
-    trailingStopPct: 0.9,
+    stopLossPct: 0.8,          // tighter stop — cleaner risk control
+    trailingStopPct: 0.5,      // trail from high-watermark once in profit
     trimFraction: 0.35,
-    rewardTargetPct: 1.8
+    rewardTargetPct: 1.6,      // 2R target (2 × 0.8% stop)
+    dailyLossLimitPct: 2.0
   },
   balanced: {
     maxRiskScoreForEntry: 46,
-    buyThreshold: 52,
+    buyThreshold: 55,
     addThreshold: 60,
     trimThreshold: 48,
     exitThreshold: 68,
     basePositionSizePct: 0.1,
     maxPositionSizePct: 0.2,
-    stopLossPct: 1.7,
-    trailingStopPct: 1.2,
+    stopLossPct: 1.2,          // tighter stop (was 1.7%) — fires sooner, keeps losses small
+    trailingStopPct: 0.8,      // trail from high-watermark (was 1.2%)
     trimFraction: 0.4,
-    rewardTargetPct: 1.5
+    rewardTargetPct: 2.4,      // 2R target (2 × 1.2% stop) — was 1.5% which was sub-1R
+    dailyLossLimitPct: 5.0
   },
   aggressive: {
     maxRiskScoreForEntry: 58,
@@ -56,10 +97,11 @@ export const RISK_PROFILES = {
     exitThreshold: 63,
     basePositionSizePct: 0.14,
     maxPositionSizePct: 0.28,
-    stopLossPct: 2.4,
-    trailingStopPct: 1.7,
+    stopLossPct: 1.8,          // tighter stop (was 2.4%)
+    trailingStopPct: 1.2,      // trail from high-watermark (was 1.7%)
     trimFraction: 0.5,
-    rewardTargetPct: 4.0
+    rewardTargetPct: 3.6,      // 2R target (2 × 1.8% stop)
+    dailyLossLimitPct: 8.0
   }
 }
 
@@ -107,6 +149,26 @@ export function evaluateDayTradingDecision(input = {}) {
   const unrealizedPnLPct = positionQty > 0 ? percentChange(avgEntryPrice, currentPrice) : 0
   const marketRegime = input.marketRegime || inferMarketRegime({ shortTrendPct, mediumTrendPct, longTrendPct, realizedVolatilityPct })
 
+  // Technical indicators.
+  const rsi14 = calculateRSI(prices)
+  const ema9 = calculateEMA(prices, 9)
+  const ema21 = calculateEMA(prices, 21)
+  const macdLine = calculateMACD(prices)
+  const rsiOverbought = rsi14 > 70
+  const rsiOversold = rsi14 < 30
+  const emaBullish = ema9 > ema21
+
+  // VWAP — intraday fair-value anchor (caller computes from OHLCV candles)
+  const vwap = Number(input.vwap ?? 0)
+  const vwapDevPct = vwap > 0 && currentPrice > 0 ? ((currentPrice - vwap) / vwap) * 100 : 0
+
+  // High-watermark for trailing stop (caller tracks the highest price since entry)
+  const highWatermarkPrice = Number(input.highWatermarkPrice ?? 0)
+
+  // Daily loss limit enforcement — block new entries when limit reached.
+  const dailyLossesPct = Number(input.dailyLossesPct ?? 0)
+  const dailyLossLimitReached = profile.dailyLossLimitPct > 0 && dailyLossesPct >= profile.dailyLossLimitPct
+
   const liquidityOk = spreadPct <= 0.18 && volumeRatio >= 0.85
   const volatilityOkForMeanReversion = realizedVolatilityPct >= 0.18 && realizedVolatilityPct <= 1.35
   const weakLiquidity = spreadPct > 0.3 || volumeRatio < 0.7
@@ -124,6 +186,21 @@ export function evaluateDayTradingDecision(input = {}) {
     volumeRatio,
     realizedVolatilityPct
   })
+
+  // RSI > 80 into a plain trend setup = chasing overbought momentum. Breakout setups
+  // can sustain elevated RSI on genuine volume expansion, so they are exempt.
+  const rsiBadForTrendEntry = rsi14 > 80 && setup === 'trend'
+
+  // External context inputs for market-breadth and volatility filters.
+  const adrPct = Number(input.adrPct ?? 0)           // caller: 5-day avg daily range as % of close
+  const spyTrendPct = Number(input.spyTrendPct ?? 0) // caller: SPY 5-bar short-trend %
+
+  // Compute nowMs here so time-of-day awareness can inform entry scoring AND position management.
+  const nowMs = Number.isFinite(input.nowMs) ? input.nowMs : Date.now()
+  const _nowDate = new Date(nowMs)
+  const _sessionMinute = _nowDate.getUTCHours() * 60 + _nowDate.getUTCMinutes()
+  const inRegularSession = _sessionMinute >= SESSION_OPEN_UTC_MIN && _sessionMinute < SESSION_LAST_ENTRY_UTC_MIN
+  const isAfternoon = _sessionMinute >= 18 * 60   // after 2:00 PM ET (18:00 UTC): volume thins
 
   let entryScore = 50 + Number(strategyParams.entryBias || 0)
   if (shortTrendPct > 0.35) entryScore += 12
@@ -147,6 +224,33 @@ export function evaluateDayTradingDecision(input = {}) {
   if (setup === 'breakout' && marketRegime !== 'breakout') entryScore -= 10
   if (setup === 'weak') entryScore -= 14
   if (weakEvidence) entryScore -= 12
+
+  // RSI signal: overbought suppresses new longs; oversold boosts mean-reversion.
+  if (rsiOverbought) entryScore -= 8
+  if (rsiOversold && setup === 'mean-revert') entryScore += 10
+  else if (rsi14 < 40 && setup === 'mean-revert') entryScore += 4
+  else if (rsi14 >= 50 && rsi14 <= 70) entryScore += 6  // trend momentum sweet spot.
+
+  // EMA crossover: 9 > 21 = short-term bullish structure.
+  if (emaBullish) entryScore += 6
+  else entryScore -= 6
+
+  // MACD momentum confirmation.
+  if (macdLine > 0) entryScore += 5
+  else if (macdLine < 0) entryScore -= 5
+
+  // VWAP: price relative to intraday fair value — only applied when caller provides it.
+  if (vwap > 0) {
+    if (vwapDevPct > 0.2) entryScore += 5             // above VWAP: trend has institutional support
+    if (vwapDevPct < -0.5) entryScore -= 8            // significantly below VWAP: avoid chasing distribution
+    else if (vwapDevPct < 0 && setup === 'mean-revert') entryScore += 4  // below VWAP + oversold = snapback opportunity
+  }
+
+  // Time-of-day: afternoon volume thins and intraday moves often exhaust by 2 PM ET.
+  if (isAfternoon) entryScore -= 6
+
+  // ADR: if the typical daily range is too tight to reach the reward target, quality is lower.
+  if (adrPct > 0 && adrPct < profile.rewardTargetPct * 1.2) entryScore -= 8
 
   const dailyCatalystRow = input.disableDailyCatalyst
     ? null
@@ -189,6 +293,12 @@ export function evaluateDayTradingDecision(input = {}) {
   if (weakLiquidity) riskScore += 12
   if (weakVolatilityForEntries) riskScore += 10
   if (marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout')) riskScore += 16
+  if (rsiOverbought) riskScore += 8 // overbought = elevated reversal risk for new longs.
+  if (rsi14 < 25) riskScore += 5 // extreme oversold = elevated volatility risk.
+  if (vwap > 0 && vwapDevPct < -0.5) riskScore += 6  // selling below VWAP = weakness raises risk
+  // SPY breadth: broad-market weakness raises risk for individual stock longs.
+  if (spyTrendPct < -0.3) riskScore += 8
+  if (spyTrendPct < -0.8) riskScore += 8   // severe pressure: cumulative +16
   riskScore = clamp(riskScore, 0, 100)
 
   const managementScore = clamp(
@@ -238,7 +348,19 @@ export function evaluateDayTradingDecision(input = {}) {
     && !(marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout'))
 
   if (positionQty <= 0) {
-    if (allowNewEntry && entryScore >= buyThreshold && (setup !== 'weak')) {
+    if (dailyLossLimitReached) {
+      action = 'wait'
+      reasons.push(`Daily loss limit reached (${dailyLossesPct.toFixed(1)}% of equity ≥ ${profile.dailyLossLimitPct}% limit) — no new entries today`)
+    }
+    else if (!inRegularSession) {
+      action = 'wait'
+      reasons.push('Outside regular session window (9:30 AM–3:30 PM ET) — no new entries in extended hours')
+    }
+    else if (rsiBadForTrendEntry) {
+      action = 'wait'
+      reasons.push(`RSI ${round(rsi14)} > 80 in a trend setup — chasing overbought momentum; waiting for RSI to cool below 80`)
+    }
+    else if (allowNewEntry && entryScore >= buyThreshold && (setup !== 'weak')) {
       action = 'buy'
       reasons.push(setup === 'mean-revert'
         ? 'Qualified mean-reversion entry clears the buy threshold with acceptable risk'
@@ -253,6 +375,7 @@ export function evaluateDayTradingDecision(input = {}) {
     const stopTriggered = unrealizedPnLPct <= -profile.stopLossPct
     const trendBroken = shortTrendPct < -0.35
     const takeProfitZone = unrealizedPnLPct >= profile.rewardTargetPct
+    const positionElapsedMs = input.positionOpenedAt ? (nowMs - input.positionOpenedAt) : 0
 
     if (stopTriggered) {
       action = 'exit'
@@ -265,6 +388,12 @@ export function evaluateDayTradingDecision(input = {}) {
     else if (takeProfitZone && (shortTrendPct < 0.2 || momentumPct < 0.08)) {
       action = 'trim'
       reasons.push('Open profit is strong, but momentum is cooling')
+    }
+    // 1R PARTIAL EXIT: take profits at 1× stop when momentum is already fading —
+    // locks in a partial win rather than waiting for 2R that may never come.
+    else if (unrealizedPnLPct >= profile.stopLossPct && !takeProfitZone && shortTrendPct < 0.1) {
+      action = 'trim'
+      reasons.push(`1R partial exit: ${round(unrealizedPnLPct)}% gain with fading momentum — locking partial profit`)
     }
     else if (
       allowNewEntry
@@ -315,9 +444,46 @@ export function evaluateDayTradingDecision(input = {}) {
       reasons.push('Current position still fits the measured risk')
     }
 
+    // TRAILING STOP: exit if price pulls back from high-watermark once meaningfully in profit.
+    // Only fires when the caller passes highWatermarkPrice (live bot and simulation both do).
+    if (action === 'hold' && highWatermarkPrice > avgEntryPrice * (1 + profile.trailingStopPct / 100)) {
+      const trailPrice = highWatermarkPrice * (1 - profile.trailingStopPct / 100)
+      if (currentPrice <= trailPrice) {
+        action = 'exit'
+        reasons.push(`Trailing stop: price ${round(currentPrice)} fell below trail ${round(trailPrice)} (peak: ${round(highWatermarkPrice)})`)
+      }
+    }
+
+    // BREAK-EVEN STOP: once the position reached 1R (highWatermark crossed the 1×-stop level),
+    // treat entry price as the new floor. Any pullback to entry triggers an exit — prevents
+    // a trade that was winning from becoming a loser.
+    if (action === 'hold'
+        && highWatermarkPrice >= avgEntryPrice * (1 + profile.stopLossPct / 100)
+        && currentPrice <= avgEntryPrice * 1.001) {
+      action = 'exit'
+      reasons.push(`Break-even stop: reached 1R then retreated to entry (${round(currentPrice)} ≤ ${round(avgEntryPrice)})`)
+    }
+
+    // STAGNATION EXIT: free capital from dead-money positions after 60 min of no progress.
+    // A position that hasn't moved ±0.35% after 60 min rarely resolves well — exit early.
+    if (action === 'hold' && positionElapsedMs > 60 * 60 * 1000 && Math.abs(unrealizedPnLPct) < 0.35) {
+      action = 'exit'
+      reasons.push(`Stagnation exit: position flat (${round(unrealizedPnLPct)}%) after ${Math.round(positionElapsedMs / 60000)} min`)
+    }
+
+    // EOD FORCE-CLOSE: flatten 10 min before US regular-session close (19:50 UTC = 3:50 PM EDT).
+    // Prevents overnight holds that day-trading strategies must avoid.
+    if (action !== 'exit' && action !== 'trim') {
+      const d = new Date(nowMs)
+      const utcH = d.getUTCHours(), utcM = d.getUTCMinutes()
+      if (utcH === 19 && utcM >= 50) {
+        action = 'exit'
+        reasons.push('EOD force-close: flattening before US regular-session end (19:50 UTC)')
+      }
+    }
+
     // POSITION TIMEOUT: Force exit after 20 candles or 2 hours without meaningful progress
-    const positionAge = input.positionOpenedAt ? Math.round(((Date.now() - input.positionOpenedAt) / (5 * 60 * 1000))) : null
-    const positionElapsedMs = input.positionOpenedAt ? (Date.now() - input.positionOpenedAt) : 0
+    const positionAge = input.positionOpenedAt ? Math.round(((nowMs - input.positionOpenedAt) / (5 * 60 * 1000))) : null
     const twoHoursMs = 2 * 60 * 60 * 1000
     const positionTimeoutTriggered = positionAge && (positionAge > 20 || positionElapsedMs > twoHoursMs)
 
@@ -338,8 +504,8 @@ export function evaluateDayTradingDecision(input = {}) {
   }
 
   // BUILD LIVE TRACING OBJECT
-  const positionAge = input.positionOpenedAt ? Math.round(((Date.now() - input.positionOpenedAt) / (5 * 60 * 1000))) : null
-  const positionElapsedMs = input.positionOpenedAt ? (Date.now() - input.positionOpenedAt) : 0
+  const positionAge = input.positionOpenedAt ? Math.round(((nowMs - input.positionOpenedAt) / (5 * 60 * 1000))) : null
+  const positionElapsedMs = input.positionOpenedAt ? (nowMs - input.positionOpenedAt) : 0
   const stopLossPct = profile.stopLossPct
   const profitTargetPct = profile.rewardTargetPct
   const entryPriceForTrace = positionQty > 0 ? avgEntryPrice : null
@@ -418,7 +584,14 @@ export function evaluateDayTradingDecision(input = {}) {
       volumeRatio: round(volumeRatio),
       spreadPct: round(spreadPct),
       realizedVolatilityPct: round(realizedVolatilityPct),
-      unrealizedPnLPct: round(unrealizedPnLPct)
+      unrealizedPnLPct: round(unrealizedPnLPct),
+      rsi14: round(rsi14),
+      ema9: round(ema9),
+      ema21: round(ema21),
+      macdLine: round(macdLine),
+      vwap: round(vwap),
+      vwapDevPct: round(vwapDevPct),
+      dailyLossesPct: round(dailyLossesPct)
     },
     executionPlan,
     dailyCatalyst: dailyCatalystForResponse,

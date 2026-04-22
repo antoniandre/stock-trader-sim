@@ -16,6 +16,7 @@ import { recordTrade } from './simulation.js'
 import { createStandardResponse, sleep, withRateLimitBackoff, tickerSymbolMatchesRow } from './utils.js'
 import { normalizeOrderIntent, validateOrderIntent, estimateOrderNotional, isCryptoPairSymbol } from './domain/order-intent.js'
 import { recordStrategyRun } from './services/strategy-run-recorder.js'
+import { tradeState } from './services/risk-management.js'
 import { normalizeBrokerError } from './services/broker-error.js'
 import { getTradeCandidates } from './services/trade-screener-service.js'
 import { resolveCryptoBuyVenueSymbol } from './services/crypto-usd-quote-fallback.js'
@@ -103,7 +104,15 @@ export function createRestApiRoutes() {
 
   app.post('/api/bot/day-trading/decision', async (req, res) => {
     try {
-      const input = req.body || {}
+      const input = { ...req.body }
+      // Auto-inject dailyLossesPct from server-side risk state when the caller doesn't provide it.
+      // tradeState.dailyLosses tracks cumulative session losses recorded by completeTrade().
+      if (input.dailyLossesPct == null && tradeState.dailyLosses > 0) {
+        const equity = Number(input.accountEquity)
+          || Number(state.alpacaAccount?.portfolio_value)
+          || 100_000
+        input.dailyLossesPct = (tradeState.dailyLosses / equity) * 100
+      }
       const decision = evaluateDayTradingDecision(input)
       const capture = await safeRecordStrategyRun({
         type: 'day-trading-decision',
