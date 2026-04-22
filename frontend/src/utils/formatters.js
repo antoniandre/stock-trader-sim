@@ -147,13 +147,16 @@ export function formatVolumeWithSuffixes(volume) {
   if (value >= 1000000000) return `${(value / 1000000000).toFixed(1)}B`
   if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
   if (value >= 1000) return `${(value / 1000).toFixed(1)}K`
+  if (value < 1 && value > 0) return value.toFixed(4)  // fractional crypto volumes
   return Math.round(value).toLocaleString()
 }
 
 // Format volume with commas (no K/M/B suffixes).
 export function formatVolume(volume) {
-  if (!volume && volume !== 0) return '0'
-  if (typeof volume !== 'number') return volume
-  // Format large numbers with commas.
-  return volume.toLocaleString('en-US', { maximumFractionDigits: 0 })
+  if (volume == null || volume === '') return '0'
+  const n = typeof volume === 'number' ? volume : Number(volume)
+  if (!Number.isFinite(n)) return '0'
+  // Crypto volumes are in coin units and can be fractional (e.g. 0.3 BTC).
+  if (n < 1 && n > 0) return n.toFixed(4)
+  return Math.round(n).toLocaleString('en-US', { maximumFractionDigits: 0 })
 }

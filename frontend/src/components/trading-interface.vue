@@ -79,7 +79,7 @@
       button.grow.sell(@click="openOrderConfirmation('sell')" :disabled="!canSubmitOrder")
         strong SELL
 
-  OrderConfirmationDialog(
+  order-confirmation-dialog(
     v-model="showOrderConfirmation"
     :title="confirmationTitle"
     :pending="!!pendingOrder"
@@ -118,14 +118,14 @@
           span.op7 Estimated notional
           strong(v-html="formatCurrency(pendingOrder.estimatedNotional, stock.currency, 2, false)")
     template(v-if="pendingOrder" #notes)
-      p.size--sm.op7.mt4(v-if="pendingOrder.type === 'stop'") Stop: converts to a market order when the stop price is reached. Simulation only fills if the mock price has already crossed your stop; use Alpaca paper for resting stops.
-      p.size--sm.op7.mt4(v-else-if="pendingOrder.type === 'stop_limit'") Stop-limit: when the stop is reached, a limit order is placed at your limit price.
-      p.size--sm.op7.mt4(v-else-if="pendingOrder.type === 'market' && !pendingOrder.stopPrice") Market orders fill at the best available price and can move before execution.
-      p.size--sm.op7.mt4(v-else-if="pendingOrder.type === 'market' && pendingOrder.stopPrice && market === 'crypto'") Crypto on Alpaca: this is sent as a simple market order (no bracket stop). Optional stop prices in the form are not attached on crypto pairs; add a separate stop order if you want protection.
-      p.size--sm.op7.mt4(v-else-if="pendingOrder.type === 'market' && pendingOrder.stopPrice") Market bracket: fills at the best available price; a protective stop is attached at your stop price.
-      p.size--sm.op7.mt4(v-else-if="pendingOrder.stopPrice && market === 'crypto'") Crypto on Alpaca: limit orders do not use equity-style bracket stops here; only the limit is submitted.
-      p.size--sm.op7.mt4(v-else-if="pendingOrder.stopPrice") Limit bracket: executes at your limit or better when marketable; a protective stop is attached.
-      p.size--sm.op7.mt4(v-else) Limit orders only execute at your limit price or better. In simulation, only immediately marketable limits are filled.
+      p.caption.mt4(v-if="pendingOrder.type === 'stop'") Stop: converts to a market order when the stop price is reached. Simulation only fills if the mock price has already crossed your stop; use Alpaca paper for resting stops.
+      p.caption.mt4(v-else-if="pendingOrder.type === 'stop_limit'") Stop-limit: when the stop is reached, a limit order is placed at your limit price.
+      p.caption.mt4(v-else-if="pendingOrder.type === 'market' && !pendingOrder.stopPrice") Market orders fill at the best available price and can move before execution.
+      p.caption.mt4(v-else-if="pendingOrder.type === 'market' && pendingOrder.stopPrice && market === 'crypto'") Crypto on Alpaca: this is sent as a simple market order (no bracket stop). Optional stop prices in the form are not attached on crypto pairs; add a separate stop order if you want protection.
+      p.caption.mt4(v-else-if="pendingOrder.type === 'market' && pendingOrder.stopPrice") Market bracket: fills at the best available price; a protective stop is attached at your stop price.
+      p.caption.mt4(v-else-if="pendingOrder.stopPrice && market === 'crypto'") Crypto on Alpaca: limit orders do not use equity-style bracket stops here; only the limit is submitted.
+      p.caption.mt4(v-else-if="pendingOrder.stopPrice") Limit bracket: executes at your limit or better when marketable; a protective stop is attached.
+      p.caption.mt4(v-else) Limit orders only execute at your limit price or better. In simulation, only immediately marketable limits are filled.
 
   .glass-box.pa6.mt4(v-if="recentTrades.length")
     .title3.mb4 Recent Trades

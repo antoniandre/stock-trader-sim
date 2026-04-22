@@ -8,16 +8,16 @@ w-dialog(
     w-alert.pa3.bdrs2.mb4(:success="marketGate.reason === 'open'" :warning="marketGate.reason !== 'open'")
       strong {{ environmentLabel }}
       div.mt1 {{ marketGate.message }}
-      div.mt1.size--sm.op7 {{ providerSummary }}
+      div.mt1.caption {{ providerSummary }}
     slot(name="rows")
     slot(name="notes")
     .w-flex.justify-end.gap2.mt5
-      w-button(@click="onCancel" text round) Cancel
+      w-button(@click="onCancel" text round bg-color="error") Cancel
       w-button(
         @click="$emit('confirm')"
         :disabled="confirmDisabled"
         :loading="submitting"
-        :color="confirmColor"
+        bg-color="success"
         round) {{ confirmLabel }}
 </template>
 
@@ -35,7 +35,6 @@ const props = defineProps({
   providerSummary: { type: String, default: '' },
   submitting: { type: Boolean, default: false },
   confirmDisabled: { type: Boolean, default: false },
-  confirmColor: { type: String, default: 'primary' },
   confirmLabel: { type: String, default: 'Confirm' }
 })
 
@@ -62,6 +61,5 @@ function onCancel() {
   justify-content: space-between;
   gap: 1rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  padding-bottom: 0.5rem;
 }
 </style>

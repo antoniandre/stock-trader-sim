@@ -4,7 +4,7 @@ const INDICATOR_PERIODS = { EMA: 20, RSI: 14, MACD: { fast: 12, slow: 26, signal
 
 // Technical Indicators Composable
 // --------------------------------------------------------
-export function useTechnicalIndicators(ohlcData, volumeData) {
+export function useTechnicalIndicators(ohlcData) {
   const emaValues = ref([])
   const rsiValues = ref([])
   const macdValues = ref([])
@@ -313,55 +313,6 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
     }
   })
 
-  const volumeChartData = computed(() => {
-    try {
-      if (!volumeData.value || !Array.isArray(volumeData.value) || volumeData.value.length === 0) {
-        return { labels: [], datasets: [] }
-      }
-
-      const timestamps = volumeData.value.map(d => d && typeof d === 'object' ? d.timestamp : Date.now())
-      const volumes = volumeData.value.map(d => d && typeof d === 'object' ? (d.volume || 0) : 0)
-
-      // Determine colors based on price movement (green for up, red for down)
-      const colors = volumes.map((volume, index) => {
-        if (index === 0 || !ohlcData.value || ohlcData.value.length <= index) {
-          return '#6B7280' // Gray for first bar or missing price data
-        }
-
-        const currentClose = ohlcData.value[index]?.close || ohlcData.value[index]?.price || 0
-        const prevClose = ohlcData.value[index - 1]?.close || ohlcData.value[index - 1]?.price || 0
-
-        if (currentClose > prevClose) {
-          return '#10B981' // Green for up day
-        }
-        else if (currentClose < prevClose) {
-          return '#EF4444' // Red for down day
-        }
-        else {
-          return '#6B7280' // Gray for unchanged
-        }
-      })
-
-      return {
-        labels: timestamps,
-        datasets: [{
-          label: 'Volume',
-          data: volumes.map((value, index) => ({
-            x: timestamps[index] || Date.now(),
-            y: value
-          })),
-          backgroundColor: colors,
-          borderColor: colors,
-          type: 'bar'
-        }]
-      }
-    }
-    catch (error) {
-      console.warn('Error creating volume chart data:', error)
-      return { labels: [], datasets: [] }
-    }
-  })
-
   // Current Values
   // --------------------------------------------------------
   const currentRSI = computed(() => {
@@ -394,13 +345,12 @@ export function useTechnicalIndicators(ohlcData, volumeData) {
 
   // Watchers
   // --------------------------------------------------------
-  watch([ohlcData, volumeData], updateIndicators, { deep: true, immediate: true })
+  watch(ohlcData, updateIndicators, { deep: true, immediate: true })
 
   return {
     emaChartData,
     rsiChartData,
     macdChartData,
-    volumeChartData,
     currentRSI,
     currentMACD,
     currentSignal,

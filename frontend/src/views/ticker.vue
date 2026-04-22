@@ -20,6 +20,7 @@
       .chart-wrap
         PriceChart(
           :symbol="stock.symbol"
+          :market="market"
           :chart-type="chartType"
           :selected-period="selectedPeriod"
           :selected-timeframe="selectedTimeframe"
@@ -158,6 +159,7 @@
     TickerHeader.mb2(:stock="stock" small)
     PriceChart.small(
       :symbol="stock.symbol"
+      :market="market"
       :chart-type="chartType"
       :selected-period="selectedPeriod"
       :selected-timeframe="selectedTimeframe"
@@ -696,7 +698,7 @@ const candlestickChartData = computed(() => {
           h: item.high || 0,
           l: item.low || 0,
           c: item.close || 0,
-          volume: item.volume || 0
+          volume: volumeFromBar(item)
         }))
       }]
     }
@@ -709,6 +711,14 @@ const candlestickChartData = computed(() => {
 
 // Helper Functions
 // --------------------------------------------------------
+/** Normalize bar volume from Alpaca/crypto-style payloads (`v`, `s`, etc.). */
+function volumeFromBar(item) {
+  if (item == null || typeof item !== 'object') return 0
+  const raw = item.volume ?? item.v ?? item.V ?? item.tradeVolume ?? item.size ?? item.s
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : 0
+}
+
 function getReasonableTimeRange() {
   const basePeriods = {
     '1D': { min: 2 * 24 * 60 * 60 * 1000, max: 10 * 60 * 1000 }, // 2 days back, 10 min forward.
@@ -748,29 +758,42 @@ function handleResetZoomComplete() {
   fetchHistoricalData()
 }
 
-function updateOHLCData(price, timestamp) {
+/** Row symbol (WS payload may be `HYPEUSD`) vs route symbol (`HYPE/USD`). */
+function sameTickerSymbol(rowSymbol, tickerSymbol) {
+  return tickerRowMatchesStock(tickerSymbol, rowSymbol, props.market)
+}
+
+function updateOHLCData(price, timestamp, tradeSize = 0) {
   const timeframe = selectedTimeframe.value
   const intervalMs = { '1Min': 60000, '5Min': 300000, '15Min': 900000, '30Min': 1800000, '1Hour': 3600000, '4Hour': 14400000, '1Day': 86400000 }[timeframe] || 300000
   const bucketTime = Math.floor(timestamp / intervalMs) * intervalMs
 
   let lastCandle = realtimeOHLC.value[realtimeOHLC.value.length - 1]
+  const addVol = Number(tradeSize) > 0 ? Number(tradeSize) : 0
 
   if (lastCandle && lastCandle.timestamp === bucketTime) {
     lastCandle.high = Math.max(lastCandle.high, price)
     lastCandle.low = Math.min(lastCandle.low, price)
     lastCandle.close = price
+    if (addVol > 0) lastCandle.volume = (lastCandle.volume || 0) + addVol
   }
   else {
-    // Real-time data doesn't include volume - volume is only available from historical bars.
-    // During market hours, volume will be updated when historical data refreshes.
-    realtimeOHLC.value.push({ timestamp: bucketTime, open: price, high: price, low: price, close: price, volume: 0 })
+    // Quotes have no size; trades include `tradeSize` from the server (Alpaca `s`) so crypto/stock ticks can accumulate volume.
+    realtimeOHLC.value.push({
+      timestamp: bucketTime,
+      open: price,
+      high: price,
+      low: price,
+      close: price,
+      volume: addVol
+    })
   }
 }
 
 // Message Handlers
 // --------------------------------------------------------
 function handlePriceUpdate(data) {
-  if (data.symbol !== stock.symbol) return
+  if (!sameTickerSymbol(data.symbol, stock.symbol)) return
 
   // Throttle price updates to prevent blinking.
   const now = Date.now()
@@ -806,7 +829,7 @@ function handlePriceUpdate(data) {
     priceHistory.value.push({ timestamp, price: data.price })
     if (priceHistory.value.length > 100) priceHistory.value = priceHistory.value.slice(-100)
 
-    updateOHLCData(data.price, timestamp)
+    updateOHLCData(data.price, timestamp, data.tradeSize)
     if (realtimeOHLC.value.length > 200) realtimeOHLC.value = realtimeOHLC.value.slice(-200)
 
     // Only trim historical data if we have real-time data and user is viewing current data.
@@ -1130,7 +1153,7 @@ async function mergeAdditionalData(newData, startTime, endTime) {
       high: item.high || price,
       low: item.low || price,
       close: item.close || price,
-      volume: item.volume || 0,
+      volume: volumeFromBar(item),
       price: price
     }
 
@@ -1260,11 +1283,6 @@ function stopMarketStatusMonitoring() {
 
 function handleChartViewChange(chart, action) {
   if (action === 'pan' || action === 'zoom') checkAndLoadAdditionalData(chart, action)
-}
-
-/** Row symbol (order, position, WS payload) vs ticker route symbol. */
-function sameTickerSymbol(rowSymbol, tickerSymbol) {
-  return tickerRowMatchesStock(tickerSymbol, rowSymbol, props.market)
 }
 
 function handleTrade(data) {

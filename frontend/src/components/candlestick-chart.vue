@@ -61,28 +61,67 @@ function emitHoverOhlcForCrosshair(chart) {
     high: point.h ?? point.high ?? 0,
     low: point.l ?? point.low ?? 0,
     close: point.c ?? point.close ?? 0,
-    volume: point.volume ?? point.v ?? 0
+    volume: Number(point.volume ?? point.v ?? point.V ?? point.tradeVolume ?? point.size ?? 0) || 0
   })
 }
 
 // Register chart components.
 Chart.register(CandlestickController, CandlestickElement, zoomPlugin)
 
-// Share of plugins.volumeBand.height used for the volume pane (rest stays for price).
-const VOLUME_LAYER_HEIGHT_RATIO = 0.8
-
 const volumeBandPlugin = {
   id: 'volumeBand',
   afterLayout(chart, args, opts) {
-    if (!opts?.height) return
     const volScale = chart.scales?.yVolume
     if (!volScale) return
     const area = chart.chartArea
-    const rawBand = Math.min(opts.height, area.bottom - area.top)
-    const band = rawBand * VOLUME_LAYER_HEIGHT_RATIO
+    const chartHeight = area.bottom - area.top
+    // heightRatio takes priority (e.g. 0.25 = 25%); fallback to fixed px.
+    const band = opts?.heightRatio
+      ? Math.floor(chartHeight * opts.heightRatio)
+      : Math.min(opts?.height ?? 0, chartHeight)
+    if (band <= 0) return
+
+    // Reposition the scale to the bottom band.
     volScale.top = area.bottom - band
     volScale.bottom = area.bottom
     volScale.height = band
+    // Scale.configure() ran before this hook and set _startPixel/_length from
+    // the pre-plugin top/bottom. Override them so getPixelForDecimal() maps
+    // correctly into the new band.
+    volScale._startPixel = area.bottom - band
+    volScale._endPixel = area.bottom
+    volScale._length = band
+
+    // Compute yVolume.max from bars in the current x-zoom window.
+    const volDs = chart.data.datasets?.find(d => d.label === 'Volume')
+    if (!volDs?.data?.length) return
+
+    const xScale = chart.scales.x
+    const xMin = xScale?.min ?? -Infinity
+    const xMax = xScale?.max ?? Infinity
+    let maxVol = 0
+    for (const p of volDs.data) {
+      if (p.x >= xMin && p.x <= xMax) {
+        const v = Number(p.y)
+        if (Number.isFinite(v) && v > maxVol) maxVol = v
+      }
+    }
+    // Fallback: use all bars when none fall in the current window.
+    if (maxVol <= 0) {
+      for (const p of volDs.data) {
+        const v = Number(p.y)
+        if (Number.isFinite(v) && v > maxVol) maxVol = v
+      }
+    }
+    if (maxVol > 0) {
+      const newMax = maxVol * 1.04
+      // Update options for next configure() cycle.
+      volScale.options.max = newMax
+      // Override LinearScaleBase.configure() values so current render is correct.
+      volScale.max = newMax
+      volScale._endValue = newMax
+      volScale._valueRange = newMax  // min is 0
+    }
   }
 }
 

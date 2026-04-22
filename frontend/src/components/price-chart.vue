@@ -174,7 +174,7 @@
       span.base-color.ml1 C
       strong {{ formatPrice(displayOHLC.close) }}
       span.base-color.ml1 V
-      strong {{ formatVolume(displayOHLC.volume) }}
+      strong {{ displayOHLC.volume > 0 ? formatVolume(displayOHLC.volume) : '—' }}
 
     //- RSI Pane (if enabled)
     .chart.chart--rsi.mt-1.ml6(v-show="showRSI && chartType === 'candlestick'")
@@ -232,6 +232,8 @@ import TickerPrice from './ticker-price.vue'
 // --------------------------------------------------------
 const props = defineProps({
   symbol: { type: String, required: true },
+  /** `crypto` = 24/7 ordinal axis (no weekend bar drop). */
+  market: { type: String, default: 'stocks' },
   chartType: { type: String, required: true },
   selectedPeriod: { type: String, required: true },
   selectedTimeframe: { type: String, required: true },
@@ -280,8 +282,6 @@ const buttonsColors = computed(() => {
 })
 
 // Register Chart.js plugins and components.
-// Plugin to reserve a fixed-height band at the bottom for the volume scale, sharing the same X scale.
-const VOLUME_BAND_HEIGHT = 115 // Pixels.
 // Same object reference required for removeEventListener capture matching.
 const Y_AXIS_POINTER_CAPTURE = { capture: true }
 
@@ -571,43 +571,28 @@ const ohlcData = computed(() => {
       high: item.h,
       low: item.l,
       close: item.c,
-      volume: item.volume || 0,
+      volume: candleVolumeY(item),
       price: item.c
     }))
-  }
-
-  // Debug logging for data integrity.
-  if (sourceData.length > 0) {
-    const priceRange = {
-      min: Math.min(...sourceData.map(d => d.close)),
-      max: Math.max(...sourceData.map(d => d.close))
-    }
-    const hasVolume = sourceData.some(d => d.volume > 0)
-    console.log(`📊 OHLC Data: ${sourceData.length} points, price range: $${priceRange.min.toFixed(2)}-$${priceRange.max.toFixed(2)}, has volume: ${hasVolume}`)
   }
 
   return sourceData
 })
 
-// Volume data for indicators.
-const volumeData = computed(() => {
-  return ohlcData.value.map(point => ({
-    timestamp: point.timestamp,
-    volume: point.volume || 0
-  }))
-})
-
 // Technical indicators from composable.
-const indicators = useTechnicalIndicators(ohlcData, volumeData)
+const indicators = useTechnicalIndicators(ohlcData)
 
 // Ordinal (gap-free) scale support
 // Maps each trading data point to a sequential index, eliminating weekend/overnight gaps.
 const ordinalLookup = computed(() => {
   const data = props.chartType === 'candlestick' ? props.candlestickChartData : props.lineChartData
   const mainData = data?.datasets?.[0]?.data || []
-  return mainData
-    .map(p => p.x)
-    .filter(ts => { const d = new Date(ts).getDay(); return d !== 0 && d !== 6 })
+  const tsList = mainData.map(p => p.x)
+  if (String(props.market).toLowerCase() === 'crypto') return tsList
+  return tsList.filter(ts => {
+    const d = new Date(ts).getDay()
+    return d !== 0 && d !== 6
+  })
 })
 
 function applyOrdinalMapping(data) {
@@ -798,7 +783,7 @@ const enhancedCandlestickChartData = computed(() => {
   // Append volume bars aligned 1:1 on a secondary y-axis band.
   if (showVolume.value && props.candlestickChartData.datasets[0].data?.length) {
     const candles = props.candlestickChartData.datasets[0].data
-    const volData = candles.map(c => ({ x: (c.x ?? c.t ?? c.timestamp), y: c.volume || c.v || 0 }))
+    const volData = candles.map(c => ({ x: (c.x ?? c.t ?? c.timestamp), y: candleVolumeY(c) }))
     datasets.unshift({
       type: 'bar',
       label: 'Volume',
@@ -896,6 +881,15 @@ const enhancedCandlestickChartData = computed(() => {
 
   return applyOrdinalMapping({ ...props.candlestickChartData, datasets })
 })
+
+/** Numeric volume from a candle row (feeds differ: `volume`, Alpaca `v`, etc.). */
+function candleVolumeY(c) {
+  if (!c || typeof c !== 'object') return 0
+  const raw = c.volume ?? c.v ?? c.V ?? c.tradeVolume ?? c.size ?? c.s
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : 0
+}
+
 
 /** X/Y bounds for the initial "snap to latest" view (same math as focusOnRecentData). Pure — no ref writes. */
 function computeRecentDataFocusBounds() {
@@ -1159,7 +1153,7 @@ function ohlcFromCandlePoint(point) {
     high: point.h ?? point.high ?? 0,
     low: point.l ?? point.low ?? 0,
     close: point.c ?? point.close ?? 0,
-    volume: point.volume ?? point.v ?? 0
+    volume: candleVolumeY(point)
   }
 }
 
@@ -1169,7 +1163,16 @@ const lastBarOHLC = computed(() => {
     const mainDataset = enhanced?.datasets?.find(ds => !OVERLAY_LABELS.has(ds.label)) || enhanced?.datasets?.[0]
     const dataPoints = mainDataset?.data
     if (!dataPoints?.length) return null
-    return ohlcFromCandlePoint(dataPoints[dataPoints.length - 1])
+    const last = dataPoints[dataPoints.length - 1]
+    const ohlc = ohlcFromCandlePoint(last)
+    // Live/bridge candles have volume=0; use the last closed candle's volume instead.
+    if (ohlc && ohlc.volume === 0) {
+      for (let i = dataPoints.length - 2; i >= 0; i--) {
+        const v = candleVolumeY(dataPoints[i])
+        if (v > 0) { ohlc.volume = v; break }
+      }
+    }
+    return ohlc
   }
   if (props.chartType === 'line') {
     const enhanced = enhancedLineChartData.value
@@ -1771,7 +1774,7 @@ const synchronizedCandlestickChartOptions = computed(() => {
   const plugins = {
     ...baseSynchronizedOptions.value.plugins,
     tooltip: { enabled: false },
-    volumeBand: { height: VOLUME_BAND_HEIGHT } // Reserve space for volume band.
+    volumeBand: { heightRatio: 0.25 } // Reserve 25% of chart area for volume band.
   }
   const yConfig = manualYRange.value.min !== null
     ? { ...baseYAxisConfig, min: manualYRange.value.min, max: manualYRange.value.max }
@@ -1787,6 +1790,7 @@ const synchronizedCandlestickChartOptions = computed(() => {
         position: 'right',
         display: false,
         beginAtZero: true,
+        min: 0,
         grid: { display: false }
       }
     }
