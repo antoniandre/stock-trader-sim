@@ -38,6 +38,10 @@ export const {
   FEATURE_BOTS = 'false'
 } = process.env
 
+/** Crypto pairs use Alpaca’s separate stream (`v2/iex` does not carry crypto). */
+export const ALPACA_CRYPTO_DATA_STREAM_URL =
+  process.env.ALPACA_CRYPTO_DATA_STREAM_URL || 'wss://stream.data.alpaca.markets/v1beta3/crypto/us'
+
 export const IS_SIMULATION = !ALPACA_KEY || (SIMULATION === 'true')
 
 /** For health/API: simulation vs Alpaca paper vs live endpoint (informational only). */
@@ -77,6 +81,11 @@ export const state = {
   allStocks: [], // Array of all tradable stocks
   wsClients: new Set(),
   alpacaWebSocket: null,
+  /** Alpaca `v1beta3/crypto/us` market-data WebSocket (trades/quotes for pairs like `BTC/USD`). */
+  alpacaCryptoWebSocket: null,
+  /** Set true after each stream authenticates (used to decide when REST price polling can pause). */
+  alpacaStockStreamReady: false,
+  alpacaCryptoStreamReady: false,
   accountActivities: [], // Real trading history from Alpaca
   alpacaAccount: null, // Account information
   sseClient: null, // Server-Sent Events client for account updates

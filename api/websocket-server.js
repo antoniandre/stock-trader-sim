@@ -1,9 +1,16 @@
 import WebSocket, { WebSocketServer } from 'ws'
-import { IS_SIMULATION, state } from './config.js'
+import { IS_SIMULATION, state, ALPACA_CRYPTO_DATA_STREAM_URL } from './config.js'
 import { getMarketStatus, getStockMarketStatus, startPricePolling, stopPricePolling } from './market-data.js'
 import { runSimulation, mockPrices } from './simulation.js'
-import { createAlpacaWebSocket, subscribeToSymbols, unsubscribeFromSymbols } from './clients/alpaca-websocket-client.js'
+import {
+  createAlpacaWebSocket,
+  subscribeToSymbols,
+  unsubscribeFromSymbols,
+  subscribeToCryptoStreamChannels,
+  unsubscribeFromCryptoStreamChannels
+} from './clients/alpaca-websocket-client.js'
 import { getWatchlist } from './screener-watch-symbols.js'
+import { tradableSymbolsEquivalent, isCryptoStreamSymbol } from './utils/tradable-symbol.js'
 
 // WebSocket State.
 // --------------------------------------------------------
@@ -14,11 +21,46 @@ const clientSubscriptions = new Map() // ws → Set<symbol>
 const clientScreenerDeskActive = new Map() // ws → boolean
 let isAuthenticated = false
 let reconnectAttempts = 0
+let isCryptoStreamAuthenticated = false
+let cryptoReconnectAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 5
 const RECONNECT_DELAY = 30000
 
 // Price tracking for stale detection.
 const priceHistory = new Map() // symbol -> { recentTrades: [], lastQuoteTime: timestamp }
+
+function resolveSubscribedClientSymbol(incoming) {
+  if (incoming == null || incoming === '') return null
+  const inc = String(incoming).trim()
+  for (const s of subscribedStocks) {
+    if (tradableSymbolsEquivalent(s, inc)) return s
+  }
+  return null
+}
+
+function subscribedStockStreamSymbols() {
+  return [...subscribedStocks].filter(s => !isCryptoStreamSymbol(s))
+}
+
+function subscribedCryptoStreamSymbols() {
+  return [...subscribedStocks].filter(isCryptoStreamSymbol)
+}
+
+function liveFeedsCoverSubscriptions() {
+  const stocks = subscribedStockStreamSymbols()
+  const cryptos = subscribedCryptoStreamSymbols()
+  const stockOk = stocks.length === 0 || (state.alpacaWebSocket?.readyState === 1 && isAuthenticated)
+  const cryptoOk = cryptos.length === 0 || (state.alpacaCryptoWebSocket?.readyState === 1 && isCryptoStreamAuthenticated)
+  return stockOk && cryptoOk
+}
+
+function maybeStopOrStartPricePolling() {
+  if (IS_SIMULATION || subscribedStocks.size === 0) return
+  import('./market-data.js').then(({ startPricePolling, stopPricePolling }) => {
+    if (liveFeedsCoverSubscriptions()) stopPricePolling()
+    else startPricePolling(subscribedStocks, broadcast)
+  })
+}
 
 // Market Status Tracking.
 // --------------------------------------------------------
@@ -99,15 +141,21 @@ function cleanupAlpacaConnection() {
     state.alpacaWebSocket = null
   }
   isAuthenticated = false
-  console.log('🧹 Alpaca WebSocket connection cleaned up')
+  state.alpacaStockStreamReady = false
+  console.log('🧹 Alpaca stock WebSocket connection cleaned up')
+  maybeStopOrStartPricePolling()
+}
 
-  // Restart price polling as fallback when WebSocket is disconnected
-  if (subscribedStocks.size > 0) {
-    import('./market-data.js').then(({ startPricePolling }) => {
-      console.log('🔄 WebSocket disconnected - restarting price polling as fallback')
-      startPricePolling(subscribedStocks, broadcast)
-    })
+function cleanupAlpacaCryptoConnection() {
+  if (state.alpacaCryptoWebSocket) {
+    state.alpacaCryptoWebSocket.removeAllListeners()
+    if (state.alpacaCryptoWebSocket.readyState === WebSocket.OPEN) state.alpacaCryptoWebSocket.close()
+    state.alpacaCryptoWebSocket = null
   }
+  isCryptoStreamAuthenticated = false
+  state.alpacaCryptoStreamReady = false
+  console.log('🧹 Alpaca crypto WebSocket connection cleaned up')
+  maybeStopOrStartPricePolling()
 }
 
 // Market Status Functions.
@@ -163,7 +211,14 @@ export function subscribeToStock(symbol) {
 
     if (subscribedStocks.size === 1) startPricePolling(subscribedStocks, broadcast)
 
-    if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1 && isAuthenticated) {
+    if (isCryptoStreamSymbol(symbol)) {
+      ensureAlpacaCryptoStream()
+      if (state.alpacaCryptoWebSocket?.readyState === 1 && isCryptoStreamAuthenticated) {
+        subscribeToCryptoStreamChannels(state.alpacaCryptoWebSocket, [symbol])
+      }
+      maybeStopOrStartPricePolling()
+    }
+    else if (state.alpacaWebSocket?.readyState === 1 && isAuthenticated) {
       subscribeToSymbols(state.alpacaWebSocket, [symbol])
     }
     else {
@@ -191,7 +246,15 @@ export function unsubscribeFromStock(symbol) {
       stopPricePolling()
     }
 
-    if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1) {
+    if (isCryptoStreamSymbol(symbol)) {
+      const screenerWatchSymbols = getWatchlist()
+      if (state.alpacaCryptoWebSocket?.readyState === 1 && !screenerWatchSymbols.some(s => tradableSymbolsEquivalent(s, symbol))) {
+        unsubscribeFromCryptoStreamChannels(state.alpacaCryptoWebSocket, [symbol])
+      }
+      if (subscribedCryptoStreamSymbols().length === 0) cleanupAlpacaCryptoConnection()
+      maybeStopOrStartPricePolling()
+    }
+    else if (state.alpacaWebSocket?.readyState === 1) {
       const screenerWatchSymbols = getWatchlist()
       if (!screenerWatchSymbols.includes(symbol)) {
         unsubscribeFromSymbols(state.alpacaWebSocket, [symbol])
@@ -327,103 +390,123 @@ export function createWebSocketServer(server) {
 
 // Alpaca WebSocket Functions.
 // --------------------------------------------------------
-export function connectAlpacaWebSocket() {
+function ensureAlpacaCryptoStream() {
   if (IS_SIMULATION) return
+  if (!ALPACA_CRYPTO_DATA_STREAM_URL) return
+  if (state.alpacaCryptoWebSocket && (state.alpacaCryptoWebSocket.readyState === WebSocket.OPEN ||
+      state.alpacaCryptoWebSocket.readyState === WebSocket.CONNECTING)) return
+  connectAlpacaCryptoWebSocket()
+}
 
-  const handleMessage = (messageData) => {
-    // Check for error responses first.
-    if (messageData.retryAfter !== undefined) {
-      if (messageData.code === 406) {
-        console.error('💡 Connection limit exceeded. Waiting 60s before retry...')
-        // Surface error to frontend clients
-        broadcast({
-          type: 'alpaca-error',
-          error: 'Connection limit exceeded',
-          message: 'Alpaca WebSocket temporarily unavailable. Retrying in 60 seconds...',
-          severity: 'warning',
-          timestamp: new Date().toISOString(),
-          retryWaitMs: 60000
-        })
+/** Shared fan-out for stock (`v2/...`) and crypto (`v1beta3/crypto/us`) Alpaca data streams. */
+function routeMarketMessage(messageData, streamKind) {
+  if (messageData.retryAfter !== undefined) {
+    if (messageData.code === 406) {
+      console.error('💡 Connection limit exceeded. Waiting 60s before retry...')
+      broadcast({
+        type: 'alpaca-error',
+        error: 'Connection limit exceeded',
+        message: 'Alpaca WebSocket temporarily unavailable. Retrying in 60 seconds...',
+        severity: 'warning',
+        timestamp: new Date().toISOString(),
+        retryWaitMs: 60000
+      })
+      if (streamKind === 'crypto') {
+        cleanupAlpacaCryptoConnection()
+        setTimeout(connectAlpacaCryptoWebSocket, messageData.retryAfter)
+      }
+      else {
         cleanupAlpacaConnection()
         setTimeout(connectAlpacaWebSocket, messageData.retryAfter)
-        return
       }
-      if (messageData.code === 401) {
-        console.error('💡 Authentication failed. Check your keys.')
-        cleanupAlpacaConnection()
-        return
-      }
+      return
     }
-
-    const { type, symbol, price } = messageData
-
-    if (type === 'trade') {
-      const clientWants = subscribedStocks.has(symbol)
-      if (clientWants) console.log(`💰 Trade received: ${symbol} @ $${price}`)
-      const currentPrice = state.stockPrices[symbol]
-      const shouldUpdate = shouldUpdatePrice(symbol, price, currentPrice, 'trade')
-
-      if (shouldUpdate) {
-        state.stockPrices[symbol] = price
-        if (clientWants) broadcastPriceUpdate(symbol, price)
-      }
-
-      if (messageData.data) {
-        import('./src/screener/screener.js').then(m => {
-          if (typeof m.ingestAlpacaTradeMessage === 'function') m.ingestAlpacaTradeMessage(messageData.data)
-        }).catch(() => {})
-      }
-    }
-    else if (type === 'quote') {
-      const clientWants = subscribedStocks.has(symbol)
-      if (clientWants) console.log(`📈 Quote received: ${symbol} @ $${price}`)
-      const currentPrice = state.stockPrices[symbol]
-      const shouldUpdate = shouldUpdatePrice(symbol, price, currentPrice, 'quote')
-
-      if (shouldUpdate) {
-        state.stockPrices[symbol] = price
-        if (clientWants) broadcastPriceUpdate(symbol, price)
-      }
-
-      if (messageData.data) {
-        import('./src/screener/screener.js').then(m => {
-          if (typeof m.ingestAlpacaQuoteMessage === 'function') m.ingestAlpacaQuoteMessage(messageData.data)
-        }).catch(() => {})
-      }
-    }
-    else if (type === 'bar') {
-      if (messageData.data) {
-        import('./src/screener/screener.js').then(m => {
-          if (typeof m.ingestAlpacaBarMessage === 'function') m.ingestAlpacaBarMessage(messageData.data)
-        }).catch(() => {})
-      }
+    if (messageData.code === 401) {
+      console.error('💡 Authentication failed. Check your keys.')
+      if (streamKind === 'crypto') cleanupAlpacaCryptoConnection()
+      else cleanupAlpacaConnection()
+      return
     }
   }
+
+  const { type, symbol, price } = messageData
+
+  if (type === 'trade') {
+    const symKey = resolveSubscribedClientSymbol(symbol)
+    if (symKey) {
+      const clientWants = subscribedStocks.has(symKey)
+      if (clientWants) console.log(`💰 Trade received: ${symbol} → ${symKey} @ $${price}`)
+      const currentPrice = state.stockPrices[symKey]
+      const shouldUpdate = shouldUpdatePrice(symKey, price, currentPrice, 'trade')
+      const tradeSize = messageData.data?.s
+
+      if (shouldUpdate) {
+        state.stockPrices[symKey] = price
+        if (clientWants) broadcastPriceUpdate(symKey, price, { tradeSize })
+      }
+    }
+
+    if (messageData.data) {
+      import('./src/screener/screener.js').then(m => {
+        if (typeof m.ingestAlpacaTradeMessage === 'function') m.ingestAlpacaTradeMessage(messageData.data)
+      }).catch(() => {})
+    }
+  }
+  else if (type === 'quote') {
+    const symKey = resolveSubscribedClientSymbol(symbol)
+    if (symKey) {
+      const clientWants = subscribedStocks.has(symKey)
+      if (clientWants) console.log(`📈 Quote received: ${symbol} → ${symKey} @ $${price}`)
+      const currentPrice = state.stockPrices[symKey]
+      const shouldUpdate = shouldUpdatePrice(symKey, price, currentPrice, 'quote')
+
+      if (shouldUpdate) {
+        state.stockPrices[symKey] = price
+        if (clientWants) broadcastPriceUpdate(symKey, price, {})
+      }
+    }
+
+    if (messageData.data) {
+      import('./src/screener/screener.js').then(m => {
+        if (typeof m.ingestAlpacaQuoteMessage === 'function') m.ingestAlpacaQuoteMessage(messageData.data)
+      }).catch(() => {})
+    }
+  }
+  else if (type === 'bar') {
+    if (messageData.data) {
+      import('./src/screener/screener.js').then(m => {
+        if (typeof m.ingestAlpacaBarMessage === 'function') m.ingestAlpacaBarMessage(messageData.data)
+      }).catch(() => {})
+    }
+  }
+}
+
+export function connectAlpacaWebSocket() {
+  if (IS_SIMULATION) return
 
   const handleAuthenticated = () => {
     isAuthenticated = true
     reconnectAttempts = 0
 
-    // Stop price polling since WebSocket is now active
-    import('./market-data.js').then(({ stopPricePolling }) => {
-      stopPricePolling()
-      console.log('🔄 Stopped price polling - WebSocket now handling real-time updates')
-    })
-
     const screenerWatchSymbols = getWatchlist()
     const merged = [...new Set([...Array.from(subscribedStocks), ...screenerWatchSymbols])]
-    if (merged.length > 0) {
-      subscribeToSymbols(state.alpacaWebSocket, merged, { barSymbols: screenerWatchSymbols })
-      console.log(`📡 Subscribed to ${merged.length} Alpaca symbol(s) (client feeds + screener watchlist)`)
+    const stockMerged = merged.filter(s => !isCryptoStreamSymbol(s))
+    const barStockOnly = screenerWatchSymbols.filter(s => !isCryptoStreamSymbol(s))
+
+    if (stockMerged.length > 0) {
+      subscribeToSymbols(state.alpacaWebSocket, stockMerged, { barSymbols: barStockOnly })
+      console.log(`📡 Stock stream: subscribed ${stockMerged.length} symbol(s) (+ ${barStockOnly.length} bar feeds)`)
     }
     else {
-      console.log('📡 No symbols to subscribe (unexpected empty watchlist)')
+      console.log('📡 Stock stream: no stock symbols to subscribe (crypto-only clients use the crypto stream)')
     }
+
+    state.alpacaStockStreamReady = true
+    maybeStopOrStartPricePolling()
   }
 
   const handleError = (error) => {
     console.error('❌ Alpaca WebSocket error:', error)
-    // Surface error to frontend clients
     broadcast({
       type: 'alpaca-error',
       error: 'WebSocket connection failed',
@@ -439,25 +522,70 @@ export function connectAlpacaWebSocket() {
 
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       reconnectAttempts++
-      console.log(`🔄 Reconnecting in ${RECONNECT_DELAY/1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
+      console.log(`🔄 Reconnecting stock stream in ${RECONNECT_DELAY / 1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
       setTimeout(connectAlpacaWebSocket, RECONNECT_DELAY)
     }
     else {
-      console.error('❌ Max reconnection attempts reached')
+      console.error('❌ Max reconnection attempts reached (stock stream)')
       reconnectAttempts = 0
     }
   }
 
   state.alpacaWebSocket = createAlpacaWebSocket(
-    handleMessage,
+    (msg) => routeMarketMessage(msg, 'stock'),
     handleAuthenticated,
     handleError,
     handleClose
   )
 }
 
-async function broadcastPriceUpdate(symbol, price) {
-  const stockData = state.allStocks.find(s => s.symbol === symbol)
+export function connectAlpacaCryptoWebSocket() {
+  if (IS_SIMULATION) return
+  if (!ALPACA_CRYPTO_DATA_STREAM_URL) {
+    console.warn('⚠️ ALPACA_CRYPTO_DATA_STREAM_URL not set; skipping crypto stream')
+    return
+  }
+
+  const handleAuthenticated = () => {
+    isCryptoStreamAuthenticated = true
+    cryptoReconnectAttempts = 0
+    const cryptos = subscribedCryptoStreamSymbols()
+    if (cryptos.length > 0) subscribeToCryptoStreamChannels(state.alpacaCryptoWebSocket, cryptos)
+    state.alpacaCryptoStreamReady = true
+    maybeStopOrStartPricePolling()
+  }
+
+  const handleError = (error) => {
+    console.error('❌ Alpaca crypto WebSocket error:', error)
+  }
+
+  const handleClose = () => {
+    cleanupAlpacaCryptoConnection()
+    if (cryptoReconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      cryptoReconnectAttempts++
+      console.log(`🔄 Reconnecting crypto stream in ${RECONNECT_DELAY / 1000}s... (${cryptoReconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
+      setTimeout(connectAlpacaCryptoWebSocket, RECONNECT_DELAY)
+    }
+    else {
+      console.error('❌ Max reconnection attempts reached (crypto stream)')
+      cryptoReconnectAttempts = 0
+    }
+  }
+
+  state.alpacaCryptoWebSocket = createAlpacaWebSocket(
+    (msg) => routeMarketMessage(msg, 'crypto'),
+    handleAuthenticated,
+    handleError,
+    handleClose,
+    ALPACA_CRYPTO_DATA_STREAM_URL
+  )
+}
+
+async function broadcastPriceUpdate(symbol, price, { tradeSize } = {}) {
+  const stockData = state.allStocks.find(s => tradableSymbolsEquivalent(s.symbol, symbol))
+  const sizeNum = tradeSize != null && Number.isFinite(Number(tradeSize)) ? Number(tradeSize) : null
+  const tradePayload = sizeNum != null && sizeNum > 0 ? { tradeSize: sizeNum } : {}
+
   if (stockData) {
     try {
       const marketStatus = await getStockMarketStatus(stockData)
@@ -465,6 +593,7 @@ async function broadcastPriceUpdate(symbol, price) {
         type: 'price',
         symbol,
         price,
+        ...tradePayload,
         currency: stockData.currency || 'USD',
         currencySymbol: stockData.currencySymbol || '$',
         marketState: marketStatus.status,
@@ -480,17 +609,34 @@ async function broadcastPriceUpdate(symbol, price) {
         type: 'price',
         symbol,
         price,
+        ...tradePayload,
         currency: stockData.currency || 'USD',
         currencySymbol: stockData.currencySymbol || '$',
         timestamp: new Date().toISOString()
       })
     }
   }
+  else if (isCryptoStreamSymbol(symbol)) {
+    broadcast({
+      type: 'price',
+      symbol,
+      price,
+      ...tradePayload,
+      currency: 'USD',
+      currencySymbol: '$',
+      marketState: 'open',
+      marketMessage: 'Crypto — 24/7',
+      nextOpen: null,
+      nextClose: null,
+      timestamp: new Date().toISOString()
+    })
+  }
 }
 
 export function disconnectAlpacaWebSocket() {
-  console.log('🔌 Disconnecting from Alpaca WebSocket...')
+  console.log('🔌 Disconnecting from Alpaca WebSockets...')
   cleanupAlpacaConnection()
+  cleanupAlpacaCryptoConnection()
 }
 
 // Simulation Functions.

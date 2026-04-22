@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { ALPACA_BASE_URL, ALPACA_API_BASE_URL, HEADERS, IS_SIMULATION, state } from './config.js'
+import { isCryptoStreamSymbol } from './utils/tradable-symbol.js'
 import { getEasternTime, getCurrencyInfo, sleep, withRateLimitBackoff } from './utils.js'
 import { getMockPrice, initializeMockPrices, getMockTradableStocks, generateMockHistoricalData, generateMockHistoricalDataByRange } from './simulation.js'
 import * as AlpacaClient from './clients/alpaca-client.js'
@@ -1663,12 +1664,20 @@ export async function getMarketClock(forceFresh = false) {
 // --------------------------------------------------------
 let lastPollTime = 0
 
+function liveStreamsCoverPricePolling(symbols) {
+  const list = symbols instanceof Set ? [...symbols] : [...(symbols || [])]
+  const needsStock = list.some(s => !isCryptoStreamSymbol(s))
+  const needsCrypto = list.some(s => isCryptoStreamSymbol(s))
+  const stockOk = !needsStock || (state.alpacaWebSocket?.readyState === 1 && state.alpacaStockStreamReady)
+  const cryptoOk = !needsCrypto || (state.alpacaCryptoWebSocket?.readyState === 1 && state.alpacaCryptoStreamReady)
+  return stockOk && cryptoOk
+}
+
 export function startPricePolling(subscribedStocks, broadcast) {
   if (IS_SIMULATION || isPollingActive) return
 
-  // Don't start polling if WebSocket is connected and active.
-  if (state.alpacaWebSocket && state.alpacaWebSocket.readyState === 1) {
-    console.log('🔄 WebSocket is active - skipping price polling to avoid conflicts')
+  if (liveStreamsCoverPricePolling(subscribedStocks)) {
+    console.log('🔄 Alpaca streams already cover subscriptions — skipping price polling')
     return
   }
 

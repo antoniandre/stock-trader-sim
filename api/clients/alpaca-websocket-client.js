@@ -1,17 +1,17 @@
 import WebSocket from 'ws'
-import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION, state } from '../config.js'
+import { ALPACA_DATA_STREAM_URL, ALPACA_KEY, ALPACA_SECRET, IS_SIMULATION } from '../config.js'
 
 // Alpaca WebSocket Client.
 // --------------------------------------------------------
 // Handles real-time market data streaming from Alpaca.
 // This isolates Alpaca-specific WebSocket logic for easy migration.
 
-export function createAlpacaWebSocket(onMessage, onAuthenticated, onError, onClose) {
+export function createAlpacaWebSocket(onMessage, onAuthenticated, onError, onClose, streamUrl = ALPACA_DATA_STREAM_URL) {
   if (IS_SIMULATION) return null
 
   try {
-    console.log('🔌 Connecting to Alpaca WebSocket stream...')
-    const ws = new WebSocket(ALPACA_DATA_STREAM_URL)
+    console.log('🔌 Connecting to Alpaca WebSocket stream...', streamUrl)
+    const ws = new WebSocket(streamUrl)
 
     ws.on('open', () => {
       console.log('✅ Connected to Alpaca WebSocket stream')
@@ -135,19 +135,47 @@ export function subscribeToSymbols(ws, symbols, { barSymbols } = {}) {
     return false
   }
 
-  const subscribeMessage = {
-    action: 'subscribe',
-    trades: symbols,
-    quotes: symbols
-  }
+  const tradesQuotes = [...new Set((symbols || []).map(s => String(s).trim()).filter(Boolean))]
+  const bars = barSymbols && barSymbols.length > 0
+    ? [...new Set(barSymbols.map(s => String(s).trim()).filter(Boolean))]
+    : []
 
-  // Stock v2/iex WebSocket expects minute bars as plain symbols (not *@1Min.* — that triggers 400 invalid syntax).
-  if (barSymbols && barSymbols.length > 0) {
-    subscribeMessage.bars = [...new Set(barSymbols.map(s => String(s).trim()).filter(Boolean))]
+  const subscribeMessage = { action: 'subscribe' }
+  if (tradesQuotes.length) {
+    subscribeMessage.trades = tradesQuotes
+    subscribeMessage.quotes = tradesQuotes
+  }
+  if (bars.length) subscribeMessage.bars = bars
+
+  if (!subscribeMessage.trades && !subscribeMessage.bars) {
+    console.log('📡 Skip stock-stream subscribe (no symbols)')
+    return true
   }
 
   ws.send(JSON.stringify(subscribeMessage))
-  console.log(`📡 Subscribed to trades and quotes for:`, symbols, barSymbols?.length ? `(+ ${barSymbols.length} 1Min bar feeds)` : '')
+  console.log(`📡 Subscribed to trades/quotes/bars:`, subscribeMessage)
+  return true
+}
+
+/** Alpaca crypto US stream: trades + quotes for `BASE/QUOTE` symbols (no stock-style `bars` merge here). */
+export function subscribeToCryptoStreamChannels(ws, symbols) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    console.warn('⚠️ Cannot subscribe crypto - WebSocket not open')
+    return false
+  }
+  const sym = [...new Set((symbols || []).map(s => String(s).trim()).filter(Boolean))]
+  if (!sym.length) return true
+  ws.send(JSON.stringify({ action: 'subscribe', trades: sym, quotes: sym }))
+  console.log('📡 Subscribed crypto stream trades+quotes:', sym)
+  return true
+}
+
+export function unsubscribeFromCryptoStreamChannels(ws, symbols) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false
+  const sym = [...new Set((symbols || []).map(s => String(s).trim()).filter(Boolean))]
+  if (!sym.length) return true
+  ws.send(JSON.stringify({ action: 'unsubscribe', trades: sym, quotes: sym }))
+  console.log('📡 Unsubscribed crypto stream:', sym)
   return true
 }
 
@@ -158,14 +186,17 @@ export function unsubscribeFromSymbols(ws, symbols) {
     return false
   }
 
+  const tradesQuotes = [...new Set((symbols || []).map(s => String(s).trim()).filter(Boolean))]
+  if (!tradesQuotes.length) return true
+
   const unsubscribeMessage = {
     action: 'unsubscribe',
-    trades: symbols,
-    quotes: symbols
+    trades: tradesQuotes,
+    quotes: tradesQuotes
   }
 
   ws.send(JSON.stringify(unsubscribeMessage))
-  console.log(`📡 Unsubscribed from trades and quotes for:`, symbols)
+  console.log(`📡 Unsubscribed from trades and quotes for:`, tradesQuotes)
   return true
 }
 
