@@ -1425,13 +1425,28 @@ export function createRestApiRoutes() {
   // Place a market or limit order (simulation or Alpaca paper/live per .env).
   app.post('/api/orders', requireMutationAuth, async (req, res) => {
     try {
-      const orderIntent = normalizeOrderIntent(req.body || {})
+      let orderIntent = normalizeOrderIntent(req.body || {})
       if (orderIntentRequiresStopFeature(orderIntent) && !FEATURE_FLAGS.stopOrders) {
         return res.status(403).json({ error: 'Stop / stop-loss orders are disabled in this deployment.' })
       }
 
       const venue = await cryptoVenueMeta(orderIntent)
       const referencePrice = await getPrice(venue.venueSymbol).catch(() => 0)
+
+      // Bot buy orders may pass stopLossPct instead of an explicit stopPrice.  Compute
+      // the bracket stop from the current market price so the stop is submitted atomically
+      // with the opening leg — this protects the position even if the process crashes.
+      if (
+        orderIntent.side === 'buy'
+        && orderIntent.stopPrice == null
+        && FEATURE_FLAGS.stopOrders
+      ) {
+        const slPct = Number(req.body?.stopLossPct ?? req.body?.stopLossPercent)
+        if (Number.isFinite(slPct) && slPct > 0 && slPct < 50 && referencePrice > 0) {
+          orderIntent = { ...orderIntent, stopPrice: +(referencePrice * (1 - slPct / 100)).toFixed(2) }
+        }
+      }
+
       const intentAtVenue = { ...orderIntent, symbol: venue.venueSymbol }
       const validation = validateOrderIntent(intentAtVenue, { referencePrice })
       if (!validation.valid) {
