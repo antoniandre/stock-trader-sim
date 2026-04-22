@@ -31,7 +31,10 @@ const CAPITAL       = 100_000
 const DAILY_LOSS_LIMIT_PCT = 5.0
 const SLIPPAGE_PCT  = 0.03   // 3 bps each way — models realistic market-order fill cost
 
-const SYMBOLS = ['SPY', 'QQQ', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'AMZN', 'META', 'GOOGL', 'AMD']
+// AMD removed: too volatile for a 1.2% stop — RSI > 80 breakout entries get stopped in minutes
+// (see BOT-TRADE-REPORT-2026-04-23: AMD 47.83% WR, -$972 on 23 trades).
+// GOOGL moved up: 91.67% WR — should always be in the pool.
+const SYMBOLS = ['SPY', 'QQQ', 'NVDA', 'GOOGL', 'TSLA', 'AAPL', 'MSFT', 'AMZN', 'META']
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function round2(v) { return Math.round((+v + Number.EPSILON) * 100) / 100 }
@@ -482,8 +485,8 @@ async function main() {
     console.error(`    WARN: SPY fetch failed (${err.message}) — breadth filter disabled`)
   }
 
+  // Fetch ALL symbols before cutting to 100 so no symbol is systematically skipped.
   for (const sym of SYMBOLS) {
-    if (allTrades.length >= 100) break
     process.stdout.write(`  Fetching ${sym} ... `)
     try {
       const bars = await fetchBars(sym, startDate, endDate)
@@ -512,7 +515,8 @@ async function main() {
 
   const runDate  = new Date().toISOString()
   const report   = generateReport(final100, runDate)
-  const dateSlug = runDate.slice(0, 10)
+  // Use local calendar date for the filename so re-runs on the same UTC day don't collide.
+  const dateSlug = new Date().toLocaleDateString('en-CA')
   const outDir   = join(__dirname, '../docs/reports')
   mkdirSync(outDir, { recursive: true })
   const outPath  = join(outDir, `BOT-TRADE-REPORT-${dateSlug}.md`)

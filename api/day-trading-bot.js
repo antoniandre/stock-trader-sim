@@ -189,6 +189,8 @@ export function evaluateDayTradingDecision(input = {}) {
 
   // RSI > 80 into a plain trend setup = chasing overbought momentum. Breakout setups
   // can sustain elevated RSI on genuine volume expansion, so they are exempt.
+  // NOTE: AMD-style volatile stocks fail at RSI ≥ 85 breakouts, but that is handled
+  // by excluding AMD from the symbol list rather than a blanket rule that hurts META.
   const rsiBadForTrendEntry = rsi14 > 80 && setup === 'trend'
 
   // External context inputs for market-breadth and volatility filters.
