@@ -1191,6 +1191,35 @@ const lastBarOHLC = computed(() => {
   return null
 })
 
+/** Last bar ordinal x + close for a dashed current-price segment (from last bar to plot right edge). */
+const lastTickGuide = computed(() => {
+  const enhanced = props.chartType === 'line' ? enhancedLineChartData.value : enhancedCandlestickChartData.value
+  const mainDataset = enhanced?.datasets?.find(ds => !OVERLAY_LABELS.has(ds.label)) || enhanced?.datasets?.[0]
+  const last = mainDataset?.data?.[mainDataset.data.length - 1]
+  if (!last || last.x == null || !Number.isFinite(Number(last.x))) return null
+
+  let open
+  let close
+  if (props.chartType === 'line') {
+    const y = last.y
+    if (!Number.isFinite(y) || y <= 0) return null
+    open = y
+    close = y
+  }
+  else {
+    const ohlc = ohlcFromCandlePoint(last)
+    if (!ohlc || !Number.isFinite(ohlc.close) || ohlc.close <= 0) return null
+    open = ohlc.open
+    close = ohlc.close
+  }
+
+  return {
+    x: Number(last.x),
+    price: close,
+    bullish: close >= open
+  }
+})
+
 const displayOHLC = computed(() => hoverOHLC.value ?? lastBarOHLC.value)
 
 const ohlcDisplayColorClass = computed(() => {
@@ -1749,8 +1778,55 @@ const createEntryPricePlugin = () => ({
   }
 })
 
+// Match volume bar convention: green up / red down (see enhancedCandlestickChartData volume colors).
+const LAST_TICK_LINE_UP = '#22c55e'
+const LAST_TICK_LINE_DOWN = '#ef4444'
+
+const createLastTickPricePlugin = () => ({
+  id: 'lastTickPriceLine',
+  afterDraw: chart => {
+    const g = lastTickGuide.value
+    if (!g) return
+
+    const xScale = chart.scales.x
+    const yScale = chart.scales.y
+    const chartArea = chart.chartArea
+    if (!xScale || !yScale || !chartArea) return
+
+    const xMin = xScale.min
+    const xMax = xScale.max
+    if (g.x < xMin || g.x > xMax) return
+
+    const y = yScale.getPixelForValue(g.price)
+    if (!Number.isFinite(y) || y < chartArea.top || y > chartArea.bottom) return
+
+    const xCenter = xScale.getPixelForValue(g.x)
+    if (!Number.isFinite(xCenter)) return
+
+    let xStart = xCenter
+    const xPrev = g.x > xMin ? xScale.getPixelForValue(g.x - 1) : null
+    const xNext = g.x < xMax ? xScale.getPixelForValue(g.x + 1) : null
+    if (Number.isFinite(xPrev)) xStart = xCenter - (xCenter - xPrev) * 0.45
+    else if (Number.isFinite(xNext)) xStart = xCenter - (xNext - xCenter) * 0.45
+    else xStart = xCenter - Math.max(4, (chartArea.right - chartArea.left) * 0.015)
+
+    xStart = Math.max(chartArea.left, Math.min(xStart, chartArea.right - 2))
+
+    const ctx = chart.ctx
+    ctx.save()
+    ctx.strokeStyle = g.bullish ? LAST_TICK_LINE_UP : LAST_TICK_LINE_DOWN
+    ctx.setLineDash([3, 3])
+    ctx.lineWidth = 0.5
+    ctx.beginPath()
+    ctx.moveTo(chartArea.left, y)
+    ctx.lineTo(chartArea.right, y)
+    ctx.stroke()
+    ctx.restore()
+  }
+})
+
 // Synchronized chart options for each pane.
-const entryPricePlugins = [createEntryPricePlugin()]
+const entryPricePlugins = [createEntryPricePlugin(), createLastTickPricePlugin()]
 
 const synchronizedLineChartOptions = computed(() => {
   const yConfig = manualYRange.value.min !== null
