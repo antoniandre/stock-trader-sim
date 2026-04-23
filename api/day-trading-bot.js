@@ -5,7 +5,7 @@ import { formatTradingDayKey, getDailyCatalystForSymbol, summarizeCatalystRow } 
 // feeds nowMs per-candle — any small EST offset just shifts the effective cutoff by 1 h,
 // which is still well within the safe zone for avoiding extended-hours entries.
 const SESSION_OPEN_UTC_MIN       = 13 * 60 + 30   // 9:30 AM EDT = 13:30 UTC
-const SESSION_LAST_ENTRY_UTC_MIN = 19 * 60 + 30   // 3:30 PM EDT = 19:30 UTC (30-min buffer before EOD)
+const SESSION_LAST_ENTRY_UTC_MIN = 18 * 60         // 2:00 PM EDT = 18:00 UTC — cut off power-hour entries (0% WR)
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
@@ -466,11 +466,27 @@ export function evaluateDayTradingDecision(input = {}) {
       reasons.push(`Break-even stop: reached 1R then retreated to entry (${round(currentPrice)} ≤ ${round(avgEntryPrice)})`)
     }
 
-    // STAGNATION EXIT: free capital from dead-money positions after 60 min of no progress.
-    // A position that hasn't moved ±0.35% after 60 min rarely resolves well — exit early.
-    if (action === 'hold' && positionElapsedMs > 60 * 60 * 1000 && Math.abs(unrealizedPnLPct) < 0.35) {
+    // EARLY REVERSAL EXIT: cut losers before the full stop fires.
+    // Evidence: TSLA -$300 in 30min, GOOGL -$174 in 20min — waiting for 1.2% stop was too slow.
+    if (action === 'hold' && positionElapsedMs > 20 * 60 * 1000 && unrealizedPnLPct < -0.6) {
       action = 'exit'
-      reasons.push(`Stagnation exit: position flat (${round(unrealizedPnLPct)}%) after ${Math.round(positionElapsedMs / 60000)} min`)
+      reasons.push(`Early reversal exit: -${round(Math.abs(unrealizedPnLPct))}% after ${Math.round(positionElapsedMs / 60000)} min (pre-stop cut)`)
+    }
+
+    // STAGNATION EXIT: asymmetric — cut losers at 45 min, let winners run to 75 min.
+    // Data: timeout exits were best (81% WR, +$58 avg); stagnation was cutting winners at 39% of
+    // stagnation trades that were actually profitable. Losers (0% P&L after 45 min) rarely recover.
+    if (action === 'hold') {
+      const min45 = 45 * 60 * 1000
+      const min75 = 75 * 60 * 1000
+      if (unrealizedPnLPct < 0 && positionElapsedMs > min45 && Math.abs(unrealizedPnLPct) < 0.8) {
+        action = 'exit'
+        reasons.push(`Stagnation exit (loser): ${round(unrealizedPnLPct)}% after ${Math.round(positionElapsedMs / 60000)} min`)
+      }
+      else if (unrealizedPnLPct >= 0 && positionElapsedMs > min75 && unrealizedPnLPct < 0.2) {
+        action = 'exit'
+        reasons.push(`Stagnation exit (flat winner): ${round(unrealizedPnLPct)}% after ${Math.round(positionElapsedMs / 60000)} min`)
+      }
     }
 
     // EOD FORCE-CLOSE: flatten 10 min before US regular-session close (19:50 UTC = 3:50 PM EDT).
