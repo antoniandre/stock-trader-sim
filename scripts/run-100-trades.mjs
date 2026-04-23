@@ -70,6 +70,27 @@ function macd(prices) {
   return ema(prices, 12) - ema(prices, 26)
 }
 
+// 14-period ATR as % of close (True Range = max(H−L, |H−prevC|, |L−prevC|))
+function atr14Pct(candles, idx) {
+  if (idx < 1) return 0
+  let total = 0, count = 0
+  for (let i = Math.max(1, idx - 13); i <= idx; i++) {
+    const h = candles[i].high, l = candles[i].low, pc = candles[i - 1].close
+    total += Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc))
+    count++
+  }
+  const cl = candles[idx].close
+  return cl > 0 && count > 0 ? round4((total / count) / cl * 100) : 0
+}
+
+// 15-min trend: EMA5 > EMA10 on resampled 15-min closes (every 3rd 5-min bar)
+function tf15BullishAt(candles, idx) {
+  const closes = []
+  for (let k = idx; k >= 0 && closes.length < 15; k -= 3) closes.unshift(candles[k].close)
+  if (closes.length < 10) return null
+  return ema(closes, 5) > ema(closes, 10)
+}
+
 // VWAP uses high/low/close + volume for the current trading day
 function vwap(dayCandles) {
   let tpv = 0, vol = 0
@@ -122,6 +143,27 @@ function buildADRMap(candles, dayStartIdx) {
   return adrMap
 }
 
+// ── ORB map: date → { high, low } of first-30-min range (13:30–14:00 UTC) ────
+function buildOrbMap(candles, dayStartIdx) {
+  const map = new Map()
+  for (const [date, startIdx] of dayStartIdx.entries()) {
+    let orbHigh = 0, orbLow = Infinity, found = false
+    for (let i = startIdx; i < candles.length; i++) {
+      const c = candles[i]
+      if (c.timestamp.slice(0, 10) !== date) break
+      const d = new Date(c.timestamp)
+      const utcMin = d.getUTCHours() * 60 + d.getUTCMinutes()
+      if (utcMin < 13 * 60 + 30) continue   // before regular open
+      if (utcMin >= 14 * 60) break           // after first 30 min
+      orbHigh = Math.max(orbHigh, c.high)
+      orbLow  = Math.min(orbLow, c.low)
+      found = true
+    }
+    map.set(date, found ? { high: round2(orbHigh), low: round2(orbLow) } : { high: 0, low: 0 })
+  }
+  return map
+}
+
 // ── SPY short-trend map: timestamp → SPY 5-bar % change ──────────────────────
 function buildSpyTrendMap(spyCandles) {
   const map = new Map()
@@ -145,6 +187,8 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
   let entryIndicators = null
   let dailyLosses = 0
   let lastDate = null
+  let consecutiveLosses = 0  // circuit breaker: resets on win or new day
+  let pauseUntilMs = 0       // no new entries until this timestamp
 
   // Pre-build a date→candle-index map so VWAP slices are O(1) not O(n²)
   const dayStartIdx = new Map()
@@ -154,14 +198,16 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
   }
 
   const adrMap = buildADRMap(candles, dayStartIdx)
+  const orbMap = buildOrbMap(candles, dayStartIdx)
 
   for (let i = 30; i < candles.length; i++) {
     const c = candles[i]
     const currentDate = c.timestamp.slice(0, 10)
 
-    // Reset daily P&L tracker at start of new session
+    // Reset daily P&L tracker and circuit breaker at start of new session
     if (currentDate !== lastDate) {
       dailyLosses = 0
+      consecutiveLosses = 0
       lastDate = currentDate
     }
 
@@ -182,6 +228,11 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
 
     const adrPctVal   = adrMap.get(currentDate) ?? 0
     const spyTrendVal = symbol !== 'SPY' ? (spyTrendMap.get(c.timestamp) ?? 0) : 0
+    const atrPctVal   = atr14Pct(candles, i)
+    const orb         = orbMap.get(currentDate) ?? { high: 0, low: 0 }
+    const tf15        = tf15BullishAt(candles, i)
+    const nowMsLocal  = new Date(c.timestamp).getTime()
+    const circuitBreakerVal = consecutiveLosses >= 2 && nowMsLocal < pauseUntilMs
 
     const decision = evaluateDayTradingDecision({
       symbol,
@@ -194,13 +245,18 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
       positionQty: posQty,
       avgEntryPrice: avgEntry,
       positionOpenedAt: entryTime,
-      nowMs: new Date(c.timestamp).getTime(),
+      nowMs: nowMsLocal,
       accountEquity: equity,
       dailyLossesPct,
       vwap: vwapVal,
       highWatermarkPrice: highWatermark,
       adrPct: adrPctVal,
       spyTrendPct: spyTrendVal,
+      atrPct: atrPctVal,
+      orbHigh: orb.high,
+      orbLow: orb.low,
+      tf15Bullish: tf15,
+      circuitBreakerActive: circuitBreakerVal,
       currentCandleOpen: c.open,
       disableDailyCatalyst: true
     })
@@ -297,6 +353,16 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
         volRatio: savedMeta.volRatio,
         status: pnlUsd >= 0 ? 'WIN' : 'LOSS'
       })
+
+      // Circuit breaker: 2 consecutive losses → pause new entries for 30 min
+      if (decision.action === 'exit') {
+        if (pnlUsd < 0) {
+          consecutiveLosses++
+          if (consecutiveLosses >= 2) pauseUntilMs = nowMsLocal + 30 * 60 * 1000
+        } else {
+          consecutiveLosses = 0
+        }
+      }
     }
   }
 

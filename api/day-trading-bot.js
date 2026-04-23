@@ -175,6 +175,12 @@ export function evaluateDayTradingDecision(input = {}) {
   // High-watermark for trailing stop (caller tracks the highest price since entry)
   const highWatermarkPrice = Number(input.highWatermarkPrice ?? 0)
 
+  // ATR-based dynamic stop: normalize stop distance to actual symbol/day volatility.
+  // 3.0× the 5-min ATR gives ~1 full average bar of room; clamped so it can't go below
+  // the minimum meaningful stop (0.7%) or above a sensible max (2.0%).
+  const atrPct = Number(input.atrPct ?? 0)
+  const dynamicStopPct = atrPct > 0 ? clamp(atrPct * 3.0, 0.7, 2.0) : profile.stopLossPct
+
   // Daily loss limit enforcement — block new entries when limit reached.
   const dailyLossesPct = Number(input.dailyLossesPct ?? 0)
   const dailyLossLimitReached = profile.dailyLossLimitPct > 0 && dailyLossesPct >= profile.dailyLossLimitPct
@@ -217,6 +223,15 @@ export function evaluateDayTradingDecision(input = {}) {
   //    Require the signal candle to close above its open for trend/breakout entries.
   const currentCandleOpen = Number(input.currentCandleOpen ?? 0)
   const bearishCandleGate = currentCandleOpen > 0 && currentPrice < currentCandleOpen && setup !== 'mean-revert'
+
+  // Structural context inputs.
+  // Opening Range Breakout: first-30-min high/low (only valid after 14:00 UTC / 10am ET).
+  const orbHigh = Number(input.orbHigh ?? 0)
+  const orbLow  = Number(input.orbLow  ?? 0)
+  // 15-min trend: EMA5 > EMA10 on resampled closes. null = insufficient history (no penalty).
+  const tf15Bullish = 'tf15Bullish' in input ? input.tf15Bullish : null
+  // Circuit breaker: set by caller after 2 consecutive losses on this symbol.
+  const circuitBreakerActive = Boolean(input.circuitBreakerActive ?? false)
 
   // External context inputs for market-breadth and volatility filters.
   const adrPct = Number(input.adrPct ?? 0)           // caller: 5-day avg daily range as % of close
@@ -283,6 +298,26 @@ export function evaluateDayTradingDecision(input = {}) {
   // ADR: if the typical daily range is too tight to reach the reward target, quality is lower.
   if (adrPct > 0 && adrPct < profile.rewardTargetPct * 1.2) entryScore -= 8
 
+  // ORB: price position relative to the session's first-30-min range.
+  // Above ORB high = confirmed directional break with institutional order flow.
+  // Below ORB low = bearish structure — no long entries.
+  if (orbHigh > 0 && orbLow > 0) {
+    const orbMid = (orbHigh + orbLow) / 2
+    if (currentPrice > orbHigh)     entryScore += 12  // ORB breakout: strong momentum confirmation
+    else if (currentPrice > orbMid) entryScore += 3   // above midpoint: mild bullish
+    else if (currentPrice > orbLow) entryScore -= 8   // below midpoint: inside range, no conviction
+    else                            entryScore -= 16  // below ORB low: bearish structure
+  }
+
+  // 15-min trend: higher-timeframe EMA direction filters counter-trend 5-min entries.
+  // Most intraday losses come from fighting the HTF trend — this explicitly penalises them.
+  if (tf15Bullish === true) {
+    entryScore += 8
+  } else if (tf15Bullish === false) {
+    entryScore -= 12
+    if (setup === 'trend') entryScore -= 4  // trend entries against HTF are doubly suppressed
+  }
+
   const dailyCatalystRow = input.disableDailyCatalyst
     ? null
     : ('dailyCatalyst' in input ? input.dailyCatalyst : getDailyCatalystForSymbol(input.symbol))
@@ -331,6 +366,7 @@ export function evaluateDayTradingDecision(input = {}) {
   if (spyTrendPct < -0.3) riskScore += 8
   if (spyTrendPct < -0.8) riskScore += 10  // strong sell pressure: cumulative +18
   if (spyTrendPct < -1.2) riskScore += 15  // freefall: cumulative +33, pushes past maxRiskScoreForEntry
+  if (orbHigh > 0 && currentPrice <= orbLow) riskScore += 12  // below ORB low = confirmed bearish structure
   riskScore = clamp(riskScore, 0, 100)
 
   const managementScore = clamp(
@@ -395,6 +431,10 @@ export function evaluateDayTradingDecision(input = {}) {
       action = 'wait'
       reasons.push(`RSI ${round(rsi14)} > 80 in a trend setup — chasing overbought momentum; waiting for RSI to cool below 80`)
     }
+    else if (circuitBreakerActive) {
+      action = 'wait'
+      reasons.push('Circuit breaker: 2 consecutive losses on this symbol — pausing new entries for 30 min')
+    }
     else if (vwapBearishGate) {
       action = 'wait'
       reasons.push(`VWAP gate: price is ${round(Math.abs(vwapDevPct))}% below VWAP — no trend/breakout longs against institutional distribution`)
@@ -419,7 +459,7 @@ export function evaluateDayTradingDecision(input = {}) {
     }
   }
   else {
-    const stopTriggered = unrealizedPnLPct <= -profile.stopLossPct
+    const stopTriggered = unrealizedPnLPct <= -dynamicStopPct
     const takeProfitZone = unrealizedPnLPct >= profile.rewardTargetPct
     const positionElapsedMs = input.positionOpenedAt ? (nowMs - input.positionOpenedAt) : 0
 
@@ -433,7 +473,7 @@ export function evaluateDayTradingDecision(input = {}) {
     }
     // 1R PARTIAL EXIT: take profits at 1× stop when momentum is already fading —
     // locks in a partial win rather than waiting for 2R that may never come.
-    else if (unrealizedPnLPct >= profile.stopLossPct && !takeProfitZone && shortTrendPct < 0.1) {
+    else if (unrealizedPnLPct >= dynamicStopPct && !takeProfitZone && shortTrendPct < 0.1) {
       action = 'trim'
       reasons.push(`1R partial exit: ${round(unrealizedPnLPct)}% gain with fading momentum — locking partial profit`)
     }
@@ -500,7 +540,7 @@ export function evaluateDayTradingDecision(input = {}) {
     // treat entry price as the new floor. Any pullback to entry triggers an exit — prevents
     // a trade that was winning from becoming a loser.
     if (action === 'hold'
-        && highWatermarkPrice >= avgEntryPrice * (1 + profile.stopLossPct / 100)
+        && highWatermarkPrice >= avgEntryPrice * (1 + dynamicStopPct / 100)
         && currentPrice <= avgEntryPrice * 1.001) {
       action = 'exit'
       reasons.push(`Break-even stop: reached 1R then retreated to entry (${round(currentPrice)} ≤ ${round(avgEntryPrice)})`)
@@ -508,7 +548,7 @@ export function evaluateDayTradingDecision(input = {}) {
 
     // EARLY REVERSAL EXIT: cut losers before the full stop fires.
     // Evidence: TSLA -$300 in 30min, GOOGL -$174 in 20min — waiting for 1.2% stop was too slow.
-    if (action === 'hold' && positionElapsedMs > 20 * 60 * 1000 && unrealizedPnLPct < -0.6) {
+    if (action === 'hold' && positionElapsedMs > 20 * 60 * 1000 && unrealizedPnLPct < -(dynamicStopPct * 0.5)) {
       action = 'exit'
       reasons.push(`Early reversal exit: -${round(Math.abs(unrealizedPnLPct))}% after ${Math.round(positionElapsedMs / 60000)} min (pre-stop cut)`)
     }
@@ -564,7 +604,7 @@ export function evaluateDayTradingDecision(input = {}) {
   // BUILD LIVE TRACING OBJECT
   const positionAge = input.positionOpenedAt ? Math.round(((nowMs - input.positionOpenedAt) / (5 * 60 * 1000))) : null
   const positionElapsedMs = input.positionOpenedAt ? (nowMs - input.positionOpenedAt) : 0
-  const stopLossPct = profile.stopLossPct
+  const stopLossPct = dynamicStopPct
   const profitTargetPct = profile.rewardTargetPct
   const entryPriceForTrace = positionQty > 0 ? avgEntryPrice : null
   const stopLossPriceForTrace = entryPriceForTrace ? entryPriceForTrace * (1 - stopLossPct / 100) : null
@@ -609,7 +649,7 @@ export function evaluateDayTradingDecision(input = {}) {
 
   const executionPlan = {
     positionSizePct: round(positionSizePct * 100),
-    stopLossPct: round(profile.stopLossPct + Number(strategyParams.stopLossAdj || 0)),
+    stopLossPct: round(dynamicStopPct + Number(strategyParams.stopLossAdj || 0)),
     trailingStopPct: profile.trailingStopPct,
     trimFraction: profile.trimFraction,
     rewardTargetPct: round(profile.rewardTargetPct + Number(strategyParams.rewardAdj || 0))
