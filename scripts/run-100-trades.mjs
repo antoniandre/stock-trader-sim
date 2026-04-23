@@ -312,6 +312,7 @@ function deriveExitReason(reasons) {
   if (reasons.some(r => /stop level|stop loss|breached the stop/i.test(r))) return 'stop-loss'
   if (reasons.some(r => /timeout/i.test(r)))              return 'timeout'
   if (reasons.some(r => /risk.*trend|trend.*broke/i.test(r))) return 'risk-exit'
+  if (reasons.some(r => /early reversal/i.test(r)))           return 'early-reversal'
   return 'signal-exit'
 }
 

@@ -208,9 +208,11 @@ export function evaluateDayTradingDecision(input = {}) {
   // 1. VWAP gate: 14 below-VWAP trend/breakout entries produced -$897 gross loss.
   //    Mean-revert is exempt — it intentionally buys pullbacks below VWAP.
   const vwapBearishGate = vwap > 0 && vwapDevPct < -0.2 && setup !== 'mean-revert'
-  // 2. MACD gate: bearish histogram (line < signal) with both negative = momentum is accelerating
-  //    against us. Trades 48 (-3.37 MACD) and 49 (-2.38) produced -$272 combined.
-  const macdBearishGate = macdLine < -1.0 && macdHistogram < 0
+  // 2. MACD gate: line strongly negative means established bearish momentum.
+  //    Histogram requirement dropped — when MACD has been falling for a while the signal
+  //    line can be more negative than the MACD line, making the histogram briefly positive
+  //    even on a -3.37 MACD. Gate on the line alone.
+  const macdBearishGate = macdLine < -1.0
   // 3. Candle direction gate: buying a red bar (close < open) means entering on selling pressure.
   //    Require the signal candle to close above its open for trend/breakout entries.
   const currentCandleOpen = Number(input.currentCandleOpen ?? 0)
@@ -327,7 +329,8 @@ export function evaluateDayTradingDecision(input = {}) {
   if (vwap > 0 && vwapDevPct < -0.5) riskScore += 6  // selling below VWAP = weakness raises risk
   // SPY breadth: broad-market weakness raises risk for individual stock longs.
   if (spyTrendPct < -0.3) riskScore += 8
-  if (spyTrendPct < -0.8) riskScore += 8   // severe pressure: cumulative +16
+  if (spyTrendPct < -0.8) riskScore += 10  // strong sell pressure: cumulative +18
+  if (spyTrendPct < -1.2) riskScore += 15  // freefall: cumulative +33, pushes past maxRiskScoreForEntry
   riskScore = clamp(riskScore, 0, 100)
 
   const managementScore = clamp(
@@ -371,7 +374,10 @@ export function evaluateDayTradingDecision(input = {}) {
   }
 
   let action = 'hold'
-  const buyThreshold = profile.buyThreshold + (setup === 'mean-revert' ? -4 : 0)
+  // Trend setup WR 53% vs breakout 75% — raise the bar for plain-trend entries.
+  const buyThreshold = profile.buyThreshold
+    + (setup === 'mean-revert' ? -4 : 0)
+    + (setup === 'trend'       ?  5 : 0)
   const addThreshold = profile.addThreshold + (marketRegime === 'chop' ? 8 : 0)
   const allowNewEntry = riskScore <= profile.maxRiskScoreForEntry
     && !(marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout'))
@@ -414,17 +420,12 @@ export function evaluateDayTradingDecision(input = {}) {
   }
   else {
     const stopTriggered = unrealizedPnLPct <= -profile.stopLossPct
-    const trendBroken = shortTrendPct < -0.35
     const takeProfitZone = unrealizedPnLPct >= profile.rewardTargetPct
     const positionElapsedMs = input.positionOpenedAt ? (nowMs - input.positionOpenedAt) : 0
 
     if (stopTriggered) {
       action = 'exit'
       reasons.push('Loss breached the stop level')
-    }
-    else if (riskScore >= profile.exitThreshold && trendBroken && unrealizedPnLPct > -0.5) {
-      action = 'exit'
-      reasons.push('Risk is elevated and trend support broke')
     }
     else if (takeProfitZone && (shortTrendPct < 0.2 || momentumPct < 0.08)) {
       action = 'trim'
