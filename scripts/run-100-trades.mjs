@@ -31,10 +31,9 @@ const CAPITAL       = 100_000
 const DAILY_LOSS_LIMIT_PCT = 5.0
 const SLIPPAGE_PCT  = 0.03   // 3 bps each way — models realistic market-order fill cost
 
-// AMD removed: too volatile for a 1.2% stop — RSI > 80 breakout entries get stopped in minutes
-// (see BOT-TRADE-REPORT-2026-04-23: AMD 47.83% WR, -$972 on 23 trades).
-// GOOGL moved up: 91.67% WR — should always be in the pool.
-const SYMBOLS = ['SPY', 'QQQ', 'NVDA', 'GOOGL', 'TSLA', 'AAPL', 'MSFT', 'AMZN', 'META']
+// Removed: AMD (47.83% WR, -$972), SPY/QQQ (ETFs lack momentum edge, 0% WR, -$68),
+// AAPL (40% WR, -$62 — consistent underperformer like AMD). SPY kept only for breadth.
+const SYMBOLS = ['NVDA', 'GOOGL', 'TSLA', 'MSFT', 'AMZN', 'META']
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function round2(v) { return Math.round((+v + Number.EPSILON) * 100) / 100 }
@@ -202,6 +201,7 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
       highWatermarkPrice: highWatermark,
       adrPct: adrPctVal,
       spyTrendPct: spyTrendVal,
+      currentCandleOpen: c.open,
       disableDailyCatalyst: true
     })
 

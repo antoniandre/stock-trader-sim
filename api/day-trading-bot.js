@@ -54,10 +54,20 @@ function calculateEMA(prices, period) {
   return ema
 }
 
-// MACD line (EMA12 - EMA26); positive = bullish momentum.
+// MACD: line, signal (9-EMA of line), and histogram (line - signal).
+// Histogram direction is the real signal — not just line > 0.
 function calculateMACD(prices) {
-  if (!Array.isArray(prices) || prices.length < 26) return 0
-  return calculateEMA(prices, 12) - calculateEMA(prices, 26)
+  if (!Array.isArray(prices) || prices.length < 26) return { line: 0, signal: 0, histogram: 0 }
+  // Need enough bars to build the MACD history for the signal EMA.
+  // Compute MACD line for each of the last 35 bars, then 9-EMA of that.
+  const macdHistory = []
+  for (let i = Math.max(25, prices.length - 35); i < prices.length; i++) {
+    const slice = prices.slice(0, i + 1)
+    if (slice.length >= 26) macdHistory.push(calculateEMA(slice, 12) - calculateEMA(slice, 26))
+  }
+  const line = macdHistory.at(-1) ?? 0
+  const signal = macdHistory.length >= 9 ? calculateEMA(macdHistory, 9) : line
+  return { line, signal, histogram: line - signal }
 }
 
 export const RISK_PROFILES = {
@@ -153,7 +163,7 @@ export function evaluateDayTradingDecision(input = {}) {
   const rsi14 = calculateRSI(prices)
   const ema9 = calculateEMA(prices, 9)
   const ema21 = calculateEMA(prices, 21)
-  const macdLine = calculateMACD(prices)
+  const { line: macdLine, signal: macdSignal, histogram: macdHistogram } = calculateMACD(prices)
   const rsiOverbought = rsi14 > 70
   const rsiOversold = rsi14 < 30
   const emaBullish = ema9 > ema21
@@ -192,6 +202,19 @@ export function evaluateDayTradingDecision(input = {}) {
   // NOTE: AMD-style volatile stocks fail at RSI ≥ 85 breakouts, but that is handled
   // by excluding AMD from the symbol list rather than a blanket rule that hurts META.
   const rsiBadForTrendEntry = rsi14 > 80 && setup === 'trend'
+
+  // HARD GATES — these block entries regardless of score.
+  // Evidence from 100-trade analysis (2026-04-23):
+  // 1. VWAP gate: 14 below-VWAP trend/breakout entries produced -$897 gross loss.
+  //    Mean-revert is exempt — it intentionally buys pullbacks below VWAP.
+  const vwapBearishGate = vwap > 0 && vwapDevPct < -0.2 && setup !== 'mean-revert'
+  // 2. MACD gate: bearish histogram (line < signal) with both negative = momentum is accelerating
+  //    against us. Trades 48 (-3.37 MACD) and 49 (-2.38) produced -$272 combined.
+  const macdBearishGate = macdLine < -1.0 && macdHistogram < 0
+  // 3. Candle direction gate: buying a red bar (close < open) means entering on selling pressure.
+  //    Require the signal candle to close above its open for trend/breakout entries.
+  const currentCandleOpen = Number(input.currentCandleOpen ?? 0)
+  const bearishCandleGate = currentCandleOpen > 0 && currentPrice < currentCandleOpen && setup !== 'mean-revert'
 
   // External context inputs for market-breadth and volatility filters.
   const adrPct = Number(input.adrPct ?? 0)           // caller: 5-day avg daily range as % of close
@@ -237,14 +260,18 @@ export function evaluateDayTradingDecision(input = {}) {
   if (emaBullish) entryScore += 6
   else entryScore -= 6
 
-  // MACD momentum confirmation.
-  if (macdLine > 0) entryScore += 5
-  else if (macdLine < 0) entryScore -= 5
+  // MACD: use histogram (line - signal) to detect momentum acceleration, not just direction.
+  // Histogram > 0 and rising = bulls accelerating. Histogram < 0 and falling = bears in control.
+  if (macdHistogram > 0) entryScore += 7              // bullish momentum accelerating
+  else if (macdHistogram < 0) entryScore -= 7         // bearish momentum
+  if (macdLine > 0 && macdHistogram > 0) entryScore += 3   // both confirm bullish: double reward
+  if (macdLine < 0 && macdHistogram < 0) entryScore -= 3   // double bearish confirmation
 
   // VWAP: price relative to intraday fair value — only applied when caller provides it.
   if (vwap > 0) {
-    if (vwapDevPct > 0.2) entryScore += 5             // above VWAP: trend has institutional support
-    if (vwapDevPct < -0.5) entryScore -= 8            // significantly below VWAP: avoid chasing distribution
+    if (vwapDevPct > 0.2) entryScore += 6             // above VWAP: trend has institutional support
+    if (vwapDevPct > 0.5) entryScore += 4             // well above VWAP: strong institutional buying
+    if (vwapDevPct < -0.5) entryScore -= 10           // significantly below VWAP: strong distribution signal
     else if (vwapDevPct < 0 && setup === 'mean-revert') entryScore += 4  // below VWAP + oversold = snapback opportunity
   }
 
@@ -361,6 +388,18 @@ export function evaluateDayTradingDecision(input = {}) {
     else if (rsiBadForTrendEntry) {
       action = 'wait'
       reasons.push(`RSI ${round(rsi14)} > 80 in a trend setup — chasing overbought momentum; waiting for RSI to cool below 80`)
+    }
+    else if (vwapBearishGate) {
+      action = 'wait'
+      reasons.push(`VWAP gate: price is ${round(Math.abs(vwapDevPct))}% below VWAP — no trend/breakout longs against institutional distribution`)
+    }
+    else if (macdBearishGate) {
+      action = 'wait'
+      reasons.push(`MACD gate: line ${round(macdLine)} below signal — momentum accelerating bearish, not buying into this`)
+    }
+    else if (bearishCandleGate) {
+      action = 'wait'
+      reasons.push('Candle gate: signal bar closed below open — no entries on red candles for trend/breakout setups')
     }
     else if (allowNewEntry && entryScore >= buyThreshold && (setup !== 'weak')) {
       action = 'buy'
@@ -607,6 +646,8 @@ export function evaluateDayTradingDecision(input = {}) {
       ema9: round(ema9),
       ema21: round(ema21),
       macdLine: round(macdLine),
+      macdSignal: round(macdSignal),
+      macdHistogram: round(macdHistogram),
       vwap: round(vwap),
       vwapDevPct: round(vwapDevPct),
       dailyLossesPct: round(dailyLossesPct)
