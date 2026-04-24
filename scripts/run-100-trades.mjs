@@ -30,10 +30,12 @@ const RISK_PROFILE  = 'balanced'
 const CAPITAL       = 100_000
 const DAILY_LOSS_LIMIT_PCT = 5.0
 const SLIPPAGE_PCT  = 0.03   // 3 bps each way — models realistic market-order fill cost
+const TARGET_TRADES = 300    // how many chronologically-first round-trips to report on
+const LOOKBACK_DAYS = 90     // calendar days of history to fetch
 
-// Removed: AMD (47.83% WR, -$972), SPY/QQQ (ETFs lack momentum edge, 0% WR, -$68),
-// AAPL (40% WR, -$62 — consistent underperformer like AMD). SPY kept only for breadth.
-const SYMBOLS = ['NVDA', 'GOOGL', 'TSLA', 'MSFT', 'AMZN', 'META']
+// Removed: AMD (47.83% WR, -$972), SPY/QQQ (ETFs, 0% WR), AAPL (40% WR, -$62),
+// MSFT (43.33% WR, -$553 over 90 days), NFLX (48.15% WR, -$1,281 over 90 days).
+const SYMBOLS = ['NVDA', 'GOOGL', 'TSLA', 'AMZN', 'META']
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function round2(v) { return Math.round((+v + Number.EPSILON) * 100) / 100 }
@@ -102,21 +104,32 @@ function vwap(dayCandles) {
   return vol > 0 ? tpv / vol : 0
 }
 
-// ── Alpaca data fetch ────────────────────────────────────────────────────────
+// ── Alpaca data fetch (paginated — Alpaca caps each page at 2000 bars) ────────
 async function fetchBars(symbol, start, end, tf = '5Min') {
-  const url = `${DATA_URL}/v2/stocks/${symbol}/bars?start=${start}&end=${end}&timeframe=${tf}&feed=iex&limit=2000`
-  const res = await fetch(url, {
-    headers: { 'APCA-API-KEY-ID': ALPACA_KEY, 'APCA-API-SECRET-KEY': ALPACA_SECRET }
-  })
-  if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(`Alpaca ${res.status} for ${symbol}: ${txt.slice(0, 120)}`)
+  const headers = { 'APCA-API-KEY-ID': ALPACA_KEY, 'APCA-API-SECRET-KEY': ALPACA_SECRET }
+  const allBars = []
+  let pageToken = null
+
+  while (true) {
+    const params = new URLSearchParams({ start, end, timeframe: tf, feed: 'iex', limit: '2000' })
+    if (pageToken) params.set('page_token', pageToken)
+    const url = `${DATA_URL}/v2/stocks/${symbol}/bars?${params}`
+    const res = await fetch(url, { headers })
+    if (!res.ok) {
+      const txt = await res.text()
+      throw new Error(`Alpaca ${res.status} for ${symbol}: ${txt.slice(0, 120)}`)
+    }
+    const json = await res.json()
+    const bars = (json.bars || []).map(b => ({
+      timestamp: b.t,
+      open: +b.o, high: +b.h, low: +b.l, close: +b.c, volume: +b.v
+    }))
+    allBars.push(...bars)
+    if (!json.next_page_token) break
+    pageToken = json.next_page_token
   }
-  const json = await res.json()
-  return (json.bars || []).map(b => ({
-    timestamp: b.t,
-    open: +b.o, high: +b.h, low: +b.l, close: +b.c, volume: +b.v
-  }))
+
+  return allBars
 }
 
 // ── ADR: 5-day avg (high−low)/close to measure typical daily move size ───────
@@ -373,6 +386,7 @@ function deriveExitReason(reasons) {
   if (!Array.isArray(reasons)) return 'signal-exit'
   if (reasons.some(r => /trailing stop/i.test(r)))        return 'trailing-stop'
   if (reasons.some(r => /break-even stop/i.test(r)))      return 'breakeven-stop'
+  if (reasons.some(r => /profit target exit/i.test(r)))   return 'profit-target'
   if (reasons.some(r => /stagnation exit/i.test(r)))      return 'stagnation'
   if (reasons.some(r => /EOD/i.test(r)))                  return 'eod-close'
   if (reasons.some(r => /stop level|stop loss|breached the stop/i.test(r))) return 'stop-loss'
@@ -436,7 +450,7 @@ function generateReport(trades, runDate) {
     ? `✅ **PROFITABLE** — net gain of $${netPnL} (+${netPnLPct}%) over ${total} trades`
     : `❌ **UNPROFITABLE** — net loss of $${Math.abs(netPnL)} (${netPnLPct}%) over ${total} trades`
 
-  let md = `# Bot Trade Report — 100 BUY+SELL Round-Trip Trades\n\n`
+  let md = `# Bot Trade Report — ${total} BUY+SELL Round-Trip Trades\n\n`
   md += `> **Generated:** ${runDate}  \n`
   md += `> **Risk profile:** ${RISK_PROFILE} | **Capital:** $${CAPITAL.toLocaleString()} | **Mode:** Alpaca historical 5-min bars (IEX feed)\n\n`
 
@@ -532,9 +546,9 @@ function generateReport(trades, runDate) {
 async function main() {
   const today     = new Date()
   const endDate   = today.toISOString().slice(0, 10)
-  const startDate = new Date(today - 35 * 86_400_000).toISOString().slice(0, 10)
+  const startDate = new Date(today - LOOKBACK_DAYS * 86_400_000).toISOString().slice(0, 10)
 
-  console.log(`\n=== 100-Trade Bot Simulation ===`)
+  console.log(`\n=== ${TARGET_TRADES}-Trade Bot Simulation ===`)
   console.log(`Period: ${startDate} → ${endDate}`)
   console.log(`Risk profile: ${RISK_PROFILE} | Capital: $${CAPITAL.toLocaleString()}`)
   console.log(`Daily loss limit: ${DAILY_LOSS_LIMIT_PCT}%\n`)
@@ -552,7 +566,7 @@ async function main() {
     console.error(`    WARN: SPY fetch failed (${err.message}) — breadth filter disabled`)
   }
 
-  // Fetch ALL symbols before cutting to 100 so no symbol is systematically skipped.
+  // Fetch ALL symbols before cutting to TARGET_TRADES so no symbol is systematically skipped.
   for (const sym of SYMBOLS) {
     process.stdout.write(`  Fetching ${sym} ... `)
     try {
@@ -568,20 +582,20 @@ async function main() {
     }
   }
 
-  // Sort by entry time, take first 100
+  // Sort by entry time, take first TARGET_TRADES
   allTrades.sort((a, b) => a.entryTime.localeCompare(b.entryTime))
-  const final100 = allTrades.slice(0, 100)
+  const finalTrades = allTrades.slice(0, TARGET_TRADES)
 
   console.log(`\nTotal completed trades across all symbols: ${allTrades.length}`)
-  console.log(`Reporting on: ${final100.length} trades`)
+  console.log(`Reporting on: ${finalTrades.length} trades`)
 
-  if (final100.length === 0) {
+  if (finalTrades.length === 0) {
     console.error('\nNo trades generated — check Alpaca connectivity or strategy thresholds.')
     process.exit(1)
   }
 
   const runDate  = new Date().toISOString()
-  const report   = generateReport(final100, runDate)
+  const report   = generateReport(finalTrades, runDate)
   // Use local calendar date for the filename so re-runs on the same UTC day don't collide.
   const dateSlug = new Date().toLocaleDateString('en-CA')
   const outDir   = join(__dirname, '../docs/reports')
@@ -592,10 +606,10 @@ async function main() {
   console.log(`\nReport saved → ${outPath}`)
 
   // Quick summary to stdout
-  const wins  = final100.filter(t => t.status === 'WIN').length
-  const netPnL = round2(final100.reduce((s, t) => s + t.pnlUsd, 0))
-  console.log(`\nResult: ${wins}W / ${final100.length - wins}L | Net P&L: $${netPnL}`)
-  console.log(`Win rate: ${round2(wins / final100.length * 100)}%`)
+  const wins  = finalTrades.filter(t => t.status === 'WIN').length
+  const netPnL = round2(finalTrades.reduce((s, t) => s + t.pnlUsd, 0))
+  console.log(`\nResult: ${wins}W / ${finalTrades.length - wins}L | Net P&L: $${netPnL}`)
+  console.log(`Win rate: ${round2(wins / finalTrades.length * 100)}%`)
 }
 
 main().catch(err => { console.error(err); process.exit(1) })

@@ -95,7 +95,7 @@ export const RISK_PROFILES = {
     maxPositionSizePct: 0.2,
     stopLossPct: 1.2,          // tighter stop (was 1.7%) — fires sooner, keeps losses small
     trailingStopPct: 0.8,      // trail from high-watermark (was 1.2%)
-    trimFraction: 0.4,
+    trimFraction: 0.5,         // capture half at first target (was 0.4 — too little)
     rewardTargetPct: 2.4,      // 2R target (2 × 1.2% stop) — was 1.5% which was sub-1R
     dailyLossLimitPct: 5.0
   },
@@ -410,13 +410,16 @@ export function evaluateDayTradingDecision(input = {}) {
   }
 
   let action = 'hold'
-  // Trend setup WR 53% vs breakout 75% — raise the bar for plain-trend entries.
+  // Trend WR 43-51% across 90 days — require near-breakout quality.
+  // +15 bias: balanced buyThreshold becomes 70 for trend, high enough to filter
+  // regime-dependent entries while preserving clean trending setups.
   const buyThreshold = profile.buyThreshold
     + (setup === 'mean-revert' ? -4 : 0)
-    + (setup === 'trend'       ?  5 : 0)
+    + (setup === 'trend'       ? 15 : 0)
   const addThreshold = profile.addThreshold + (marketRegime === 'chop' ? 8 : 0)
   const allowNewEntry = riskScore <= profile.maxRiskScoreForEntry
     && !(marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout'))
+    && !(marketRegime === 'mixed' && setup === 'trend')  // trend in ambiguous regime = low edge
 
   if (positionQty <= 0) {
     if (dailyLossLimitReached) {
@@ -434,6 +437,14 @@ export function evaluateDayTradingDecision(input = {}) {
     else if (circuitBreakerActive) {
       action = 'wait'
       reasons.push('Circuit breaker: 2 consecutive losses on this symbol — pausing new entries for 30 min')
+    }
+    else if (setup === 'trend' && tf15Bullish === false) {
+      action = 'wait'
+      reasons.push('HTF gate: 15-min trend is bearish — no trend entries against higher-timeframe direction')
+    }
+    else if (setup === 'trend' && orbHigh > 0 && currentPrice <= orbHigh) {
+      action = 'wait'
+      reasons.push(`ORB gate: price ${round(currentPrice)} has not broken above ORB high ${round(orbHigh)} — trend entry requires confirmed range breakout`)
     }
     else if (vwapBearishGate) {
       action = 'wait'
@@ -468,12 +479,12 @@ export function evaluateDayTradingDecision(input = {}) {
       reasons.push('Loss breached the stop level')
     }
     else if (takeProfitZone && (shortTrendPct < 0.2 || momentumPct < 0.08)) {
-      action = 'trim'
-      reasons.push('Open profit is strong, but momentum is cooling')
+      action = 'exit'
+      reasons.push('Profit target exit: reached 2R with cooling momentum — closing full position')
     }
-    // 1R PARTIAL EXIT: take profits at 1× stop when momentum is already fading —
-    // locks in a partial win rather than waiting for 2R that may never come.
-    else if (unrealizedPnLPct >= dynamicStopPct && !takeProfitZone && shortTrendPct < 0.1) {
+    // 1R PARTIAL EXIT: lock in half when trend has actually turned negative.
+    // Using < -0.15 (not < 0.1) so pausing breakouts are held rather than cut early.
+    else if (unrealizedPnLPct >= dynamicStopPct && !takeProfitZone && shortTrendPct < -0.15) {
       action = 'trim'
       reasons.push(`1R partial exit: ${round(unrealizedPnLPct)}% gain with fading momentum — locking partial profit`)
     }
