@@ -30,12 +30,12 @@
 
     //- User Profile
     .w-divider.no-grow(v-if="!isCollapsed")
-    .w-flex.no-grow.pa2.gap1.sidebar-footer(v-if="!isCollapsed")
-      .w-flex.align-center
+    .sidebar-footer.w-flex.no-grow.pa2.gap1(v-if="!isCollapsed")
+      .w-flex.align-center.ovh
         .user-avatar.w-flex.align-center.justify-center.no-grow
           icon(v-if="!currentUser" icon="mdi:account-off-outline")
           span(v-else) {{ userInitials }}
-        .ml3.user-summary.grow
+        .user-summary.ml3
           p.text-bold {{ userDisplayName }}
           p.size--sm.grey {{ userSecondaryLine }}
       .w-flex.column.justify-end.no-grow(v-if="showAuthActions")
