@@ -45,10 +45,12 @@ const RISK_PROFILE   = 'balanced'
 const SIZE_PCT       = 0.10    // 10% of equity per position
 // 1-min specific overrides — keep 5-min profile defaults untouched
 const STRATEGY_PARAMS = BAR_MINUTES === 1
-  ? { trailingStopPct: 0.4, enableMeanRevert: true, stopFloorPct: 0.5, rewardTargetPct: 1.2, stagnationMinutes: 15, enableBreakout: false }
-  : { stagnationMinutes: 20 }
+  ? { trailingStopPct: 0.4, enableMeanRevert: true, stopFloorPct: 0.5, rewardTargetPct: 1.2, stagnationMinutes: 15, enableBreakout: false, atrMultiplier: 2.5, breakevenTriggerR: 0.8 }
+  : { trailingStopPct: 1.5, breakoutTrailingStopPct: 1.7, stagnationMinutes: 45, atrMultiplier: 2.5, breakoutThresholdAdj: -5, trendSizeMultiplier: 1.0 }
 const FILL_TIMEOUT   = 20_000  // ms to wait for order fill
 const ORDER_COOLDOWN = 5_000   // ms between placing orders (rate limit guard)
+const ROLLING_WINDOW_TRADES = 5
+const ROLLING_PAUSE_MS = (BAR_MINUTES === 1 ? 1 : 10) * 86_400_000
 
 const KEY    = process.env.ALPACA_KEY
 const SECRET = process.env.ALPACA_SECRET
@@ -300,16 +302,15 @@ async function evaluateAndTrade(sym) {
   const marketVolatileRegime = isMarketVolatile(spyCandles)
   const atrPct             = atr14Pct(candles, candles.length - 1)
   const circuitBreakerActive = !!(s.circuitBreakerUntil && Date.now() < s.circuitBreakerUntil)
-  const rollingGateActive    = BAR_MINUTES !== 1 && !!(s.pausedUntilMs && Date.now() < s.pausedUntilMs)
+  const rollingGateActive    = !!(s.pausedUntilMs && Date.now() < s.pausedUntilMs)
   const dailyLossesPct     = (s.dailyLossesUsd / accountEquity) * 100
+  const pos = s.position
 
   if (rollingGateActive && !pos) {
     const resumeIn = Math.ceil((s.pausedUntilMs - Date.now()) / 86_400_000)
     console.log(`  ⏸  ${sym}: rolling performance gate active — resumes in ~${resumeIn}d`)
     return
   }
-
-  const pos = s.position
 
   const decision = evaluateDayTradingDecision({
     symbol:              sym,
@@ -336,6 +337,7 @@ async function evaluateAndTrade(sym) {
     entrySetup:          pos ? pos.entrySetup : null,
     accountEquity,
     nowMs,
+    barDurationMs:       BAR_MINUTES * 60_000,
     disableDailyCatalyst: true
   })
 
@@ -415,18 +417,18 @@ async function evaluateAndTrade(sym) {
       } else {
         s.consecutiveLosses = 0
       }
-      // Rolling gate (5-min only): pause 10 days after genuine losing streak.
-      // Skipped at 1-min — losing streaks there are statistical noise, not structural underperformance.
-      if (action !== 'trim' && BAR_MINUTES !== 1) {
+      // Rolling gate: pause symbols after genuine recent underperformance.
+      if (action !== 'trim') {
         s.rollingPnl.push(pnlUsd)
-        if (s.rollingPnl.length > 5) s.rollingPnl.shift()
-        if (s.rollingPnl.length === 5) {
+        if (s.rollingPnl.length > ROLLING_WINDOW_TRADES) s.rollingPnl.shift()
+        if (s.rollingPnl.length === ROLLING_WINDOW_TRADES) {
           const net  = s.rollingPnl.reduce((a, b) => a + b, 0)
           const wins = s.rollingPnl.filter(p => p > 0).length
-          const isLosingStreak = wins === 0 || (net < 0 && wins <= 1)
+          const expectancy = net / s.rollingPnl.length
+          const isLosingStreak = wins === 0 || (net < 0 && wins <= 1) || (expectancy < -25 && wins <= 2)
           if (isLosingStreak) {
-            s.pausedUntilMs = Date.now() + 10 * 86_400_000
-            console.log(`  ⏸  Rolling gate: ${sym} underperforming — paused 10 days`)
+            s.pausedUntilMs = Date.now() + ROLLING_PAUSE_MS
+            console.log(`  ⏸  Rolling gate: ${sym} underperforming — paused ${Math.round(ROLLING_PAUSE_MS / 86_400_000)}d`)
           } else {
             s.pausedUntilMs = null
           }

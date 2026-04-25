@@ -102,6 +102,10 @@ The API loads **`api/.env` by file path** (see `api/config.js`), so auth and Alp
 | `ALPACA_DATA_STREAM_URL` | Alpaca market data WebSocket URL | See `api/config.js` / Alpaca docs |
 | `SIMULATION` | Force simulation when `true` | unset |
 | `API_BEARER_TOKEN` | Bearer token required on order mutations when set | unset |
+| `DISABLE_LIVE_TRADING` | Hard-block live brokerage order placement when `true` | `false` |
+| `LIVE_TRADING_MAX_NOTIONAL` | Max estimated notional for live buy orders | `250` |
+| `LIVE_TRADING_ALLOWED_SYMBOLS` | Optional comma-separated live symbol allowlist | unset |
+| `LIVE_TRADING_REQUIRE_PROTECTIVE_STOP` | Require live buys to include `stopPrice` or `stopLossPct` | `true` |
 | `FEATURE_LIVE_TRADING` | Enable live trading surfaces/flows | `true` |
 | `FEATURE_PAPER_TRADING` | Enable paper trading flows | `true` |
 | `FEATURE_MARKET_ORDERS` | Enable market order flows | `true` |
@@ -216,6 +220,10 @@ Example backend `.env`:
 
 ```env
 API_BEARER_TOKEN=change-me
+DISABLE_LIVE_TRADING=true
+LIVE_TRADING_MAX_NOTIONAL=250
+LIVE_TRADING_ALLOWED_SYMBOLS=NVDA,GOOGL,AMZN,META
+LIVE_TRADING_REQUIRE_PROTECTIVE_STOP=true
 FEATURE_LIVE_TRADING=true
 FEATURE_PAPER_TRADING=true
 FEATURE_MARKET_ORDERS=true

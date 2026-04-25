@@ -15,7 +15,7 @@ export function shouldAutoFire(decision, autonomousTrading) {
   if (!autonomousTrading || !decision) return false
   
   const confidence = Number(decision.confidence || 0)
-  const isValidAction = ['buy', 'add', 'sell', 'exit', 'trim'].includes(decision.action)
+  const isValidAction = ['buy', 'sell', 'exit', 'trim'].includes(decision.action)
   
   return confidence >= 80 && isValidAction
 }
@@ -33,7 +33,7 @@ export async function fireOrderAutomatically(decision, executionContext) {
   if (!symbol) throw new Error('Symbol is required')
   if (!executionPlan) throw new Error('Execution plan is required')
   
-  const qty = calculateOrderQtyForBotAction(action, executionPlan, currentPrice, heldQty)
+  const qty = calculateOrderQtyForBotAction(action, executionPlan, currentPrice, heldQty, executionContext)
   
   if (qty <= 0) throw new Error('Invalid quantity calculated from execution plan')
   
@@ -42,7 +42,8 @@ export async function fireOrderAutomatically(decision, executionContext) {
     symbol: String(symbol).toUpperCase(),
     qty: Math.floor(qty),
     side: ['buy', 'add'].includes(action) ? 'buy' : 'sell',
-    type: 'market'
+    type: 'market',
+    stopLossPct: ['buy', 'add'].includes(action) ? executionPlan.stopLossPct : undefined
   }
   
   try {
@@ -70,7 +71,7 @@ export async function fireOrderAutomatically(decision, executionContext) {
 /**
  * Buy/add: notional from execution plan. Exit/trim: use live share count when provided.
  */
-function calculateOrderQtyForBotAction(action, executionPlan, currentPrice, positionQty) {
+function calculateOrderQtyForBotAction(action, executionPlan, currentPrice, positionQty, executionContext = {}) {
   const held = Number(positionQty)
   if (action === 'exit' && Number.isFinite(held) && held > 0) {
     return Math.max(1, Math.floor(held))
@@ -80,7 +81,7 @@ function calculateOrderQtyForBotAction(action, executionPlan, currentPrice, posi
     const f = Number.isFinite(frac) && frac > 0 && frac <= 1 ? frac : 0.4
     return Math.max(1, Math.floor(held * f))
   }
-  return calculateQtyFromExecutionPlan(executionPlan, currentPrice)
+  return calculateQtyFromExecutionPlan(executionPlan, currentPrice, executionContext)
 }
 
 /**
@@ -89,16 +90,20 @@ function calculateOrderQtyForBotAction(action, executionPlan, currentPrice, posi
  * @param {number} currentPrice - Current stock price
  * @returns {number} Quantity to order
  */
-function calculateQtyFromExecutionPlan(executionPlan, currentPrice) {
+function calculateQtyFromExecutionPlan(executionPlan, currentPrice, executionContext = {}) {
   if (!executionPlan || !executionPlan.positionSizePct) {
-    return 10 // Default fallback
+    return 1 // Safe fallback
   }
   
-  // Simplified: assume 10k account, scale by position size %
-  const accountSize = 10000
-  const positionValue = (executionPlan.positionSizePct / 100) * accountSize
+  const price = Math.max(Number(currentPrice) || 0, 1)
+  const accountSize = Number(executionContext.accountEquity ?? executionContext.portfolioValue ?? executionContext.cash)
+  const safeAccountSize = Number.isFinite(accountSize) && accountSize > 0 ? accountSize : 100000
+  const maxNotional = Number(executionContext.maxNotional ?? executionPlan.maxNotional ?? 250)
+  const cappedNotional = Number.isFinite(maxNotional) && maxNotional > 0 ? maxNotional : 250
+  const plannedPositionValue = (executionPlan.positionSizePct / 100) * safeAccountSize
+  const positionValue = Math.min(plannedPositionValue, cappedNotional)
   
-  return Math.max(1, Math.floor(positionValue / Math.max(currentPrice, 1)))
+  return Math.max(1, Math.floor(positionValue / price))
 }
 
 /**
