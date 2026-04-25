@@ -94,7 +94,7 @@ export const RISK_PROFILES = {
     basePositionSizePct: 0.1,
     maxPositionSizePct: 0.2,
     stopLossPct: 1.2,          // tighter stop (was 1.7%) — fires sooner, keeps losses small
-    trailingStopPct: 0.8,      // trail from high-watermark (was 1.2%)
+    trailingStopPct: 0.8,      // trail from high-watermark (was 1.2%) — override per timeframe via strategyParams.trailingStopPct
     trimFraction: 0.5,         // capture half at first target (was 0.4 — too little)
     rewardTargetPct: 2.4,      // 2R target (2 × 1.2% stop) — was 1.5% which was sub-1R
     dailyLossLimitPct: 5.0
@@ -179,7 +179,13 @@ export function evaluateDayTradingDecision(input = {}) {
   // 3.0× the 5-min ATR gives ~1 full average bar of room; clamped so it can't go below
   // the minimum meaningful stop (0.7%) or above a sensible max (2.0%).
   const atrPct = Number(input.atrPct ?? 0)
-  const dynamicStopPct = atrPct > 0 ? clamp(atrPct * 3.0, 0.7, 2.0) : profile.stopLossPct
+  const stopFloor = Number(strategyParams.stopFloorPct ?? 0.7)
+  const atrMultiplier = Number(strategyParams.atrMultiplier ?? 3.0)
+  const dynamicStopPct = atrPct > 0 ? clamp(atrPct * atrMultiplier, stopFloor, 2.0) : profile.stopLossPct
+
+  // Trailing stop: profile default, but caller can override via strategyParams.trailingStopPct
+  // (used to pass 1-min specific value without touching the risk profile).
+  const trailingStopPct = Number(strategyParams.trailingStopPct ?? profile.trailingStopPct)
 
   // Daily loss limit enforcement — block new entries when limit reached.
   const dailyLossesPct = Number(input.dailyLossesPct ?? 0)
@@ -191,23 +197,24 @@ export function evaluateDayTradingDecision(input = {}) {
   const weakVolatilityForEntries = realizedVolatilityPct < 0.12 || realizedVolatilityPct > 1.8
   const weakEvidence = weakLiquidity || weakVolatilityForEntries
 
-  const setup = classifySetup({
+  const rawSetup = classifySetup({
     shortTrendPct,
     mediumTrendPct,
     longTrendPct,
     momentumPct,
-    marketRegime,
     liquidityOk,
     volatilityOkForMeanReversion,
     volumeRatio,
     realizedVolatilityPct
   })
+  // Mean-revert is unprofitable at 5-min (36% WR) but profitable at 1-min. Opt in via enableMeanRevert.
+  // Breakout is structurally noisy at 1-min (not enough bars to confirm). Opt out via enableBreakout = false.
+  let setup = rawSetup === 'mean-revert' && !strategyParams.enableMeanRevert ? 'weak' : rawSetup
+  if (setup === 'breakout' && strategyParams.enableBreakout === false) setup = 'weak'
 
-  // RSI > 80 into a plain trend setup = chasing overbought momentum. Breakout setups
-  // can sustain elevated RSI on genuine volume expansion, so they are exempt.
-  // NOTE: AMD-style volatile stocks fail at RSI ≥ 85 breakouts, but that is handled
-  // by excluding AMD from the symbol list rather than a blanket rule that hurts META.
-  const rsiBadForTrendEntry = rsi14 > 80 && setup === 'trend'
+  // RSI > 80 into a trend setup = chasing overbought momentum — block entry.
+  // Breakout stays exempt: META/GOOGL can sustain elevated RSI on genuine volume expansion.
+  const rsiBadForMomentumEntry = rsi14 > 80 && setup === 'trend'
 
   // HARD GATES — these block entries regardless of score.
   // Evidence from 100-trade analysis (2026-04-23):
@@ -218,7 +225,7 @@ export function evaluateDayTradingDecision(input = {}) {
   //    Histogram requirement dropped — when MACD has been falling for a while the signal
   //    line can be more negative than the MACD line, making the histogram briefly positive
   //    even on a -3.37 MACD. Gate on the line alone.
-  const macdBearishGate = macdLine < -1.0
+  const macdBearishGate = macdLine < -1.0 && setup !== 'mean-revert'
   // 3. Candle direction gate: buying a red bar (close < open) means entering on selling pressure.
   //    Require the signal candle to close above its open for trend/breakout entries.
   const currentCandleOpen = Number(input.currentCandleOpen ?? 0)
@@ -236,6 +243,12 @@ export function evaluateDayTradingDecision(input = {}) {
   // External context inputs for market-breadth and volatility filters.
   const adrPct = Number(input.adrPct ?? 0)           // caller: 5-day avg daily range as % of close
   const spyTrendPct = Number(input.spyTrendPct ?? 0) // caller: SPY 5-bar short-trend %
+  // SPY rolling-ATR regime: true when 5-bar ATR is 30%+ above the 20-bar baseline.
+  const marketVolatileRegime = Boolean(input.marketVolatileRegime ?? false)
+  // VWAP reclaim: price crossed from below VWAP to above within the last bar.
+  const vwapReclaim = Boolean(input.vwapReclaim ?? false)
+  // Setup at the time of entry — passed back by caller on each in-position bar.
+  const entrySetup = input.entrySetup ?? null
 
   // Compute nowMs here so time-of-day awareness can inform entry scoring AND position management.
   const nowMs = Number.isFinite(input.nowMs) ? input.nowMs : Date.now()
@@ -291,6 +304,8 @@ export function evaluateDayTradingDecision(input = {}) {
     if (vwapDevPct < -0.5) entryScore -= 10           // significantly below VWAP: strong distribution signal
     else if (vwapDevPct < 0 && setup === 'mean-revert') entryScore += 4  // below VWAP + oversold = snapback opportunity
   }
+  // VWAP reclaim: fresh cross from below to above = institutional re-entry signal.
+  if (vwapReclaim && setup !== 'mean-revert') entryScore += 10
 
   // Time-of-day: afternoon volume thins and intraday moves often exhaust by 2 PM ET.
   if (isAfternoon) entryScore -= 6
@@ -411,11 +426,14 @@ export function evaluateDayTradingDecision(input = {}) {
 
   let action = 'hold'
   // Trend WR 43-51% across 90 days — require near-breakout quality.
-  // +15 bias: balanced buyThreshold becomes 70 for trend, high enough to filter
-  // regime-dependent entries while preserving clean trending setups.
+  // Default +15 bias (balanced → 70); caller can override via strategyParams.trendThresholdBoost
+  // for noisier timeframes (e.g. 1-min uses +20 → threshold 75).
+  const trendBoost = Number(strategyParams.trendThresholdBoost ?? 15)
+  const breakoutBoost = Number(strategyParams.breakoutThresholdBoost ?? 0)
   const buyThreshold = profile.buyThreshold
     + (setup === 'mean-revert' ? -4 : 0)
-    + (setup === 'trend'       ? 15 : 0)
+    + (setup === 'trend'       ? trendBoost : 0)
+    + (setup === 'breakout'    ? breakoutBoost : 0)
   const addThreshold = profile.addThreshold + (marketRegime === 'chop' ? 8 : 0)
   const allowNewEntry = riskScore <= profile.maxRiskScoreForEntry
     && !(marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout'))
@@ -430,13 +448,17 @@ export function evaluateDayTradingDecision(input = {}) {
       action = 'wait'
       reasons.push('Outside regular session window (9:30 AM–3:30 PM ET) — no new entries in extended hours')
     }
-    else if (rsiBadForTrendEntry) {
+    else if (rsiBadForMomentumEntry) {
       action = 'wait'
       reasons.push(`RSI ${round(rsi14)} > 80 in a trend setup — chasing overbought momentum; waiting for RSI to cool below 80`)
     }
     else if (circuitBreakerActive) {
       action = 'wait'
       reasons.push('Circuit breaker: 2 consecutive losses on this symbol — pausing new entries for 30 min')
+    }
+    else if (setup === 'trend' && marketVolatileRegime) {
+      action = 'wait'
+      reasons.push('Volatility-regime gate: SPY ATR is elevated — suppressing trend entries until market calms')
     }
     else if (setup === 'trend' && tf15Bullish === false) {
       action = 'wait'
@@ -445,6 +467,10 @@ export function evaluateDayTradingDecision(input = {}) {
     else if (setup === 'trend' && orbHigh > 0 && currentPrice <= orbHigh) {
       action = 'wait'
       reasons.push(`ORB gate: price ${round(currentPrice)} has not broken above ORB high ${round(orbHigh)} — trend entry requires confirmed range breakout`)
+    }
+    else if ((setup === 'trend' || setup === 'breakout') && volumeRatio < 1.0) {
+      action = 'wait'
+      reasons.push(`Volume gate: ${setup} entry blocked — volume ${round(volumeRatio)}× below average (no institutional backing)`)
     }
     else if (vwapBearishGate) {
       action = 'wait'
@@ -471,7 +497,8 @@ export function evaluateDayTradingDecision(input = {}) {
   }
   else {
     const stopTriggered = unrealizedPnLPct <= -dynamicStopPct
-    const takeProfitZone = unrealizedPnLPct >= profile.rewardTargetPct
+    const effectiveRewardPct = Number(strategyParams.rewardTargetPct ?? profile.rewardTargetPct)
+    const takeProfitZone = unrealizedPnLPct >= effectiveRewardPct
     const positionElapsedMs = input.positionOpenedAt ? (nowMs - input.positionOpenedAt) : 0
 
     if (stopTriggered) {
@@ -483,8 +510,9 @@ export function evaluateDayTradingDecision(input = {}) {
       reasons.push('Profit target exit: reached 2R with cooling momentum — closing full position')
     }
     // 1R PARTIAL EXIT: lock in half when trend has actually turned negative.
-    // Using < -0.15 (not < 0.1) so pausing breakouts are held rather than cut early.
-    else if (unrealizedPnLPct >= dynamicStopPct && !takeProfitZone && shortTrendPct < -0.15) {
+    // Breakout entries are exempt — their higher continuation rate means they should run
+    // to the 2R target or trailing stop rather than be trimmed at 1R on a brief pause.
+    else if (unrealizedPnLPct >= dynamicStopPct && !takeProfitZone && shortTrendPct < -0.15 && entrySetup !== 'breakout') {
       action = 'trim'
       reasons.push(`1R partial exit: ${round(unrealizedPnLPct)}% gain with fading momentum — locking partial profit`)
     }
@@ -538,12 +566,16 @@ export function evaluateDayTradingDecision(input = {}) {
     }
 
     // TRAILING STOP: exit if price pulls back from high-watermark once meaningfully in profit.
+    // Breakout entries use breakoutTrailingStopPct (default: trailingStopPct + 0.2) — they need room to run to 2R.
+    // Trend / mean-revert use trailingStopPct so losers exit sooner once they stall.
     // Only fires when the caller passes highWatermarkPrice (live bot and simulation both do).
-    if (action === 'hold' && highWatermarkPrice > avgEntryPrice * (1 + profile.trailingStopPct / 100)) {
-      const trailPrice = highWatermarkPrice * (1 - profile.trailingStopPct / 100)
+    const breakoutTrailingStopPct = Number(strategyParams.breakoutTrailingStopPct ?? trailingStopPct + 0.2)
+    const effectiveTrailPct = entrySetup === 'breakout' ? breakoutTrailingStopPct : trailingStopPct
+    if (action === 'hold' && highWatermarkPrice > avgEntryPrice * (1 + effectiveTrailPct / 100)) {
+      const trailPrice = highWatermarkPrice * (1 - effectiveTrailPct / 100)
       if (currentPrice <= trailPrice) {
         action = 'exit'
-        reasons.push(`Trailing stop: price ${round(currentPrice)} fell below trail ${round(trailPrice)} (peak: ${round(highWatermarkPrice)})`)
+        reasons.push(`Trailing stop: price ${round(currentPrice)} fell below trail ${round(trailPrice)} (peak: ${round(highWatermarkPrice)}, trail: ${effectiveTrailPct}%)`)
       }
     }
 
@@ -559,22 +591,25 @@ export function evaluateDayTradingDecision(input = {}) {
 
     // EARLY REVERSAL EXIT: cut losers before the full stop fires.
     // Evidence: TSLA -$300 in 30min, GOOGL -$174 in 20min — waiting for 1.2% stop was too slow.
-    if (action === 'hold' && positionElapsedMs > 20 * 60 * 1000 && unrealizedPnLPct < -(dynamicStopPct * 0.5)) {
+    // Cut losers at 15 min, shallower threshold (0.35× stop) — entries that go wrong in the first
+    // 3 bars and are already at -0.35% rarely recover to the +2.4% target.
+    // Tested: 0.40× (PF 1.46), 0.35× (PF 1.47 — best on old dataset), 0.30× (PF 1.41 — too tight).
+    if (action === 'hold' && positionElapsedMs > 15 * 60 * 1000 && unrealizedPnLPct < -(dynamicStopPct * 0.35)) {
       action = 'exit'
       reasons.push(`Early reversal exit: -${round(Math.abs(unrealizedPnLPct))}% after ${Math.round(positionElapsedMs / 60000)} min (pre-stop cut)`)
     }
 
-    // STAGNATION EXIT: asymmetric — cut losers at 45 min, let winners run to 75 min.
-    // Data: timeout exits were best (81% WR, +$58 avg); stagnation was cutting winners at 39% of
-    // stagnation trades that were actually profitable. Losers (0% P&L after 45 min) rarely recover.
+    // STAGNATION EXIT: cut losers when stuck; let flat winners run longer.
+    // Default 35 min for 5-min bars; override via strategyParams.stagnationMinutes for 1-min (use 20).
     if (action === 'hold') {
-      const min45 = 45 * 60 * 1000
-      const min75 = 75 * 60 * 1000
-      if (unrealizedPnLPct < 0 && positionElapsedMs > min45 && Math.abs(unrealizedPnLPct) < 0.8) {
+      const stagnationMin = Number(strategyParams.stagnationMinutes ?? 35)
+      const min35  = stagnationMin * 60 * 1000
+      const min110 = 110 * 60 * 1000
+      if (unrealizedPnLPct < 0 && positionElapsedMs > min35 && Math.abs(unrealizedPnLPct) < 0.8) {
         action = 'exit'
         reasons.push(`Stagnation exit (loser): ${round(unrealizedPnLPct)}% after ${Math.round(positionElapsedMs / 60000)} min`)
       }
-      else if (unrealizedPnLPct >= 0 && positionElapsedMs > min75 && unrealizedPnLPct < 0.2) {
+      else if (unrealizedPnLPct >= 0 && positionElapsedMs > min110 && unrealizedPnLPct < 0.2) {
         action = 'exit'
         reasons.push(`Stagnation exit (flat winner): ${round(unrealizedPnLPct)}% after ${Math.round(positionElapsedMs / 60000)} min`)
       }
@@ -661,7 +696,7 @@ export function evaluateDayTradingDecision(input = {}) {
   const executionPlan = {
     positionSizePct: round(positionSizePct * 100),
     stopLossPct: round(dynamicStopPct + Number(strategyParams.stopLossAdj || 0)),
-    trailingStopPct: profile.trailingStopPct,
+    trailingStopPct: trailingStopPct,
     trimFraction: profile.trimFraction,
     rewardTargetPct: round(profile.rewardTargetPct + Number(strategyParams.rewardAdj || 0))
   }
@@ -840,15 +875,15 @@ function formatPrice(value) {
   return `$${Number(value).toFixed(2)}`
 }
 
-function classifySetup({ shortTrendPct, mediumTrendPct, longTrendPct, momentumPct, marketRegime, liquidityOk, volatilityOkForMeanReversion, volumeRatio, realizedVolatilityPct }) {
+function classifySetup({ shortTrendPct, mediumTrendPct, longTrendPct, momentumPct, liquidityOk, volatilityOkForMeanReversion, volumeRatio, realizedVolatilityPct }) {
   const breakoutSetup = shortTrendPct > 0.8 && mediumTrendPct > 0.9 && momentumPct > 0.18 && volumeRatio > 1.1 && realizedVolatilityPct > 0.45
   if (breakoutSetup) return 'breakout'
 
   const trendSetup = shortTrendPct > 0.35 && mediumTrendPct > 0.7 && longTrendPct > 0.8
   if (trendSetup) return 'trend'
 
-  const meanReversionSetup = marketRegime === 'chop'
-    && shortTrendPct <= -0.2
+  const meanReversionSetup = shortTrendPct <= -0.2
+    && longTrendPct >= 0
     && Math.abs(mediumTrendPct) <= 0.7
     && momentumPct <= -0.05
     && liquidityOk
