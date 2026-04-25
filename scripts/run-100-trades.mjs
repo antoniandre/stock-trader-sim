@@ -25,7 +25,6 @@ const { evaluateDayTradingDecision } = await import('../api/day-trading-bot.js')
 const ALPACA_KEY    = process.env.ALPACA_KEY
 const ALPACA_SECRET = process.env.ALPACA_SECRET
 const DATA_URL      = process.env.ALPACA_API_BASE_URL || 'https://data.alpaca.markets'
-const BROKER_URL    = process.env.ALPACA_BASE_URL || 'https://paper-api.alpaca.markets'
 const RISK_PROFILE  = 'balanced'
 const CAPITAL       = 100_000
 const DAILY_LOSS_LIMIT_PCT = 5.0
@@ -33,9 +32,24 @@ const SLIPPAGE_PCT  = 0.03   // 3 bps each way — models realistic market-order
 const TARGET_TRADES = 300    // how many chronologically-first round-trips to report on
 const LOOKBACK_DAYS = 90     // calendar days of history to fetch
 
+// Timeframe: '5Min' (default, backtested strategy) or '1Min' (live trading mode)
+// Usage: node scripts/run-100-trades.mjs 1Min
+const TIMEFRAME     = process.argv[2] === '1Min' ? '1Min' : '5Min'
+// Bars to keep in the rolling indicator window — sized so both timeframes get ~2h of history
+const WINDOW_BARS   = TIMEFRAME === '1Min' ? 120 : 35
+// HTF step: how many bars = one 15-min period (for tf15Bullish computation)
+const HTF_STEP      = TIMEFRAME === '1Min' ? 15 : 3
+// 1-min specific overrides passed via strategyParams (keeps the 5-min profile untouched)
+const STRATEGY_PARAMS = TIMEFRAME === '1Min'
+  ? { trailingStopPct: 0.4, enableMeanRevert: true, stopFloorPct: 0.5, rewardTargetPct: 1.2, stagnationMinutes: 15, enableBreakout: false, atrMultiplier: 2.5 }
+  : { trailingStopPct: 1.5, breakoutTrailingStopPct: 1.7, stagnationMinutes: 45, atrMultiplier: 2.5 }
+
 // Removed: AMD (47.83% WR, -$972), SPY/QQQ (ETFs, 0% WR), AAPL (40% WR, -$62),
-// MSFT (43.33% WR, -$553 over 90 days), NFLX (48.15% WR, -$1,281 over 90 days).
-const SYMBOLS = ['NVDA', 'GOOGL', 'TSLA', 'AMZN', 'META']
+// TSLA (38–42% WR, net negative every 90d run — hyper-noisy, headline-driven false breakouts)
+// Rejected at selection time (pre-backtest): PLTR, CRWD, COIN, SMCI, MU, AVGO, MSFT, NFLX.
+const SYMBOLS = TIMEFRAME === '1Min'
+  ? ['NVDA', 'GOOGL', 'AMZN', 'META']
+  : ['NVDA', 'GOOGL', 'AMZN', 'META']
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function round2(v) { return Math.round((+v + Number.EPSILON) * 100) / 100 }
@@ -85,10 +99,11 @@ function atr14Pct(candles, idx) {
   return cl > 0 && count > 0 ? round4((total / count) / cl * 100) : 0
 }
 
-// 15-min trend: EMA5 > EMA10 on resampled 15-min closes (every 3rd 5-min bar)
+// 15-min trend: EMA5 > EMA10 on resampled 15-min closes.
+// Step = 3 bars at 5-min (3×5=15 min), 15 bars at 1-min (15×1=15 min).
 function tf15BullishAt(candles, idx) {
   const closes = []
-  for (let k = idx; k >= 0 && closes.length < 15; k -= 3) closes.unshift(candles[k].close)
+  for (let k = idx; k >= 0 && closes.length < 15; k -= HTF_STEP) closes.unshift(candles[k].close)
   if (closes.length < 10) return null
   return ema(closes, 5) > ema(closes, 10)
 }
@@ -114,7 +129,21 @@ async function fetchBars(symbol, start, end, tf = '5Min') {
     const params = new URLSearchParams({ start, end, timeframe: tf, feed: 'iex', limit: '2000' })
     if (pageToken) params.set('page_token', pageToken)
     const url = `${DATA_URL}/v2/stocks/${symbol}/bars?${params}`
-    const res = await fetch(url, { headers })
+
+    let res
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const ac = new AbortController()
+        const timer = setTimeout(() => ac.abort(), 90_000)
+        res = await fetch(url, { headers, signal: ac.signal })
+        clearTimeout(timer)
+        break
+      } catch (err) {
+        if (attempt === 3) throw err
+        await new Promise(r => setTimeout(r, 3000 * attempt))
+      }
+    }
+
     if (!res.ok) {
       const txt = await res.text()
       throw new Error(`Alpaca ${res.status} for ${symbol}: ${txt.slice(0, 120)}`)
@@ -188,16 +217,45 @@ function buildSpyTrendMap(spyCandles) {
   return map
 }
 
+// ── SPY volatility-regime map: timestamp → boolean (true = volatile) ─────────
+// Volatile when 5-bar rolling ATR (as % of close) exceeds the 20-bar baseline by 30%+.
+function buildVolatilityRegimeMap(spyCandles) {
+  const map = new Map()
+  for (let i = 20; i < spyCandles.length; i++) {
+    let atr5 = 0
+    for (let k = i - 4; k <= i; k++) {
+      const h = spyCandles[k].high, l = spyCandles[k].low, pc = spyCandles[k - 1].close
+      atr5 += Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc))
+    }
+    atr5 = (atr5 / 5) / spyCandles[i].close * 100
+
+    let atr20 = 0
+    for (let k = i - 19; k <= i; k++) {
+      const h = spyCandles[k].high, l = spyCandles[k].low, pc = spyCandles[k - 1].close
+      atr20 += Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc))
+    }
+    atr20 = (atr20 / 20) / spyCandles[i].close * 100
+
+    map.set(spyCandles[i].timestamp, atr5 > atr20 * 1.3)
+  }
+  return map
+}
+
 // ── Simulation core ──────────────────────────────────────────────────────────
-function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
+function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap = new Map()) {
   const completedTrades = []
   let cash = CAPITAL
   let posQty = 0
   let avgEntry = 0
   let highWatermark = 0   // highest close since entry — drives trailing stop
+  // Rolling performance gate: after every 5 trades, if net < -$300 or 0 wins, pause 10 calendar days.
+  // This is what a live system should do — throttle underperformers dynamically, not remove them.
+  let rollingPnl     = []      // last 5 completed trade P&Ls for this symbol
+  let pausedUntilDay = null    // ISO date string; null = not paused
   let entryTime = null
   let entryCandle = null
   let entryIndicators = null
+  let trimmedOnce = false   // prevent trim cascade: only one partial exit per position
   let dailyLosses = 0
   let lastDate = null
   let consecutiveLosses = 0  // circuit breaker: resets on win or new day
@@ -213,7 +271,7 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
   const adrMap = buildADRMap(candles, dayStartIdx)
   const orbMap = buildOrbMap(candles, dayStartIdx)
 
-  for (let i = 30; i < candles.length; i++) {
+  for (let i = WINDOW_BARS; i < candles.length; i++) {
     const c = candles[i]
     const currentDate = c.timestamp.slice(0, 10)
 
@@ -227,7 +285,7 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
     // Update high-watermark while in a position
     if (posQty > 0) highWatermark = Math.max(highWatermark, c.high)
 
-    const window  = candles.slice(Math.max(0, i - 35), i + 1)
+    const window  = candles.slice(Math.max(0, i - WINDOW_BARS), i + 1)
     const prices  = window.map(w => w.close)
     const volumes = window.map(w => w.volume)
 
@@ -246,10 +304,18 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
     const tf15        = tf15BullishAt(candles, i)
     const nowMsLocal  = new Date(c.timestamp).getTime()
     const circuitBreakerVal = consecutiveLosses >= 2 && nowMsLocal < pauseUntilMs
+    const marketVolatileRegime = symbol !== 'SPY' ? (volRegimeMap.get(c.timestamp) ?? false) : false
+
+    // VWAP reclaim: price crossed from below to above VWAP since the previous bar.
+    const prevClose       = candles[i - 1].close
+    const vwapDevPct      = vwapVal > 0 && c.close > 0   ? ((c.close   - vwapVal) / vwapVal) * 100 : 0
+    const prevVwapDevPct  = vwapVal > 0 && prevClose > 0 ? ((prevClose - vwapVal) / vwapVal) * 100 : 0
+    const vwapReclaim     = prevVwapDevPct < -0.1 && vwapDevPct > 0.1
 
     const decision = evaluateDayTradingDecision({
       symbol,
       riskProfile: RISK_PROFILE,
+      strategyParams: STRATEGY_PARAMS,
       currentPrice: c.close,
       currentVolume: c.volume,
       prices,
@@ -271,6 +337,9 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
       tf15Bullish: tf15,
       circuitBreakerActive: circuitBreakerVal,
       currentCandleOpen: c.open,
+      marketVolatileRegime,
+      vwapReclaim,
+      entrySetup: entryIndicators?.entrySetup ?? null,
       disableDailyCatalyst: true
     })
 
@@ -282,6 +351,9 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
     const volRatio = round2(decision.metrics.volumeRatio)
 
     // ── BUY ──────────────────────────────────────────────────────────────────
+    // Rolling performance gate (5-min only): skip new entries while symbol is cooling off.
+    if (pausedUntilDay && currentDate < pausedUntilDay) continue
+
     if (decision.action === 'buy' && posQty === 0) {
       // Apply slippage: market buy fills slightly above close
       const fillPrice = round2(c.close * (1 + SLIPPAGE_PCT / 100))
@@ -293,6 +365,7 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
       posQty        = qty
       avgEntry      = fillPrice
       highWatermark = fillPrice
+      trimmedOnce   = false
       entryTime     = new Date(c.timestamp).getTime()
       entryCandle   = c
 
@@ -300,6 +373,7 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
         rsi: rsiVal, ema9: ema9v, ema21: ema21v, macd: macdVal,
         vwap: vwapVal, volRatio,
         setup: decision.setup,
+        entrySetup: decision.setup,
         regime: decision.marketRegime,
         confidence: decision.confidence,
         stopLossPct: decision.executionPlan.stopLossPct,
@@ -309,7 +383,7 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
     }
 
     // ── EXIT / TRIM ───────────────────────────────────────────────────────────
-    if ((decision.action === 'exit' || decision.action === 'trim') && posQty > 0 && entryIndicators) {
+    if ((decision.action === 'exit' || (decision.action === 'trim' && !trimmedOnce)) && posQty > 0 && entryIndicators) {
       // Apply slippage: market sell fills slightly below close
       const fillPrice  = round2(c.close * (1 - SLIPPAGE_PCT / 100))
       const fraction   = decision.action === 'exit' ? 1 : decision.executionPlan.trimFraction
@@ -333,9 +407,30 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map()) {
 
       cash   += proceeds
       posQty -= qtyOut
-      if (posQty === 0) {
-        avgEntry = 0; highWatermark = 0
+      if (decision.action === 'trim') {
+        trimmedOnce = true
+      } else {
+        avgEntry = 0; highWatermark = 0; trimmedOnce = false
         entryTime = null; entryIndicators = null; entryCandle = null
+
+        // Rolling performance gate (5-min only): track last 5 full exits.
+        // Pause symbol 10 days when all 5 losses or net<0 with ≤1 win.
+        // Not applied at 1-min — losing streaks there are normal statistical noise.
+        if (TIMEFRAME !== '1Min') {
+          rollingPnl.push(pnlUsd)
+          if (rollingPnl.length > 5) rollingPnl.shift()
+          if (rollingPnl.length === 5) {
+            const rollingNet  = rollingPnl.reduce((a, b) => a + b, 0)
+            const rollingWins = rollingPnl.filter(p => p > 0).length
+            const isLosingStreak = rollingWins === 0 || (rollingNet < 0 && rollingWins <= 1)
+            if (isLosingStreak) {
+              const resumeDate = new Date(new Date(c.timestamp).getTime() + 10 * 86_400_000)
+              pausedUntilDay = resumeDate.toISOString().slice(0, 10)
+            } else {
+              pausedUntilDay = null
+            }
+          }
+        }
       }
 
       completedTrades.push({
@@ -422,6 +517,40 @@ function generateReport(trades, runDate) {
     if (dd > maxDD) maxDD = dd
   }
 
+  // Sharpe ratio (annualized, using daily PnL)
+  const dailyPnl = {}
+  for (const t of trades) {
+    const day = t.entryTime.slice(0, 10)
+    dailyPnl[day] = (dailyPnl[day] || 0) + t.pnlUsd
+  }
+  const dailyReturns = Object.values(dailyPnl)
+  const avgDaily = avg(dailyReturns)
+  const stdDaily = dailyReturns.length > 1
+    ? Math.sqrt(dailyReturns.reduce((s, v) => s + (v - avgDaily) ** 2, 0) / (dailyReturns.length - 1))
+    : 0
+  const sharpe = stdDaily > 0 ? round2((avgDaily / stdDaily) * Math.sqrt(252)) : 'N/A'
+
+  // Time-of-day breakdown (ET: UTC-4 during DST)
+  const timeSlots = {
+    'Open 9:30–10:30':  { t: 0, w: 0, pnl: 0 },
+    'Mid  10:30–11:30': { t: 0, w: 0, pnl: 0 },
+    'Noon 11:30–13:00': { t: 0, w: 0, pnl: 0 },
+    'PM   13:00–14:00': { t: 0, w: 0, pnl: 0 },
+  }
+  for (const t of trades) {
+    const utcH = parseInt(t.entryTime.slice(11, 13), 10)
+    const utcM = parseInt(t.entryTime.slice(14, 16), 10)
+    const etMin = (utcH - 4) * 60 + utcM  // approximate ET (UTC-4 DST)
+    let slot
+    if (etMin < 630)       slot = 'Open 9:30–10:30'
+    else if (etMin < 690)  slot = 'Mid  10:30–11:30'
+    else if (etMin < 780)  slot = 'Noon 11:30–13:00'
+    else                   slot = 'PM   13:00–14:00'
+    timeSlots[slot].t++
+    timeSlots[slot].pnl += t.pnlUsd
+    if (t.status === 'WIN') timeSlots[slot].w++
+  }
+
   // Per-symbol breakdown
   const symMap = {}
   for (const t of trades) {
@@ -452,7 +581,7 @@ function generateReport(trades, runDate) {
 
   let md = `# Bot Trade Report — ${total} BUY+SELL Round-Trip Trades\n\n`
   md += `> **Generated:** ${runDate}  \n`
-  md += `> **Risk profile:** ${RISK_PROFILE} | **Capital:** $${CAPITAL.toLocaleString()} | **Mode:** Alpaca historical 5-min bars (IEX feed)\n\n`
+  md += `> **Risk profile:** ${RISK_PROFILE} | **Capital:** $${CAPITAL.toLocaleString()} | **Timeframe:** ${TIMEFRAME} | **Mode:** Alpaca historical bars (IEX feed)\n\n`
 
   md += `## Verdict\n\n${verdict}\n\n`
 
@@ -467,11 +596,22 @@ function generateReport(trades, runDate) {
   md += `| Avg win | $${avgWin} |\n`
   md += `| Avg loss | $${avgLoss} |\n`
   md += `| Max drawdown | ${maxDD}% |\n`
+  md += `| Sharpe ratio (ann.) | ${sharpe} |\n`
   md += `| Avg confidence | ${avgConf}% |\n`
   md += `| Avg trade duration | ${avgDurMin} min |\n`
   md += `| Avg risk ratio | ${avgRiskR}R |\n`
   md += `| Starting equity | $${CAPITAL.toLocaleString()} |\n`
   md += `| Ending equity | $${round2(CAPITAL + netPnL).toLocaleString()} |\n\n`
+
+  md += `## Time-of-Day Breakdown (ET)\n\n`
+  md += `| Window | Trades | Win% | Net P&L |\n|:--|--:|--:|--:|\n`
+  for (const [slot, s] of Object.entries(timeSlots)) {
+    if (s.t === 0) continue
+    const wr = round2(s.w / s.t * 100)
+    const pnl = round2(s.pnl)
+    md += `| ${slot} | ${s.t} | ${wr}% | $${pnl >= 0 ? '+' : ''}${pnl} |\n`
+  }
+  md += '\n'
 
   md += `## Per-Symbol Breakdown\n\n`
   md += `| Symbol | Trades | Wins | Win% | Net P&L |\n|:--|--:|--:|--:|--:|\n`
@@ -548,33 +688,36 @@ async function main() {
   const endDate   = today.toISOString().slice(0, 10)
   const startDate = new Date(today - LOOKBACK_DAYS * 86_400_000).toISOString().slice(0, 10)
 
-  console.log(`\n=== ${TARGET_TRADES}-Trade Bot Simulation ===`)
+  console.log(`\n=== ${TARGET_TRADES}-Trade Bot Simulation [${TIMEFRAME}] ===`)
   console.log(`Period: ${startDate} → ${endDate}`)
-  console.log(`Risk profile: ${RISK_PROFILE} | Capital: $${CAPITAL.toLocaleString()}`)
+  console.log(`Risk profile: ${RISK_PROFILE} | Capital: $${CAPITAL.toLocaleString()} | Window: ${WINDOW_BARS} bars`)
   console.log(`Daily loss limit: ${DAILY_LOSS_LIMIT_PCT}%\n`)
 
   const allTrades = []
 
-  // Pre-fetch SPY to build broad-market breadth map used by all other symbols.
-  process.stdout.write(`  Fetching SPY (breadth) ... `)
+  // Pre-fetch SPY to build broad-market breadth and volatility-regime maps.
+  process.stdout.write(`  Fetching SPY (breadth + vol-regime) ... `)
   let spyTrendMap = new Map()
+  let volRegimeMap = new Map()
   try {
-    const spyBars = await fetchBars('SPY', startDate, endDate)
-    spyTrendMap = buildSpyTrendMap(spyBars)
-    console.log(`${spyBars.length} bars → ${spyTrendMap.size} trend points`)
+    const spyBars = await fetchBars('SPY', startDate, endDate, TIMEFRAME)
+    spyTrendMap  = buildSpyTrendMap(spyBars)
+    volRegimeMap = buildVolatilityRegimeMap(spyBars)
+    const volatileBars = [...volRegimeMap.values()].filter(Boolean).length
+    console.log(`${spyBars.length} bars → ${spyTrendMap.size} trend points, ${volatileBars} volatile bars`)
   } catch (err) {
-    console.error(`    WARN: SPY fetch failed (${err.message}) — breadth filter disabled`)
+    console.error(`    WARN: SPY fetch failed (${err.message}) — breadth/vol-regime filters disabled`)
   }
 
   // Fetch ALL symbols before cutting to TARGET_TRADES so no symbol is systematically skipped.
   for (const sym of SYMBOLS) {
     process.stdout.write(`  Fetching ${sym} ... `)
     try {
-      const bars = await fetchBars(sym, startDate, endDate)
+      const bars = await fetchBars(sym, startDate, endDate, TIMEFRAME)
       if (bars.length < 50) { console.log(`skip (only ${bars.length} bars)`); continue }
       console.log(`${bars.length} bars`)
 
-      const trades = simulateSymbol(sym, bars, spyTrendMap)
+      const trades = simulateSymbol(sym, bars, spyTrendMap, volRegimeMap)
       console.log(`    → ${trades.length} completed round-trips`)
       allTrades.push(...trades)
     } catch (err) {
@@ -600,7 +743,8 @@ async function main() {
   const dateSlug = new Date().toLocaleDateString('en-CA')
   const outDir   = join(__dirname, '../docs/reports')
   mkdirSync(outDir, { recursive: true })
-  const outPath  = join(outDir, `BOT-TRADE-REPORT-${dateSlug}.md`)
+  const tfSlug   = TIMEFRAME === '1Min' ? '-1min' : ''
+  const outPath  = join(outDir, `BOT-TRADE-REPORT-${dateSlug}${tfSlug}.md`)
   writeFileSync(outPath, report, 'utf8')
 
   console.log(`\nReport saved → ${outPath}`)
