@@ -3,7 +3,17 @@ import { createHttpLogger, logger } from './logger.js'
 import { evaluateDayTradingDecision, RISK_PROFILES } from './day-trading-bot.js'
 import { runDayTradingBacktest } from './day-trading-backtest.js'
 import { evolveTradingStrategies } from './strategy-evolution.js'
-import { state, IS_SIMULATION, getTradingEnvironmentLabel, API_BEARER_TOKEN, FEATURE_FLAGS } from './config.js'
+import {
+  state,
+  IS_SIMULATION,
+  getTradingEnvironmentLabel,
+  API_BEARER_TOKEN,
+  FEATURE_FLAGS,
+  DISABLE_LIVE_TRADING,
+  LIVE_TRADING_MAX_NOTIONAL,
+  LIVE_TRADING_ALLOWED_SYMBOLS,
+  LIVE_TRADING_REQUIRE_PROTECTIVE_STOP
+} from './config.js'
 import { attachUser, requireUser, requireEntitlement, getAuthSummary } from './auth.js'
 import { getBrokerAdapter, getBrokerIdentity, getBrokerCapabilities } from './services/broker-manager.js'
 import { getMarketDataIdentity, getMarketDataCapabilities, getMarketDataProvider } from './services/market-data-manager.js'
@@ -39,6 +49,18 @@ function orderIntentRequiresStopFeature(orderIntent) {
   }
   return (orderIntent.type === 'market' || orderIntent.type === 'limit')
     && Number.isFinite(orderIntent.stopPrice) && orderIntent.stopPrice > 0
+}
+
+function getLiveAllowedSymbols() {
+  return String(LIVE_TRADING_ALLOWED_SYMBOLS || '')
+    .split(',')
+    .map(symbol => symbol.trim().toUpperCase())
+    .filter(Boolean)
+}
+
+function getLiveMaxNotional() {
+  const value = Number(LIVE_TRADING_MAX_NOTIONAL)
+  return Number.isFinite(value) && value > 0 ? value : 250
 }
 
 // Express API Routes.
@@ -1429,6 +1451,16 @@ export function createRestApiRoutes() {
       if (orderIntentRequiresStopFeature(orderIntent) && !FEATURE_FLAGS.stopOrders) {
         return res.status(403).json({ error: 'Stop / stop-loss orders are disabled in this deployment.' })
       }
+      const tradingEnvironment = getTradingEnvironmentLabel()
+      if (tradingEnvironment === 'live' && (DISABLE_LIVE_TRADING === 'true' || !FEATURE_FLAGS.liveTrading)) {
+        return res.status(403).json({
+          error: 'Live trading disabled',
+          message: 'Set DISABLE_LIVE_TRADING=false and FEATURE_LIVE_TRADING=true on the server to allow live brokerage orders.'
+        })
+      }
+      if (tradingEnvironment === 'paper' && !FEATURE_FLAGS.paperTrading) {
+        return res.status(403).json({ error: 'Paper trading is disabled in this deployment.' })
+      }
 
       const venue = await cryptoVenueMeta(orderIntent)
       const referencePrice = await getPrice(venue.venueSymbol).catch(() => 0)
@@ -1444,6 +1476,36 @@ export function createRestApiRoutes() {
         const slPct = Number(req.body?.stopLossPct ?? req.body?.stopLossPercent)
         if (Number.isFinite(slPct) && slPct > 0 && slPct < 50 && referencePrice > 0) {
           orderIntent = { ...orderIntent, stopPrice: +(referencePrice * (1 - slPct / 100)).toFixed(2) }
+        }
+      }
+
+      if (tradingEnvironment === 'live') {
+        const allowedSymbols = getLiveAllowedSymbols()
+        if (allowedSymbols.length && !allowedSymbols.includes(orderIntent.symbol)) {
+          return res.status(403).json({
+            error: 'Live symbol not allowed',
+            message: `${orderIntent.symbol} is not in LIVE_TRADING_ALLOWED_SYMBOLS.`
+          })
+        }
+
+        if (
+          orderIntent.side === 'buy'
+          && LIVE_TRADING_REQUIRE_PROTECTIVE_STOP === 'true'
+          && !Number.isFinite(orderIntent.stopPrice)
+        ) {
+          return res.status(403).json({
+            error: 'Protective stop required',
+            message: 'Live buy orders must include stopPrice or stopLossPct while LIVE_TRADING_REQUIRE_PROTECTIVE_STOP=true.'
+          })
+        }
+
+        const estimatedNotional = estimateOrderNotional({ ...orderIntent, symbol: venue.venueSymbol }, referencePrice || null)
+        const maxNotional = getLiveMaxNotional()
+        if (orderIntent.side === 'buy' && estimatedNotional != null && estimatedNotional > maxNotional) {
+          return res.status(403).json({
+            error: 'Live order exceeds notional cap',
+            message: `Estimated notional $${estimatedNotional} exceeds LIVE_TRADING_MAX_NOTIONAL=$${maxNotional}.`
+          })
         }
       }
 

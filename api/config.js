@@ -28,6 +28,10 @@ export const {
   DEV_AUTH_EMAIL,
   DEV_AUTH_NAME,
   DEV_AUTH_PLAN = 'pro',
+  DISABLE_LIVE_TRADING = 'false',
+  LIVE_TRADING_MAX_NOTIONAL = '250',
+  LIVE_TRADING_ALLOWED_SYMBOLS = '',
+  LIVE_TRADING_REQUIRE_PROTECTIVE_STOP = 'true',
   FEATURE_LIVE_TRADING = 'true',
   FEATURE_PAPER_TRADING = 'true',
   FEATURE_MARKET_ORDERS = 'true',
@@ -63,7 +67,7 @@ if (AUTH_PROVIDER === 'supabase') {
 }
 
 export const FEATURE_FLAGS = {
-  liveTrading: FEATURE_LIVE_TRADING === 'true',
+  liveTrading: FEATURE_LIVE_TRADING === 'true' && DISABLE_LIVE_TRADING !== 'true',
   paperTrading: FEATURE_PAPER_TRADING === 'true',
   marketOrders: FEATURE_MARKET_ORDERS === 'true',
   limitOrders: FEATURE_LIMIT_ORDERS === 'true',
