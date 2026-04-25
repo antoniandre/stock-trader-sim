@@ -186,6 +186,7 @@ export function evaluateDayTradingDecision(input = {}) {
   // Trailing stop: profile default, but caller can override via strategyParams.trailingStopPct
   // (used to pass 1-min specific value without touching the risk profile).
   const trailingStopPct = Number(strategyParams.trailingStopPct ?? profile.trailingStopPct)
+  const effectiveRewardPct = Number(strategyParams.rewardTargetPct ?? profile.rewardTargetPct)
 
   // Daily loss limit enforcement — block new entries when limit reached.
   const dailyLossesPct = Number(input.dailyLossesPct ?? 0)
@@ -252,6 +253,10 @@ export function evaluateDayTradingDecision(input = {}) {
 
   // Compute nowMs here so time-of-day awareness can inform entry scoring AND position management.
   const nowMs = Number.isFinite(input.nowMs) ? input.nowMs : Date.now()
+  const requestedBarDurationMs = Number(input.barDurationMs ?? strategyParams.barDurationMs ?? 5 * 60 * 1000)
+  const barDurationMs = Number.isFinite(requestedBarDurationMs) && requestedBarDurationMs > 0
+    ? requestedBarDurationMs
+    : 5 * 60 * 1000
   const _nowDate = new Date(nowMs)
   const _sessionMinute = _nowDate.getUTCHours() * 60 + _nowDate.getUTCMinutes()
   const inRegularSession = _sessionMinute >= SESSION_OPEN_UTC_MIN && _sessionMinute < SESSION_LAST_ENTRY_UTC_MIN
@@ -429,7 +434,7 @@ export function evaluateDayTradingDecision(input = {}) {
   // Default +15 bias (balanced → 70); caller can override via strategyParams.trendThresholdBoost
   // for noisier timeframes (e.g. 1-min uses +20 → threshold 75).
   const trendBoost = Number(strategyParams.trendThresholdBoost ?? 15)
-  const breakoutBoost = Number(strategyParams.breakoutThresholdBoost ?? 0)
+  const breakoutBoost = Number(strategyParams.breakoutThresholdAdj ?? strategyParams.breakoutThresholdBoost ?? 0)
   const buyThreshold = profile.buyThreshold
     + (setup === 'mean-revert' ? -4 : 0)
     + (setup === 'trend'       ? trendBoost : 0)
@@ -478,7 +483,7 @@ export function evaluateDayTradingDecision(input = {}) {
     }
     else if (macdBearishGate) {
       action = 'wait'
-      reasons.push(`MACD gate: line ${round(macdLine)} below signal — momentum accelerating bearish, not buying into this`)
+      reasons.push(`MACD gate: line ${round(macdLine)} is deeply negative — established bearish momentum, not buying into this`)
     }
     else if (bearishCandleGate) {
       action = 'wait'
@@ -497,7 +502,6 @@ export function evaluateDayTradingDecision(input = {}) {
   }
   else {
     const stopTriggered = unrealizedPnLPct <= -dynamicStopPct
-    const effectiveRewardPct = Number(strategyParams.rewardTargetPct ?? profile.rewardTargetPct)
     const takeProfitZone = unrealizedPnLPct >= effectiveRewardPct
     const positionElapsedMs = input.positionOpenedAt ? (nowMs - input.positionOpenedAt) : 0
 
@@ -536,7 +540,7 @@ export function evaluateDayTradingDecision(input = {}) {
       && accountEquityForRisk > 0
     ) {
       const riskEntryPrice = Number.isFinite(avgEntryPrice) && avgEntryPrice > 0 ? avgEntryPrice : currentPrice
-      const riskStopPrice = riskEntryPrice * (1 - profile.stopLossPct / 100)
+      const riskStopPrice = riskEntryPrice * (1 - dynamicStopPct / 100)
       const riskValidation = validateRisk({
         entryPrice: riskEntryPrice,
         stopLossPrice: riskStopPrice,
@@ -579,14 +583,15 @@ export function evaluateDayTradingDecision(input = {}) {
       }
     }
 
-    // BREAK-EVEN STOP: once the position reached 1R (highWatermark crossed the 1×-stop level),
+    // BREAK-EVEN STOP: once the position reached the configured R threshold,
     // treat entry price as the new floor. Any pullback to entry triggers an exit — prevents
     // a trade that was winning from becoming a loser.
+    const breakevenTriggerR = clamp(Number(strategyParams.breakevenTriggerR ?? 1), 0.5, 1.5)
     if (action === 'hold'
-        && highWatermarkPrice >= avgEntryPrice * (1 + dynamicStopPct / 100)
+        && highWatermarkPrice >= avgEntryPrice * (1 + (dynamicStopPct * breakevenTriggerR) / 100)
         && currentPrice <= avgEntryPrice * 1.001) {
       action = 'exit'
-      reasons.push(`Break-even stop: reached 1R then retreated to entry (${round(currentPrice)} ≤ ${round(avgEntryPrice)})`)
+      reasons.push(`Break-even stop: reached ${round(breakevenTriggerR)}R then retreated to entry (${round(currentPrice)} ≤ ${round(avgEntryPrice)})`)
     }
 
     // EARLY REVERSAL EXIT: cut losers before the full stop fires.
@@ -626,14 +631,14 @@ export function evaluateDayTradingDecision(input = {}) {
       }
     }
 
-    // POSITION TIMEOUT: Force exit after 20 candles or 2 hours without meaningful progress
-    const positionAge = input.positionOpenedAt ? Math.round(((nowMs - input.positionOpenedAt) / (5 * 60 * 1000))) : null
+    // POSITION TIMEOUT: Force exit after 20 bars or 2 hours without meaningful progress
+    const positionAge = input.positionOpenedAt ? Math.round((nowMs - input.positionOpenedAt) / barDurationMs) : null
     const twoHoursMs = 2 * 60 * 60 * 1000
     const positionTimeoutTriggered = positionAge && (positionAge > 20 || positionElapsedMs > twoHoursMs)
 
     if (positionTimeoutTriggered) {
       action = 'exit'
-      reasons.push(`Position timeout (${positionAge} candles, ${Math.round(positionElapsedMs / 1000 / 60)}min elapsed)`)
+      reasons.push(`Position timeout (${positionAge} bars, ${Math.round(positionElapsedMs / 1000 / 60)}min elapsed)`)
     }
   }
 
@@ -648,10 +653,10 @@ export function evaluateDayTradingDecision(input = {}) {
   }
 
   // BUILD LIVE TRACING OBJECT
-  const positionAge = input.positionOpenedAt ? Math.round(((nowMs - input.positionOpenedAt) / (5 * 60 * 1000))) : null
+  const positionAge = input.positionOpenedAt ? Math.round((nowMs - input.positionOpenedAt) / barDurationMs) : null
   const positionElapsedMs = input.positionOpenedAt ? (nowMs - input.positionOpenedAt) : 0
   const stopLossPct = dynamicStopPct
-  const profitTargetPct = profile.rewardTargetPct
+  const profitTargetPct = effectiveRewardPct
   const entryPriceForTrace = positionQty > 0 ? avgEntryPrice : null
   const stopLossPriceForTrace = entryPriceForTrace ? entryPriceForTrace * (1 - stopLossPct / 100) : null
   const profitTargetPriceForTrace = entryPriceForTrace ? entryPriceForTrace * (1 + profitTargetPct / 100) : null
@@ -670,7 +675,7 @@ export function evaluateDayTradingDecision(input = {}) {
     action,
     reasons: [...reasons],
     positionQty: positionQty > 0 ? positionQty : null,
-    positionAge: positionAge !== null ? `${positionAge} candles (${Math.round(positionElapsedMs / 1000 / 60)}min)` : 'N/A',
+    positionAge: positionAge !== null ? `${positionAge} bars (${Math.round(positionElapsedMs / 1000 / 60)}min)` : 'N/A',
     priceMetrics: positionQty > 0 ? {
       current: round(currentPrice),
       entry: round(entryPriceForTrace),
@@ -686,9 +691,20 @@ export function evaluateDayTradingDecision(input = {}) {
     }
   }
 
+  const setupSizeMultiplier = setup === 'breakout'
+    ? Number(strategyParams.breakoutSizeMultiplier ?? 1)
+    : setup === 'trend'
+      ? Number(strategyParams.trendSizeMultiplier ?? 0.8)
+      : setup === 'mean-revert'
+        ? Number(strategyParams.meanRevertSizeMultiplier ?? 0.7)
+        : 0.5
+  const regimeSizeMultiplier = marketVolatileRegime && setup === 'trend'
+    ? Number(strategyParams.volatileTrendSizeMultiplier ?? 0.5)
+    : 1
+  const sizeMultiplier = clamp(setupSizeMultiplier * regimeSizeMultiplier, 0.25, 1.25)
   const sizeConfidence = clamp(confidence - (setup === 'mean-revert' ? 4 : 8), 35, 90)
   const positionSizePct = clamp(
-    profile.basePositionSizePct + ((sizeConfidence - 50) / 100) * profile.basePositionSizePct + Number(strategyParams.sizeBias || 0),
+    (profile.basePositionSizePct + ((sizeConfidence - 50) / 100) * profile.basePositionSizePct + Number(strategyParams.sizeBias || 0)) * sizeMultiplier,
     0.02,
     profile.maxPositionSizePct
   )
@@ -698,7 +714,7 @@ export function evaluateDayTradingDecision(input = {}) {
     stopLossPct: round(dynamicStopPct + Number(strategyParams.stopLossAdj || 0)),
     trailingStopPct: trailingStopPct,
     trimFraction: profile.trimFraction,
-    rewardTargetPct: round(profile.rewardTargetPct + Number(strategyParams.rewardAdj || 0))
+    rewardTargetPct: round(effectiveRewardPct + Number(strategyParams.rewardAdj || 0))
   }
 
   return {
