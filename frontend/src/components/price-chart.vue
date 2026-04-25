@@ -1821,6 +1821,34 @@ const createLastTickPricePlugin = () => ({
     ctx.moveTo(chartArea.left, y)
     ctx.lineTo(chartArea.right, y)
     ctx.stroke()
+
+    // Price tag on the y-axis strip (right), same idea as entry label.
+    const labelText = formatPrice(g.price)
+    ctx.font = '10px sans-serif'
+    const labelPadding = 3
+    const labelWidth = ctx.measureText(labelText).width + labelPadding * 2
+    const labelHeight = 14
+    const margin = 4
+    const stripRight = Math.min(chart.width - margin, (yScale.right ?? chart.width) - margin)
+    let labelX = stripRight - labelWidth
+    const minX = chartArea.right + margin
+    if (labelX < minX) labelX = minX
+
+    let labelY = y - labelHeight / 2
+    labelY = Math.max(chartArea.top, Math.min(labelY, chartArea.bottom - labelHeight))
+
+    const fillColor = g.bullish ? LAST_TICK_LINE_UP : LAST_TICK_LINE_DOWN
+    ctx.fillStyle = fillColor
+    ctx.setLineDash([])
+    ctx.beginPath()
+    ctx.roundRect(labelX, labelY, labelWidth, labelHeight, 4)
+    ctx.fill()
+
+    ctx.fillStyle = $waveui.colors.white
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(labelText, labelX + labelWidth / 2, labelY + labelHeight / 2)
+
     ctx.restore()
   }
 })
