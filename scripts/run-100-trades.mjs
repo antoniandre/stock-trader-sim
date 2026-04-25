@@ -41,8 +41,10 @@ const WINDOW_BARS   = TIMEFRAME === '1Min' ? 120 : 35
 const HTF_STEP      = TIMEFRAME === '1Min' ? 15 : 3
 // 1-min specific overrides passed via strategyParams (keeps the 5-min profile untouched)
 const STRATEGY_PARAMS = TIMEFRAME === '1Min'
-  ? { trailingStopPct: 0.4, enableMeanRevert: true, stopFloorPct: 0.5, rewardTargetPct: 1.2, stagnationMinutes: 15, enableBreakout: false, atrMultiplier: 2.5 }
-  : { trailingStopPct: 1.5, breakoutTrailingStopPct: 1.7, stagnationMinutes: 45, atrMultiplier: 2.5 }
+  ? { trailingStopPct: 0.4, enableMeanRevert: true, stopFloorPct: 0.5, rewardTargetPct: 1.2, stagnationMinutes: 15, enableBreakout: false, atrMultiplier: 2.5, breakevenTriggerR: 0.8 }
+  : { trailingStopPct: 1.5, breakoutTrailingStopPct: 1.7, stagnationMinutes: 45, atrMultiplier: 2.5, breakoutThresholdAdj: -5, trendSizeMultiplier: 1.0 }
+const ROLLING_WINDOW_TRADES = 5
+const ROLLING_PAUSE_DAYS = TIMEFRAME === '1Min' ? 1 : 10
 
 // Removed: AMD (47.83% WR, -$972), SPY/QQQ (ETFs, 0% WR), AAPL (40% WR, -$62),
 // TSLA (38–42% WR, net negative every 90d run — hyper-noisy, headline-driven false breakouts)
@@ -248,8 +250,7 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap =
   let posQty = 0
   let avgEntry = 0
   let highWatermark = 0   // highest close since entry — drives trailing stop
-  // Rolling performance gate: after every 5 trades, if net < -$300 or 0 wins, pause 10 calendar days.
-  // This is what a live system should do — throttle underperformers dynamically, not remove them.
+  // Rolling performance gate: throttle symbols when recent realized edge degrades.
   let rollingPnl     = []      // last 5 completed trade P&Ls for this symbol
   let pausedUntilDay = null    // ISO date string; null = not paused
   let entryTime = null
@@ -340,6 +341,7 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap =
       marketVolatileRegime,
       vwapReclaim,
       entrySetup: entryIndicators?.entrySetup ?? null,
+      barDurationMs: (TIMEFRAME === '1Min' ? 1 : 5) * 60_000,
       disableDailyCatalyst: true
     })
 
@@ -351,7 +353,7 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap =
     const volRatio = round2(decision.metrics.volumeRatio)
 
     // ── BUY ──────────────────────────────────────────────────────────────────
-    // Rolling performance gate (5-min only): skip new entries while symbol is cooling off.
+    // Rolling performance gate: skip new entries while symbol is cooling off.
     if (pausedUntilDay && currentDate < pausedUntilDay) continue
 
     if (decision.action === 'buy' && posQty === 0) {
@@ -413,22 +415,20 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap =
         avgEntry = 0; highWatermark = 0; trimmedOnce = false
         entryTime = null; entryIndicators = null; entryCandle = null
 
-        // Rolling performance gate (5-min only): track last 5 full exits.
-        // Pause symbol 10 days when all 5 losses or net<0 with ≤1 win.
-        // Not applied at 1-min — losing streaks there are normal statistical noise.
-        if (TIMEFRAME !== '1Min') {
-          rollingPnl.push(pnlUsd)
-          if (rollingPnl.length > 5) rollingPnl.shift()
-          if (rollingPnl.length === 5) {
-            const rollingNet  = rollingPnl.reduce((a, b) => a + b, 0)
-            const rollingWins = rollingPnl.filter(p => p > 0).length
-            const isLosingStreak = rollingWins === 0 || (rollingNet < 0 && rollingWins <= 1)
-            if (isLosingStreak) {
-              const resumeDate = new Date(new Date(c.timestamp).getTime() + 10 * 86_400_000)
-              pausedUntilDay = resumeDate.toISOString().slice(0, 10)
-            } else {
-              pausedUntilDay = null
-            }
+        rollingPnl.push(pnlUsd)
+        if (rollingPnl.length > ROLLING_WINDOW_TRADES) rollingPnl.shift()
+        if (rollingPnl.length === ROLLING_WINDOW_TRADES) {
+          const rollingNet  = rollingPnl.reduce((a, b) => a + b, 0)
+          const rollingWins = rollingPnl.filter(p => p > 0).length
+          const rollingExpectancy = rollingNet / rollingPnl.length
+          const isLosingStreak = rollingWins === 0
+            || (rollingNet < 0 && rollingWins <= 1)
+            || (rollingExpectancy < -25 && rollingWins <= 2)
+          if (isLosingStreak) {
+            const resumeDate = new Date(new Date(c.timestamp).getTime() + ROLLING_PAUSE_DAYS * 86_400_000)
+            pausedUntilDay = resumeDate.toISOString().slice(0, 10)
+          } else {
+            pausedUntilDay = null
           }
         }
       }
@@ -504,6 +504,8 @@ function generateReport(trades, runDate) {
   const profitFactor = grossLoss > 0 ? round2(grossProfit / grossLoss) : (grossProfit > 0 ? '∞' : '0')
   const avgWin      = wins.length  ? round2(grossProfit / wins.length)  : 0
   const avgLoss     = losses.length ? round2(grossLoss   / losses.length) : 0
+  const expectancy   = total > 0 ? round2(netPnL / total) : 0
+  const payoffRatio  = avgLoss > 0 ? round2(avgWin / avgLoss) : (avgWin > 0 ? '∞' : '0')
   const avgDurMin   = Math.round(trades.reduce((s, t) => s + t.durMin, 0) / total)
   const avgRiskR    = round2(trades.reduce((s, t) => s + t.riskR, 0) / total)
   const avgConf     = round2(trades.reduce((s, t) => s + t.confidence, 0) / total)
@@ -529,6 +531,25 @@ function generateReport(trades, runDate) {
     ? Math.sqrt(dailyReturns.reduce((s, v) => s + (v - avgDaily) ** 2, 0) / (dailyReturns.length - 1))
     : 0
   const sharpe = stdDaily > 0 ? round2((avgDaily / stdDaily) * Math.sqrt(252)) : 'N/A'
+  const tradesPerDay = dailyReturns.length > 0 ? round2(total / dailyReturns.length) : 0
+
+  function slippageScenario(extraBpsEachWay) {
+    const adjustedTrades = trades.map(t => {
+      const roundTripNotional = ((t.entryPrice * t.qty) + (t.exitPrice * t.qty))
+      return round2(t.pnlUsd - (roundTripNotional * extraBpsEachWay / 10000))
+    })
+    const adjustedWins = adjustedTrades.filter(pnl => pnl > 0)
+    const adjustedLosses = adjustedTrades.filter(pnl => pnl <= 0)
+    const adjustedGrossProfit = round2(adjustedWins.reduce((sum, pnl) => sum + pnl, 0))
+    const adjustedGrossLoss = round2(Math.abs(adjustedLosses.reduce((sum, pnl) => sum + pnl, 0)))
+    const adjustedNet = round2(adjustedGrossProfit - adjustedGrossLoss)
+    const adjustedPF = adjustedGrossLoss > 0
+      ? round2(adjustedGrossProfit / adjustedGrossLoss)
+      : (adjustedGrossProfit > 0 ? '∞' : '0')
+    return { extraBpsEachWay, adjustedNet, adjustedPF }
+  }
+
+  const slippageScenarios = [1, 3, 5, 10].map(slippageScenario)
 
   // Time-of-day breakdown (ET: UTC-4 during DST)
   const timeSlots = {
@@ -554,10 +575,12 @@ function generateReport(trades, runDate) {
   // Per-symbol breakdown
   const symMap = {}
   for (const t of trades) {
-    if (!symMap[t.symbol]) symMap[t.symbol] = { t: 0, w: 0, pnl: 0 }
+    if (!symMap[t.symbol]) symMap[t.symbol] = { t: 0, w: 0, pnl: 0, grossProfit: 0, grossLoss: 0 }
     symMap[t.symbol].t++
     symMap[t.symbol].pnl += t.pnlUsd
     if (t.status === 'WIN') symMap[t.symbol].w++
+    if (t.pnlUsd > 0) symMap[t.symbol].grossProfit += t.pnlUsd
+    else symMap[t.symbol].grossLoss += Math.abs(t.pnlUsd)
   }
 
   // Exit-reason breakdown
@@ -595,8 +618,11 @@ function generateReport(trades, runDate) {
   md += `| Profit factor | ${profitFactor} |\n`
   md += `| Avg win | $${avgWin} |\n`
   md += `| Avg loss | $${avgLoss} |\n`
+  md += `| Payoff ratio | ${payoffRatio}:1 |\n`
+  md += `| Expectancy | $${expectancy >= 0 ? '+' : ''}${expectancy} / trade |\n`
   md += `| Max drawdown | ${maxDD}% |\n`
   md += `| Sharpe ratio (ann.) | ${sharpe} |\n`
+  md += `| Trades / active day | ${tradesPerDay} |\n`
   md += `| Avg confidence | ${avgConf}% |\n`
   md += `| Avg trade duration | ${avgDurMin} min |\n`
   md += `| Avg risk ratio | ${avgRiskR}R |\n`
@@ -604,25 +630,41 @@ function generateReport(trades, runDate) {
   md += `| Ending equity | $${round2(CAPITAL + netPnL).toLocaleString()} |\n\n`
 
   md += `## Time-of-Day Breakdown (ET)\n\n`
-  md += `| Window | Trades | Win% | Net P&L |\n|:--|--:|--:|--:|\n`
+  md += `| Window | Trades | Win% | Net P&L | Expectancy |\n|:--|--:|--:|--:|--:|\n`
   for (const [slot, s] of Object.entries(timeSlots)) {
     if (s.t === 0) continue
     const wr = round2(s.w / s.t * 100)
     const pnl = round2(s.pnl)
-    md += `| ${slot} | ${s.t} | ${wr}% | $${pnl >= 0 ? '+' : ''}${pnl} |\n`
+    md += `| ${slot} | ${s.t} | ${wr}% | $${pnl >= 0 ? '+' : ''}${pnl} | $${round2(s.pnl / s.t)} |\n`
   }
   md += '\n'
 
   md += `## Per-Symbol Breakdown\n\n`
-  md += `| Symbol | Trades | Wins | Win% | Net P&L |\n|:--|--:|--:|--:|--:|\n`
+  md += `| Symbol | Trades | Wins | Win% | Net P&L | Expectancy | PF | Eligibility |\n|:--|--:|--:|--:|--:|--:|--:|:--|\n`
   for (const [sym, s] of Object.entries(symMap).sort((a, b) => b[1].pnl - a[1].pnl)) {
-    md += `| ${sym} | ${s.t} | ${s.w} | ${round2(s.w / s.t * 100)}% | $${round2(s.pnl) >= 0 ? '+' : ''}${round2(s.pnl)} |\n`
+    const pnl = round2(s.pnl)
+    const exp = round2(s.pnl / s.t)
+    const pf = s.grossLoss > 0 ? round2(s.grossProfit / s.grossLoss) : (s.grossProfit > 0 ? '∞' : '0')
+    const winPct = round2(s.w / s.t * 100)
+    const eligibility = s.t < ROLLING_WINDOW_TRADES
+      ? 'watch'
+      : (pnl > 0 && exp > 0 && winPct >= 40 ? 'eligible' : 'throttle')
+    md += `| ${sym} | ${s.t} | ${s.w} | ${winPct}% | $${pnl >= 0 ? '+' : ''}${pnl} | $${exp >= 0 ? '+' : ''}${exp} | ${pf} | ${eligibility} |\n`
   }
 
   md += `\n## Setup Performance\n\n`
-  md += `| Setup | Trades | Wins | Win% | Net P&L |\n|:--|--:|--:|--:|--:|\n`
+  md += `| Setup | Trades | Wins | Win% | Net P&L | Expectancy |\n|:--|--:|--:|--:|--:|--:|\n`
   for (const [setup, s] of Object.entries(setupMap)) {
-    md += `| ${setup} | ${s.t} | ${s.w} | ${round2(s.w / s.t * 100)}% | $${round2(s.pnl) >= 0 ? '+' : ''}${round2(s.pnl)} |\n`
+    const pnl = round2(s.pnl)
+    const exp = round2(s.pnl / s.t)
+    md += `| ${setup} | ${s.t} | ${s.w} | ${round2(s.w / s.t * 100)}% | $${pnl >= 0 ? '+' : ''}${pnl} | $${exp >= 0 ? '+' : ''}${exp} |\n`
+  }
+
+  md += `\n## Slippage Sensitivity\n\n`
+  md += `Additional slippage is applied on top of the built-in ${SLIPPAGE_PCT}% per-side model.\n\n`
+  md += `| Extra slippage | Adjusted net P&L | Adjusted PF |\n|:--|--:|--:|\n`
+  for (const s of slippageScenarios) {
+    md += `| +${s.extraBpsEachWay} bps/side | $${s.adjustedNet >= 0 ? '+' : ''}${s.adjustedNet} | ${s.adjustedPF} |\n`
   }
 
   md += `\n## Exit Reason Breakdown\n\n`
