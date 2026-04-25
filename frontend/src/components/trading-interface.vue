@@ -1,83 +1,123 @@
 <template lang="pug">
 .trading-interface
-  .glass-box.px5.py4.order-panel(:class="`order-panel--${orderForm.side}`")
-    .title2.mb4.w-flex.gap2
-      a#buy
-      | Place
-      w-select.no-grow(
-        v-model="orderForm.type"
-        :items="orderTypes"
-        outline
-        round)
-        template(#selection="{ item }")
-          span.size--lg.ml2.mr1.pb2 {{ item.label }}
-      | Order
+  .glass-box.px5.py4.order-panel(:class="{ [`order-panel--${orderForm.side}`]: true, 'order-panel--disabled': tradingDisabled }")
+    w-alert.bdrs2.mx-5.mt-4.mb2.py1(v-if="tradingDisabled" v-bind="(!tickerQuotePending && !stock.price) || stock.tradable === false ? { error: true } : { warning: true }")
+      div(v-if="!tickerQuotePending && !stock.price").
+        Trading disabled: No current market data available
 
-    w-alert.bdrs2(v-if="!tickerQuotePending && !stock.price" error).
-      Trading disabled: No current market data available
+      div(v-else-if="stock.tradable === false").
+        This symbol is flagged as not tradable for your brokerage account. You can still view charts; orders are disabled until the venue lists it as tradable.
 
-    w-alert.bdrs2.mb3(v-else-if="stock.tradable === false" error).
-      This symbol is flagged as not tradable for your brokerage account. You can still view charts; orders are disabled until the venue lists it as tradable.
+      div(v-else-if="stock.price && marketGate.reason !== 'open'")
+        strong.mr1 {{ marketGate.title }}
+        | {{ marketGate.message }}
+    .order-panel__content
+      .title2.mb4.w-flex.gap2
+        a#buy
+        | Place
+        w-select.no-grow(
+          v-model="orderForm.type"
+          :items="orderTypes"
+          :disabled="tradingDisabled"
+          outline
+          round)
+          template(#selection="{ item }")
+            span.size--lg.ml2.mr1.pb2 {{ item.label }}
+        | Order
 
-    w-alert.bdrs2.mb3(v-else-if="stock.price && marketGate.reason !== 'open'" warning)
-      strong.mr1 {{ marketGate.title }}
-      | {{ marketGate.message }}
+      .quick-actions.glass-box.pa3
+        .mb1.text-upper.op6.size--sm Quick Actions
+        .w-flex.align-center.gap2
+          w-button(
+            @click="setQuickQuantity(1)"
+            :disabled="tradingDisabled"
+            round
+            tooltip="1 Share"
+            width="28"
+            height="28")
+            strong.size--xl 1
+          w-button(
+            @click="setQuickQuantity(10)"
+            :disabled="tradingDisabled"
+            round
+            tooltip="10 Shares"
+            width="33"
+            height="33")
+            strong.size--xl 10
+          w-button(
+            @click="setQuickQuantity(100)"
+            :disabled="tradingDisabled"
+            round
+            tooltip="100 Shares"
+            width="37"
+            height="37")
+            strong.size--lg 100
+          w-button(
+            @click="setQuickQuantity(1000)"
+            :disabled="tradingDisabled"
+            round
+            tooltip="1000 Shares"
+            width="42"
+            height="42")
+            strong.size--md 1000
+          span Shares
 
-    .quick-actions.glass-box.pa3
-      .mb2.text-upper.op6.body Quick Actions
-      .w-flex.align-center.gap2
-        w-button(@click="setQuickQuantity(1)" round tooltip="1 Share" width="28" height="28")
-          strong.size--xl 1
-        w-button(@click="setQuickQuantity(10)" round tooltip="10 Shares" width="33" height="33")
-          strong.size--xl 10
-        w-button(@click="setQuickQuantity(100)" round tooltip="100 Shares" width="37" height="37")
-          strong.size--lg 100
-        w-button(@click="setQuickQuantity(1000)" round tooltip="1000 Shares" width="42" height="42")
-          strong.size--md 1000
-        span Shares
+      .w-flex.gap4.wrap(:class="{ op3: !stock.price }")
+        .grow
+          .mb4
+            label.size--sm.op7.mb2 Quantity
+            w-input(
+              v-model.number="orderForm.quantity"
+              :disabled="tradingDisabled"
+              type="number"
+              min="0"
+              placeholder="Number of shares"
+              outline)
 
-    .w-flex.gap4.wrap(:class="{ op3: !stock.price }")
-      .grow
-        .mb4
-          label.size--sm.op7.mb2 Quantity
-          w-input(v-model.number="orderForm.quantity" type="number" min="0" placeholder="Number of shares" outline)
+          .mb4(v-if="orderForm.type === 'limit' || orderForm.type === 'stop_limit'")
+            label.size--sm.op7.mb2 {{ orderForm.type === 'stop_limit' ? 'Limit price (after trigger)' : 'Limit Price' }}
+            w-input(
+              v-model.number="orderForm.limitPrice"
+              :disabled="tradingDisabled"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Price per share"
+              outline)
 
-        .mb4(v-if="orderForm.type === 'limit' || orderForm.type === 'stop_limit'")
-          label.size--sm.op7.mb2 {{ orderForm.type === 'stop_limit' ? 'Limit price (after trigger)' : 'Limit Price' }}
-          w-input(v-model.number="orderForm.limitPrice" type="number" step="0.01" min="0" placeholder="Price per share" outline)
+          .mb4(v-if="['stop','stop_limit'].includes(orderForm.type) && stopOrdersEnabled")
+            label.size--sm.op7.mb2 Stop (trigger) price
+            w-input(
+              v-model.number="orderForm.stopTrigger"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Order activates when last price reaches this level"
+              outline)
+            .size--xs.op6.mt1 Sell stop: set below last price. Buy stop: set above last price.
 
-        .mb4(v-if="['stop','stop_limit'].includes(orderForm.type) && stopOrdersEnabled")
-          label.size--sm.op7.mb2 Stop (trigger) price
-          w-input(
-            v-model.number="orderForm.stopTrigger"
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Order activates when last price reaches this level"
-            outline)
-          .size--xs.op6.mt1 Sell stop: set below last price. Buy stop: set above last price.
+          .mb4(v-if="orderForm.side === 'buy' && stopOrdersEnabled && ['market','limit'].includes(orderForm.type)")
+            label.size--sm.op7.mb2 Stop loss (optional)
+            w-input(
+              v-model.number="orderForm.stopLoss"
+              :disabled="tradingDisabled"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Protective sell if price falls to this level"
+              outline)
+            .size--xs.op6.mt1 Bracket order: entry fills first; a protective sell is placed at your stop. Uses broker day time-in-force for the opening leg.
 
-        .mb4(v-if="orderForm.side === 'buy' && stopOrdersEnabled && ['market','limit'].includes(orderForm.type)")
-          label.size--sm.op7.mb2 Stop loss (optional)
-          w-input(
-            v-model.number="orderForm.stopLoss"
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Protective sell if price falls to this level"
-            outline)
-          .size--xs.op6.mt1 Bracket order: entry fills first; a protective sell is placed at your stop. Uses broker day time-in-force for the opening leg.
+          .mt4(v-if="orderValue > 0 && stock.price > 0")
+            .w-flex.justify-between.gap2
+              span.op7.text-right.grow Estimated Notional:
+              strong(v-html="formatCurrency(orderValue, stock.currency, 2, false)")
 
-        .mt4(v-if="orderValue > 0 && stock.price > 0")
-          .w-flex.justify-between.gap2
-            span.op7.text-right.grow Estimated Notional:
-            strong(v-html="formatCurrency(orderValue, stock.currency, 2, false)")
-
-    .w-flex.gap4.mt4.gap12(v-if="stock.price")
-      button.grow.buy(@click="openOrderConfirmation('buy')" :disabled="!canSubmitOrder")
-        strong BUY
-      button.grow.sell(@click="openOrderConfirmation('sell')" :disabled="!canSubmitOrder")
-        strong SELL
+      .w-flex.gap4.mt4.gap12(v-if="stock.price")
+        button.grow.buy(@click="openOrderConfirmation('buy')" :disabled="!canSubmitOrder")
+          strong BUY
+        button.grow.sell(@click="openOrderConfirmation('sell')" :disabled="!canSubmitOrder")
+          strong SELL
 
   order-confirmation-dialog(
     v-model="showOrderConfirmation"
@@ -217,6 +257,14 @@ const orderValue = computed(() => {
   return props.stock.price * q
 })
 
+const tradingDisabled = computed(() => {
+  const isTradable = props.stock.tradable !== false
+  const isMarketOpen = marketGate.value.reason === 'open'
+  const isQuotePending = props.tickerQuotePending
+  const isPriceAvailable = props.stock.price > 0
+  return !isTradable || !isMarketOpen || !isQuotePending || !isPriceAvailable
+})
+
 const isOrderValid = computed(() => {
   if (!orderForm.value.quantity || orderForm.value.quantity <= 0) return false
   if (!props.stock.price || props.stock.price <= 0) return false
@@ -241,7 +289,7 @@ const isOrderValid = computed(() => {
   return true
 })
 
-const canSubmitOrder = computed(() => isOrderValid.value && props.stock.tradable !== false)
+const canSubmitOrder = computed(() => isOrderValid.value && !tradingDisabled.value)
 
 const pendingEnvironmentLabel = computed(() => {
   const env = health.value?.tradingEnvironment || (health.value?.effectiveSimulation ? 'simulation' : 'live')
@@ -405,6 +453,16 @@ onUnmounted(() => {
     &--sell {
       border-color: var(--w-error-color);
       background-image: linear-gradient(135deg, color-mix(in srgb, var(--w-error-color) 8%, transparent), transparent 80%);
+    }
+    &--disabled {
+      border-color: color-mix(in srgb, var(--w-warning-color) 40%, transparent);
+      background-image: linear-gradient(135deg, color-mix(in srgb, var(--w-warning-color) 8%, transparent), transparent 80%);
+
+
+      .order-panel__content {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
     }
   }
 
