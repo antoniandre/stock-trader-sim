@@ -1,8 +1,11 @@
 /**
- * 100 BUY+SELL round-trip trade simulation using real Alpaca historical data (5-min bars).
+ * BUY+SELL round-trip trade simulation using real Alpaca historical data.
  * Evaluates the bot strategy with RSI, EMA, MACD, VWAP, and daily loss limit enforcement.
  *
- * Usage: node scripts/run-100-trades.mjs
+ * Usage:
+ *   node scripts/run-100-trades.mjs
+ *   node scripts/run-100-trades.mjs 1Min --target=1000 --lookback=365 --universe=broad
+ *   node scripts/run-100-trades.mjs --symbols=NVDA,MSFT,META --target=1000
  */
 
 import { writeFileSync, mkdirSync } from 'fs'
@@ -29,29 +32,84 @@ const RISK_PROFILE  = 'balanced'
 const CAPITAL       = 100_000
 const DAILY_LOSS_LIMIT_PCT = 5.0
 const SLIPPAGE_PCT  = 0.03   // 3 bps each way — models realistic market-order fill cost
-const TARGET_TRADES = 300    // how many chronologically-first round-trips to report on
-const LOOKBACK_DAYS = 90     // calendar days of history to fetch
+const CLI_ARGS = process.argv.slice(2)
+
+function getArg(name) {
+  const inline = CLI_ARGS.find(arg => arg.startsWith(`--${name}=`))
+  if (inline) return inline.split('=').slice(1).join('=')
+  const idx = CLI_ARGS.indexOf(`--${name}`)
+  return idx >= 0 ? CLI_ARGS[idx + 1] : null
+}
+
+function getNumberArg(name, fallback) {
+  const raw = getArg(name) ?? process.env[`BOT_BACKTEST_${name.toUpperCase()}`]
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? value : fallback
+}
+
+function parseSymbols(raw) {
+  return String(raw || '')
+    .split(',')
+    .map(s => s.trim().toUpperCase())
+    .filter(Boolean)
+}
+
+const TARGET_TRADES = getNumberArg('target', 300)    // how many chronologically-first round-trips to report on
+const LOOKBACK_DAYS = getNumberArg('lookback', 90)   // calendar days of history to fetch
 
 // Timeframe: '5Min' (default, backtested strategy) or '1Min' (live trading mode)
 // Usage: node scripts/run-100-trades.mjs 1Min
-const TIMEFRAME     = process.argv[2] === '1Min' ? '1Min' : '5Min'
+const TIMEFRAME     = CLI_ARGS.includes('1Min') ? '1Min' : '5Min'
 // Bars to keep in the rolling indicator window — sized so both timeframes get ~2h of history
 const WINDOW_BARS   = TIMEFRAME === '1Min' ? 120 : 35
 // HTF step: how many bars = one 15-min period (for tf15Bullish computation)
 const HTF_STEP      = TIMEFRAME === '1Min' ? 15 : 3
-// 1-min specific overrides passed via strategyParams (keeps the 5-min profile untouched)
-const STRATEGY_PARAMS = TIMEFRAME === '1Min'
-  ? { trailingStopPct: 0.4, enableMeanRevert: true, stopFloorPct: 0.5, rewardTargetPct: 1.2, stagnationMinutes: 15, enableBreakout: false, atrMultiplier: 2.5, breakevenTriggerR: 0.8 }
-  : { trailingStopPct: 1.5, breakoutTrailingStopPct: 1.7, stagnationMinutes: 45, atrMultiplier: 2.5, breakoutThresholdAdj: -5, trendSizeMultiplier: 1.0 }
+// Frozen candidate configs. Test variants with CLI/env inputs before changing these.
+const STRATEGY_CONFIGS = {
+  '1Min': {
+    trailingStopPct: 0.4,
+    enableMeanRevert: true,
+    stopFloorPct: 0.5,
+    rewardTargetPct: 1.2,
+    stagnationMinutes: 15,
+    enableBreakout: false,
+    atrMultiplier: 2.5,
+    breakevenTriggerR: 0.8
+  },
+  '5Min': {
+    trailingStopPct: 1.5,
+    breakoutTrailingStopPct: 1.7,
+    stagnationMinutes: 45,
+    atrMultiplier: 2.5,
+    breakoutThresholdAdj: -5,
+    trendSizeMultiplier: 1.0
+  }
+}
+const STRATEGY_PARAMS = { ...STRATEGY_CONFIGS[TIMEFRAME] }
 const ROLLING_WINDOW_TRADES = 5
 const ROLLING_PAUSE_DAYS = TIMEFRAME === '1Min' ? 1 : 10
+const MIN_BARS = getNumberArg('min-bars', Math.max(WINDOW_BARS * 3, TIMEFRAME === '1Min' ? 240 : 120))
+const LAST_ENTRY_UTC_MIN = getNumberArg('last-entry-utc-min', 0)
+if (LAST_ENTRY_UTC_MIN > 0) STRATEGY_PARAMS.lastEntryUtcMin = LAST_ENTRY_UTC_MIN
 
 // Removed: AMD (47.83% WR, -$972), SPY/QQQ (ETFs, 0% WR), AAPL (40% WR, -$62),
 // TSLA (38–42% WR, net negative every 90d run — hyper-noisy, headline-driven false breakouts)
 // Rejected at selection time (pre-backtest): PLTR, CRWD, COIN, SMCI, MU, AVGO, MSFT, NFLX.
-const SYMBOLS = TIMEFRAME === '1Min'
-  ? ['NVDA', 'GOOGL', 'AMZN', 'META']
-  : ['NVDA', 'GOOGL', 'AMZN', 'META']
+const CANDIDATE_SYMBOLS = ['NVDA', 'GOOGL', 'AMZN', 'META']
+const BROAD_SYMBOLS = [
+  'NVDA', 'GOOGL', 'AMZN', 'META', 'MSFT', 'AAPL', 'AMD', 'TSLA', 'AVGO', 'NFLX',
+  'CRM', 'ORCL', 'ADBE', 'QCOM', 'INTC', 'MU', 'ARM', 'TSM', 'ASML', 'PLTR',
+  'COIN', 'SMCI', 'SHOP', 'UBER', 'ABNB', 'PANW', 'CRWD', 'NOW', 'DDOG', 'SNOW',
+  'NET', 'MDB', 'SQ', 'PYPL', 'JPM', 'BAC', 'GS', 'XOM', 'CVX', 'CAT',
+  'GE', 'BA', 'LMT', 'UNH', 'LLY', 'NVO', 'COST', 'WMT', 'HD', 'MCD',
+  'DIS', 'V', 'MA', 'ADP', 'INTU', 'TXN', 'AMAT', 'LRCX', 'KLAC', 'MRVL',
+  'DELL', 'HPE', 'IBM', 'SBUX', 'NKE', 'TGT', 'LOW', 'ELF', 'CELH', 'RIVN'
+]
+const SYMBOL_UNIVERSE = (getArg('universe') || process.env.BOT_BACKTEST_UNIVERSE || 'candidate').toLowerCase()
+const SYMBOLS = parseSymbols(getArg('symbols') || process.env.BOT_BACKTEST_SYMBOLS)
+const BACKTEST_SYMBOLS = SYMBOLS.length
+  ? SYMBOLS
+  : (SYMBOL_UNIVERSE === 'broad' ? BROAD_SYMBOLS : CANDIDATE_SYMBOLS)
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function round2(v) { return Math.round((+v + Number.EPSILON) * 100) / 100 }
@@ -492,7 +550,7 @@ function deriveExitReason(reasons) {
 }
 
 // ── Report generator ─────────────────────────────────────────────────────────
-function generateReport(trades, runDate) {
+function generateReport(trades, runDate, runContext = {}) {
   const wins    = trades.filter(t => t.status === 'WIN')
   const losses  = trades.filter(t => t.status === 'LOSS')
   const total   = trades.length
@@ -604,7 +662,9 @@ function generateReport(trades, runDate) {
 
   let md = `# Bot Trade Report — ${total} BUY+SELL Round-Trip Trades\n\n`
   md += `> **Generated:** ${runDate}  \n`
-  md += `> **Risk profile:** ${RISK_PROFILE} | **Capital:** $${CAPITAL.toLocaleString()} | **Timeframe:** ${TIMEFRAME} | **Mode:** Alpaca historical bars (IEX feed)\n\n`
+  md += `> **Risk profile:** ${RISK_PROFILE} | **Capital:** $${CAPITAL.toLocaleString()} | **Timeframe:** ${TIMEFRAME} | **Mode:** Alpaca historical bars (IEX feed)\n`
+  md += `> **Target trades:** ${TARGET_TRADES} | **Lookback:** ${LOOKBACK_DAYS} days | **Universe:** ${runContext.universe || SYMBOL_UNIVERSE} | **Symbols scanned:** ${runContext.symbolsScanned ?? BACKTEST_SYMBOLS.length}\n\n`
+  md += `> **Strategy params:** \`${JSON.stringify(STRATEGY_PARAMS)}\`\n\n`
 
   md += `## Verdict\n\n${verdict}\n\n`
 
@@ -652,6 +712,14 @@ function generateReport(trades, runDate) {
     md += `| ${sym} | ${s.t} | ${s.w} | ${winPct}% | $${pnl >= 0 ? '+' : ''}${pnl} | $${exp >= 0 ? '+' : ''}${exp} | ${pf} | ${eligibility} |\n`
   }
 
+  if (Array.isArray(runContext.skippedSymbols) && runContext.skippedSymbols.length) {
+    md += `\n## Skipped Symbols\n\n`
+    md += `| Symbol | Reason |\n|:--|:--|\n`
+    for (const skipped of runContext.skippedSymbols) {
+      md += `| ${skipped.symbol} | ${skipped.reason} |\n`
+    }
+  }
+
   md += `\n## Setup Performance\n\n`
   md += `| Setup | Trades | Wins | Win% | Net P&L | Expectancy |\n|:--|--:|--:|--:|--:|--:|\n`
   for (const [setup, s] of Object.entries(setupMap)) {
@@ -673,7 +741,7 @@ function generateReport(trades, runDate) {
     md += `| ${reason} | ${count} |\n`
   }
 
-  md += `\n## 100-Trade Log\n\n`
+  md += `\n## Trade Log\n\n`
   md += `| # | Sym | Entry (UTC) | Exit (UTC) | Entry$ | Exit$ | Qty | Notional | P&L$ | P&L% | R | Dur | Type | Exit Reason | Regime | Setup | RSI | VWAP | MACD | VolR | Result |\n`
   md += `|--:|:--|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|:--|:--|:--|--:|--:|--:|--:|:--|\n`
 
@@ -733,9 +801,11 @@ async function main() {
   console.log(`\n=== ${TARGET_TRADES}-Trade Bot Simulation [${TIMEFRAME}] ===`)
   console.log(`Period: ${startDate} → ${endDate}`)
   console.log(`Risk profile: ${RISK_PROFILE} | Capital: $${CAPITAL.toLocaleString()} | Window: ${WINDOW_BARS} bars`)
+  console.log(`Universe: ${SYMBOL_UNIVERSE}${SYMBOLS.length ? ' (custom symbols)' : ''} | Symbols: ${BACKTEST_SYMBOLS.length} | Min bars: ${MIN_BARS}`)
   console.log(`Daily loss limit: ${DAILY_LOSS_LIMIT_PCT}%\n`)
 
   const allTrades = []
+  const skippedSymbols = []
 
   // Pre-fetch SPY to build broad-market breadth and volatility-regime maps.
   process.stdout.write(`  Fetching SPY (breadth + vol-regime) ... `)
@@ -752,11 +822,16 @@ async function main() {
   }
 
   // Fetch ALL symbols before cutting to TARGET_TRADES so no symbol is systematically skipped.
-  for (const sym of SYMBOLS) {
+  for (const sym of BACKTEST_SYMBOLS) {
     process.stdout.write(`  Fetching ${sym} ... `)
     try {
       const bars = await fetchBars(sym, startDate, endDate, TIMEFRAME)
-      if (bars.length < 50) { console.log(`skip (only ${bars.length} bars)`); continue }
+      if (bars.length < MIN_BARS) {
+        const reason = `insufficient OHLC bars (${bars.length} < ${MIN_BARS})`
+        console.log(`skip (${reason})`)
+        skippedSymbols.push({ symbol: sym, reason })
+        continue
+      }
       console.log(`${bars.length} bars`)
 
       const trades = simulateSymbol(sym, bars, spyTrendMap, volRegimeMap)
@@ -764,6 +839,7 @@ async function main() {
       allTrades.push(...trades)
     } catch (err) {
       console.error(`    ERROR: ${err.message}`)
+      skippedSymbols.push({ symbol: sym, reason: err.message })
     }
   }
 
@@ -780,13 +856,22 @@ async function main() {
   }
 
   const runDate  = new Date().toISOString()
-  const report   = generateReport(finalTrades, runDate)
+  const report   = generateReport(finalTrades, runDate, {
+    universe: SYMBOLS.length ? 'custom' : SYMBOL_UNIVERSE,
+    symbolsScanned: BACKTEST_SYMBOLS.length,
+    skippedSymbols
+  })
   // Use local calendar date for the filename so re-runs on the same UTC day don't collide.
   const dateSlug = new Date().toLocaleDateString('en-CA')
   const outDir   = join(__dirname, '../docs/reports')
   mkdirSync(outDir, { recursive: true })
-  const tfSlug   = TIMEFRAME === '1Min' ? '-1min' : ''
-  const outPath  = join(outDir, `BOT-TRADE-REPORT-${dateSlug}${tfSlug}.md`)
+  const customRun = TARGET_TRADES !== 300 || LOOKBACK_DAYS !== 90 || SYMBOL_UNIVERSE !== 'candidate' || SYMBOLS.length > 0
+  const tfSlug    = TIMEFRAME === '1Min' ? '-1min' : ''
+  const cutoffSlug = LAST_ENTRY_UTC_MIN > 0 ? `-cutoff${LAST_ENTRY_UTC_MIN}` : ''
+  const runSlug   = customRun
+    ? `-${TIMEFRAME.toLowerCase()}-${SYMBOLS.length ? 'custom' : SYMBOL_UNIVERSE}-${TARGET_TRADES}trades-${LOOKBACK_DAYS}d${cutoffSlug}`
+    : tfSlug
+  const outPath  = join(outDir, `BOT-TRADE-REPORT-${dateSlug}${runSlug}.md`)
   writeFileSync(outPath, report, 'utf8')
 
   console.log(`\nReport saved → ${outPath}`)

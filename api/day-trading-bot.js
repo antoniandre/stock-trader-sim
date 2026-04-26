@@ -259,7 +259,12 @@ export function evaluateDayTradingDecision(input = {}) {
     : 5 * 60 * 1000
   const _nowDate = new Date(nowMs)
   const _sessionMinute = _nowDate.getUTCHours() * 60 + _nowDate.getUTCMinutes()
-  const inRegularSession = _sessionMinute >= SESSION_OPEN_UTC_MIN && _sessionMinute < SESSION_LAST_ENTRY_UTC_MIN
+  const lastEntryUtcMin = clamp(
+    Number(strategyParams.lastEntryUtcMin ?? SESSION_LAST_ENTRY_UTC_MIN),
+    SESSION_OPEN_UTC_MIN,
+    SESSION_LAST_ENTRY_UTC_MIN
+  )
+  const inRegularSession = _sessionMinute >= SESSION_OPEN_UTC_MIN && _sessionMinute < lastEntryUtcMin
   const isAfternoon = _sessionMinute >= 18 * 60   // after 2:00 PM ET (18:00 UTC): volume thins
 
   let entryScore = 50 + Number(strategyParams.entryBias || 0)
