@@ -179,6 +179,7 @@ export function evaluateDayTradingDecision(input = {}) {
   // 3.0× the 5-min ATR gives ~1 full average bar of room; clamped so it can't go below
   // the minimum meaningful stop (0.7%) or above a sensible max (2.0%).
   const atrPct = Number(input.atrPct ?? 0)
+  const atrBaselinePct = Number(input.atrBaselinePct ?? 0)
   const stopFloor = Number(strategyParams.stopFloorPct ?? 0.7)
   const atrMultiplier = Number(strategyParams.atrMultiplier ?? 3.0)
   const dynamicStopPct = atrPct > 0 ? clamp(atrPct * atrMultiplier, stopFloor, 2.0) : profile.stopLossPct
@@ -266,6 +267,53 @@ export function evaluateDayTradingDecision(input = {}) {
   )
   const inRegularSession = _sessionMinute >= SESSION_OPEN_UTC_MIN && _sessionMinute < lastEntryUtcMin
   const isAfternoon = _sessionMinute >= 18 * 60   // after 2:00 PM ET (18:00 UTC): volume thins
+  const behaviorClassifierMode = ['observe', 'apply'].includes(String(strategyParams.behaviorClassifierMode || '').toLowerCase())
+    ? String(strategyParams.behaviorClassifierMode).toLowerCase()
+    : (strategyParams.enableBehaviorClassifier ? 'apply' : 'off')
+  const shouldClassifyBehavior = behaviorClassifierMode !== 'off'
+  const shouldApplyBehavior = behaviorClassifierMode === 'apply'
+  const rawSymbolBehavior = shouldClassifyBehavior
+    ? classifySymbolBehavior({
+        prices,
+        volumes,
+        currentPrice,
+        vwap,
+        volumeRatio,
+        realizedVolatilityPct,
+        atrPct,
+        adrPct,
+        orbHigh,
+        orbLow,
+        tf15Bullish,
+        marketRegime,
+        setup,
+        rsi14,
+        macdHistogram,
+        vwapDevPct
+      })
+    : {
+        profile: 'neutral',
+        confidence: 0,
+        entryScoreAdj: 0,
+        riskScoreAdj: 0,
+        thresholdAdj: 0,
+        sizeMultiplier: 1,
+        blockSetups: [],
+        metrics: {},
+        reasons: []
+      }
+  const symbolBehavior = shouldApplyBehavior
+    ? rawSymbolBehavior
+    : {
+        ...rawSymbolBehavior,
+        mode: behaviorClassifierMode,
+        observedOnly: shouldClassifyBehavior,
+        entryScoreAdj: 0,
+        riskScoreAdj: 0,
+        thresholdAdj: 0,
+        sizeMultiplier: 1,
+        blockSetups: []   // in observe mode classifier labels but never acts
+      }
 
   let entryScore = 50 + Number(strategyParams.entryBias || 0)
   if (shortTrendPct > 0.35) entryScore += 12
@@ -277,6 +325,7 @@ export function evaluateDayTradingDecision(input = {}) {
   if (marketRegime === 'trend') entryScore += 8
   if (marketRegime === 'chop') entryScore -= 12
   if (marketRegime === 'breakout') entryScore += 12
+  if (marketRegime === 'bearish') entryScore -= 20   // short AND medium both down: strong suppression
   if (shortTrendPct < -0.5) entryScore -= 16
 
   if (setup === 'mean-revert') {
@@ -286,6 +335,7 @@ export function evaluateDayTradingDecision(input = {}) {
   }
 
   if (marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout')) entryScore -= 24
+  if (marketRegime === 'bearish' && (setup === 'trend' || setup === 'breakout')) entryScore -= 12
   if (setup === 'breakout' && marketRegime !== 'breakout') entryScore -= 10
   if (setup === 'weak') entryScore -= 14
   if (weakEvidence) entryScore -= 12
@@ -342,6 +392,11 @@ export function evaluateDayTradingDecision(input = {}) {
     entryScore -= 12
     if (setup === 'trend') entryScore -= 4  // trend entries against HTF are doubly suppressed
   }
+  // ATR expansion: per-bar volatility 40%+ above the 20-bar baseline means a real directional
+  // move is underway (not just random noise) — reward breakout entries in this regime.
+  if (atrBaselinePct > 0 && atrPct > atrBaselinePct * 1.4 && setup === 'breakout') entryScore += 6
+
+  entryScore += symbolBehavior.entryScoreAdj
 
   const dailyCatalystRow = input.disableDailyCatalyst
     ? null
@@ -380,6 +435,7 @@ export function evaluateDayTradingDecision(input = {}) {
   if (volumeRatio < 0.75) riskScore += 12
   if (Math.abs(momentumPct) > 1.2) riskScore += 12
   if (marketRegime === 'chop') riskScore += 16
+  if (marketRegime === 'bearish') riskScore += 18   // sustained negative momentum = elevated reversal risk on longs
   if (marketRegime === 'breakout') riskScore += 5
   if (weakLiquidity) riskScore += 12
   if (weakVolatilityForEntries) riskScore += 10
@@ -392,6 +448,7 @@ export function evaluateDayTradingDecision(input = {}) {
   if (spyTrendPct < -0.8) riskScore += 10  // strong sell pressure: cumulative +18
   if (spyTrendPct < -1.2) riskScore += 15  // freefall: cumulative +33, pushes past maxRiskScoreForEntry
   if (orbHigh > 0 && currentPrice <= orbLow) riskScore += 12  // below ORB low = confirmed bearish structure
+  riskScore += symbolBehavior.riskScoreAdj
   riskScore = clamp(riskScore, 0, 100)
 
   const managementScore = clamp(
@@ -415,8 +472,12 @@ export function evaluateDayTradingDecision(input = {}) {
   if (realizedVolatilityPct > 1.4) reasons.push('Volatility is elevated')
   if (marketRegime === 'chop') reasons.push('Market regime is choppy')
   if (marketRegime === 'trend') reasons.push('Market regime favors trend continuation')
+  if (marketRegime === 'bearish') reasons.push('Market regime is bearish — short and medium trends both negative')
   if (marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout')) {
     reasons.push('Trend and breakout entries are suppressed during chop')
+  }
+  if (marketRegime === 'bearish' && (setup === 'trend' || setup === 'breakout')) {
+    reasons.push('Trend and breakout entries are suppressed in bearish regime')
   }
   if (setup === 'mean-revert') {
     reasons.push(liquidityOk && volatilityOkForMeanReversion
@@ -425,6 +486,10 @@ export function evaluateDayTradingDecision(input = {}) {
   }
   if (weakEvidence) reasons.push('Liquidity or volatility conditions make the signal unreliable')
   if (lowConfidence) reasons.push('Confidence is below the bar for a fresh trade')
+  if (symbolBehavior.profile !== 'neutral') {
+    reasons.push(`${shouldApplyBehavior ? 'Applied' : 'Observed'} symbol behavior profile: ${symbolBehavior.profile}`)
+    for (const reason of symbolBehavior.reasons) reasons.push(reason)
+  }
 
   if (dailyCatalystForResponse) {
     const text = String(dailyCatalystRow.catalyst || '')
@@ -444,10 +509,12 @@ export function evaluateDayTradingDecision(input = {}) {
     + (setup === 'mean-revert' ? -4 : 0)
     + (setup === 'trend'       ? trendBoost : 0)
     + (setup === 'breakout'    ? breakoutBoost : 0)
+    + Number(symbolBehavior.thresholdAdj || 0)
   const addThreshold = profile.addThreshold + (marketRegime === 'chop' ? 8 : 0)
   const allowNewEntry = riskScore <= profile.maxRiskScoreForEntry
     && !(marketRegime === 'chop' && (setup === 'trend' || setup === 'breakout'))
-    && !(marketRegime === 'mixed' && setup === 'trend')  // trend in ambiguous regime = low edge
+    && !(marketRegime === 'mixed' && setup === 'trend')   // trend in ambiguous regime = low edge
+    && !(marketRegime === 'bearish' && setup !== 'mean-revert')  // bearish regime: only mean-revert longs allowed
 
   if (positionQty <= 0) {
     if (dailyLossLimitReached) {
@@ -465,6 +532,10 @@ export function evaluateDayTradingDecision(input = {}) {
     else if (circuitBreakerActive) {
       action = 'wait'
       reasons.push('Circuit breaker: 2 consecutive losses on this symbol — pausing new entries for 30 min')
+    }
+    else if (setup !== 'mean-revert' && marketRegime === 'bearish') {
+      action = 'wait'
+      reasons.push('Bearish regime: both short and medium-term momentum are negative — no trend or breakout longs into a falling stock')
     }
     else if (setup === 'trend' && marketVolatileRegime) {
       action = 'wait'
@@ -493,6 +564,14 @@ export function evaluateDayTradingDecision(input = {}) {
     else if (bearishCandleGate) {
       action = 'wait'
       reasons.push('Candle gate: signal bar closed below open — no entries on red candles for trend/breakout setups')
+    }
+    else if (spreadPct > 0.35 && setup !== 'mean-revert') {
+      action = 'wait'
+      reasons.push(`Spread gate: ${round(spreadPct)}% bid-ask spread exceeds maximum — execution cost too high for this setup`)
+    }
+    else if (shouldApplyBehavior && Array.isArray(symbolBehavior.blockSetups) && symbolBehavior.blockSetups.includes(setup)) {
+      action = 'wait'
+      reasons.push(`Behavior gate [${symbolBehavior.profile}]: ${symbolBehavior.reasons[0] || 'entry suppressed by classifier'}`)
     }
     else if (allowNewEntry && entryScore >= buyThreshold && (setup !== 'weak')) {
       action = 'buy'
@@ -691,6 +770,7 @@ export function evaluateDayTradingDecision(input = {}) {
     signals: {
       trendStrength,
       momentum: momentumLevel,
+      symbolBehavior: symbolBehavior.profile,
       exitSignal: action === 'exit',
       timeout: positionAge && (positionAge > 20 || positionElapsedMs > (2 * 60 * 60 * 1000))
     }
@@ -706,7 +786,8 @@ export function evaluateDayTradingDecision(input = {}) {
   const regimeSizeMultiplier = marketVolatileRegime && setup === 'trend'
     ? Number(strategyParams.volatileTrendSizeMultiplier ?? 0.5)
     : 1
-  const sizeMultiplier = clamp(setupSizeMultiplier * regimeSizeMultiplier, 0.25, 1.25)
+  const behaviorSizeMultiplier = Number(symbolBehavior.sizeMultiplier ?? 1)
+  const sizeMultiplier = clamp(setupSizeMultiplier * regimeSizeMultiplier * behaviorSizeMultiplier, 0.2, 1.25)
   const sizeConfidence = clamp(confidence - (setup === 'mean-revert' ? 4 : 8), 35, 90)
   const positionSizePct = clamp(
     (profile.basePositionSizePct + ((sizeConfidence - 50) / 100) * profile.basePositionSizePct + Number(strategyParams.sizeBias || 0)) * sizeMultiplier,
@@ -726,6 +807,7 @@ export function evaluateDayTradingDecision(input = {}) {
     symbol: input.symbol || null,
     riskProfile: profileName,
     marketRegime,
+    symbolBehavior,
     setup,
     guardrails: {
       liquidityOk,
@@ -914,7 +996,183 @@ function classifySetup({ shortTrendPct, mediumTrendPct, longTrendPct, momentumPc
   return 'weak'
 }
 
+function classifySymbolBehavior({ prices, volumes, currentPrice, vwap, volumeRatio, realizedVolatilityPct, atrPct, adrPct, orbHigh, orbLow, tf15Bullish, marketRegime, setup, rsi14, macdHistogram, vwapDevPct }) {
+  const recentPrices = Array.isArray(prices) ? prices.slice(-36).filter(Number.isFinite) : []
+  const recentVolumes = Array.isArray(volumes) ? volumes.slice(-36).filter(Number.isFinite) : []
+  if (recentPrices.length < 12) {
+    return {
+      profile: 'neutral',
+      confidence: 0,
+      entryScoreAdj: 0,
+      riskScoreAdj: 0,
+      thresholdAdj: 0,
+      sizeMultiplier: 1,
+      blockSetups: [],
+      metrics: {},
+      reasons: ['Insufficient rolling bars for behavior classification']
+    }
+  }
+
+  let pathDistance = 0
+  let directionFlips = 0
+  let lastSign = 0
+  for (let i = 1; i < recentPrices.length; i++) {
+    const delta = recentPrices[i] - recentPrices[i - 1]
+    pathDistance += Math.abs(delta)
+    const sign = Math.sign(delta)
+    if (sign !== 0 && lastSign !== 0 && sign !== lastSign) directionFlips++
+    if (sign !== 0) lastSign = sign
+  }
+
+  const netDistance = Math.abs(recentPrices.at(-1) - recentPrices[0])
+  const trendEfficiency = pathDistance > 0 ? netDistance / pathDistance : 0
+  const flipRatio = recentPrices.length > 2 ? directionFlips / (recentPrices.length - 2) : 0
+  const aboveVwap = vwap > 0 && currentPrice > vwap
+  const vwapCrosses = vwap > 0
+    ? recentPrices.slice(1).reduce((count, price, idx) => {
+        const prev = recentPrices[idx]
+        return count + ((prev - vwap) * (price - vwap) < 0 ? 1 : 0)
+      }, 0)
+    : 0
+  const avgRecentVolume = average(recentVolumes)
+  const latestVolume = recentVolumes.at(-1) ?? 0
+  const volumeExpansion = avgRecentVolume > 0 ? latestVolume / avgRecentVolume : volumeRatio
+  const recentAboveOrb = orbHigh > 0 ? recentPrices.slice(-8).filter(price => price > orbHigh).length : 0
+  const recentHigh = Math.max(...recentPrices.slice(-12))
+  const orbBreakFailed = orbHigh > 0
+    && recentHigh > orbHigh * 1.002
+    && currentPrice <= orbHigh * 1.001
+    && recentAboveOrb <= 2
+  const insideOrbRange = orbHigh > 0 && orbLow > 0 && currentPrice < orbHigh && currentPrice > orbLow
+  const highVolatility = atrPct >= 1.05 || realizedVolatilityPct >= 1.15 || adrPct >= 5
+  const lowLiquidityOrQuiet = volumeRatio < 0.85 || volumeExpansion < 0.75 || realizedVolatilityPct < 0.12
+  // Range too tight: per-bar ATR so small the stock can't realistically reach the reward target
+  // before a stagnation exit. adrPct < 1.5% = less than half a typical 2.4% reward target in the full day.
+  const tightRange = atrPct > 0 && atrPct < 0.25 && (adrPct > 0 && adrPct < 1.5)
+  const stretchedBreakout = setup === 'breakout'
+    && (rsi14 >= 82 || vwapDevPct > 1.4 || volumeRatio >= 2.2)
+    && trendEfficiency >= 0.38
+
+  // Sustained intraday sell: three consecutive rolling windows each lower than the previous,
+  // below VWAP, and price actually ended lower than it started. Blocks trend/breakout longs.
+  const avgLast6  = average(recentPrices.slice(-6))
+  const avgPrev6  = average(recentPrices.slice(-12, -6))
+  const avgPrev12 = average(recentPrices.slice(-18, -12))
+  const sustainedSellSignal = recentPrices.length >= 18
+    && avgLast6 < avgPrev6
+    && avgPrev6 < avgPrev12
+    && !aboveVwap
+    && recentPrices.at(-1) < recentPrices[0]
+    && trendEfficiency >= 0.28   // real directional move, not just noise
+
+  let profile = 'neutral'
+  let confidence = 35
+  let entryScoreAdj = 0
+  let riskScoreAdj = 0
+  let thresholdAdj = 0
+  let sizeMultiplier = 1
+  let blockSetups = []
+  const reasons = []
+
+  const cleanTrend = trendEfficiency >= 0.42
+    && flipRatio <= 0.34
+    && setup === 'trend'
+    && aboveVwap
+    && volumeRatio >= 1.05
+    && rsi14 >= 52
+    && rsi14 <= 78
+    && vwapDevPct >= 0.15
+    && vwapDevPct <= 1.6
+    && macdHistogram >= 0
+    && tf15Bullish === true
+    && marketRegime === 'trend'
+
+  if (sustainedSellSignal) {
+    // Stock making consistent lower lows below VWAP — no long entries on trend or breakout setups.
+    // Mean-revert is allowed (it intentionally buys pullbacks, which is valid even in a decline).
+    profile = 'sustainedSell'
+    confidence = 72
+    entryScoreAdj = -18
+    riskScoreAdj = 14
+    thresholdAdj = 18
+    sizeMultiplier = 0.4
+    blockSetups = ['trend', 'breakout']
+    reasons.push('Stock making consistent lower lows below VWAP — trend and breakout longs suppressed')
+  } else if ((lowLiquidityOrQuiet && trendEfficiency < 0.32 && flipRatio > 0.35) || tightRange) {
+    profile = 'thinChop'
+    confidence = 70
+    entryScoreAdj = -6
+    riskScoreAdj = 8
+    thresholdAdj = 10
+    sizeMultiplier = 0.3
+    blockSetups = ['trend', 'breakout']
+    reasons.push('Rolling behavior is thin/choppy: low participation with poor directional efficiency — entries require exceptional quality')
+  } else if (orbBreakFailed || (setup === 'breakout' && insideOrbRange && flipRatio > 0.38)) {
+    profile = 'falseBreakoutProne'
+    confidence = 68
+    entryScoreAdj = -4
+    riskScoreAdj = 5
+    thresholdAdj = 6
+    sizeMultiplier = 0.8
+    blockSetups = ['breakout']   // ORB analysis says the breakout is unreliable — block breakout entries, trend still allowed
+    reasons.push('Recent breakout attempt did not hold above the opening range — breakout entries blocked, trend allowed at reduced size')
+  } else if (stretchedBreakout) {
+    profile = 'extendedBreakout'
+    confidence = 66
+    entryScoreAdj = -3
+    riskScoreAdj = 6
+    thresholdAdj = 8
+    sizeMultiplier = 0.65
+    blockSetups = ['trend', 'breakout']  // overbought + fading vol/momentum — all longs are chasing; wait for reset
+    reasons.push('Stock is overbought and extended from VWAP with fading volume — all long entries blocked until reset')
+  } else if (highVolatility && (trendEfficiency < 0.38 || flipRatio > 0.42 || vwapCrosses >= 4)) {
+    profile = 'noisyHighBeta'
+    confidence = 64
+    entryScoreAdj = -2
+    riskScoreAdj = 7
+    thresholdAdj = 5
+    sizeMultiplier = 0.55
+    blockSetups = ['breakout']  // noisy + breakout = false breakout; trend still allowed at reduced size
+    reasons.push('High volatility paired with noisy follow-through — breakout entries blocked, trend allowed at reduced size')
+  } else if (cleanTrend) {
+    // All structure aligned: efficient trend, above VWAP, healthy RSI, HTF confirmation.
+    // Reward best-quality setups with a lower entry bar and slightly larger size.
+    profile = 'cleanTrend'
+    confidence = 62
+    entryScoreAdj = 6
+    riskScoreAdj = -3
+    thresholdAdj = -4
+    sizeMultiplier = 1.15
+    reasons.push('Rolling behavior is directionally efficient above VWAP with supportive volume — best entry conditions')
+  }
+
+  return {
+    profile,
+    mode: 'apply',
+    observedOnly: false,
+    confidence,
+    entryScoreAdj,
+    riskScoreAdj,
+    thresholdAdj,
+    sizeMultiplier,
+    blockSetups,
+    metrics: {
+      trendEfficiency: round(trendEfficiency),
+      flipRatio: round(flipRatio),
+      vwapCrosses,
+      volumeExpansion: round(volumeExpansion),
+      highVolatility,
+      orbBreakFailed,
+      stretchedBreakout,
+      sustainedSellSignal
+    },
+    reasons
+  }
+}
+
 function inferMarketRegime({ shortTrendPct, mediumTrendPct, longTrendPct, realizedVolatilityPct }) {
+  // Bearish checked first: both short AND medium declining — block long entries regardless of setup
+  if (shortTrendPct < -0.5 && mediumTrendPct < -0.3) return 'bearish'
   if (Math.abs(shortTrendPct) < 0.2 && Math.abs(mediumTrendPct) < 0.35) return 'chop'
   if (shortTrendPct > 0.7 && mediumTrendPct > 1 && realizedVolatilityPct > 0.45) return 'breakout'
   if (shortTrendPct > 0 && mediumTrendPct > 0 && longTrendPct > 0) return 'trend'
