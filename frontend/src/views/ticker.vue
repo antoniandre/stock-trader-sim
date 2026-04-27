@@ -2164,6 +2164,11 @@ watch(() => historicalData.value.length, (newLength, oldLength) => {
 </script>
 
 <style lang="scss">
+.chart-wrap {
+  position: sticky;
+  top: 10px;
+}
+
 .ticker-not-found {
   display: flex;
   flex-direction: column;
@@ -2173,9 +2178,7 @@ watch(() => historicalData.value.length, (newLength, oldLength) => {
   text-align: center;
   opacity: 0.85;
 
-  &__icon {
-    font-size: 3rem;
-  }
+  &__icon {font-size: 3rem;}
 }
 
 .ticker-view {
