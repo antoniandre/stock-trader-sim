@@ -56,7 +56,8 @@ const props = defineProps({
   stock: { type: Object, required: true },
   market: { type: String, default: 'stocks' },
   showPercentageChange: { type: Boolean, default: false }, // Show percentage change for top movers.
-  hideEmptyTrends: { type: Boolean, default: false } // Hide trend chart completely when no data (for trading view).
+  hideEmptyTrends: { type: Boolean, default: false }, // Hide trend chart completely when no data (for trading view).
+  realtime: { type: Boolean, default: false }
 })
 
 // Use the reusable stock status composable.
@@ -152,12 +153,12 @@ onMounted(() => {
   initializeTrendData()
 
   // Subscribe to real-time price updates for trend chart
-  subscribeToStock(props.stock.symbol, handlePriceUpdate)
+  if (props.realtime) subscribeToStock(props.stock.symbol, handlePriceUpdate)
 })
 
 onBeforeUnmount(() => {
   // Cleanup WebSocket subscription
-  unsubscribeFromStock(props.stock.symbol, handlePriceUpdate)
+  if (props.realtime) unsubscribeFromStock(props.stock.symbol, handlePriceUpdate)
 })
 </script>
 

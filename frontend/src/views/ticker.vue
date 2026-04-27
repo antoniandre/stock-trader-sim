@@ -289,6 +289,7 @@ const autonomousEnabled = ref(false)
 const botOneClickLoading = ref(false)
 let marketStatusInterval = null
 let botRefreshInterval = null  // Fallback refresh when prices are flat
+let statsFetchTimer = null
 
 // Real-time bot evaluation
 let botRealtimeEvaluator = null
@@ -336,6 +337,9 @@ const PRICE_UPDATE_THROTTLE = 1000 // 1 second.
 // The same interval is reused as the fallback poll for flat/no-price-change periods.
 let lastBotEval = 0
 const BOT_DECISION_INTERVAL_MS = 30_000
+let botDecisionPromise = null
+let lastBotDecisionSignature = ''
+let lastBotDecisionSignatureAt = 0
 
 // WebSocket Setup
 // --------------------------------------------------------
@@ -1275,6 +1279,10 @@ function stopMarketStatusMonitoring() {
     clearInterval(botRefreshInterval)
     botRefreshInterval = null
   }
+  if (statsFetchTimer) {
+    clearTimeout(statsFetchTimer)
+    statsFetchTimer = null
+  }
   if (marketStatusInterval) {
     clearInterval(marketStatusInterval)
     marketStatusInterval = null
@@ -1496,12 +1504,6 @@ async function fetchHistoricalData() {
     isLoadingHistoricalData.value = true
     dataCache.value.clear()
 
-    // Use smart timeframe selection for initial load.
-    if (!isUsingFallbackTimeframe.value) {
-      const availableTimeframe = await selectAvailableTimeframe(selectedPeriod.value, selectedTimeframe.value)
-      selectedTimeframe.value = availableTimeframe
-    }
-
     console.log(`📊 Fetching historical data for ${stock.symbol}, period: ${selectedPeriod.value}, timeframe: ${selectedTimeframe.value}`)
     // Use progressive loading for faster initial display and maximum data retrieval.
     const response = await fetchStockHistoryProgressive(stock.symbol, selectedPeriod.value, selectedTimeframe.value, props.market)
@@ -1552,8 +1554,11 @@ async function fetchHistoricalData() {
       }
       else console.log(`✅ Loaded ${historicalData.value.length} historical data points (empty)`)
 
-      // Automatically fetch stats data after main historical data is loaded.
-      await fetchStatsHistoricalData()
+      statsHistoricalData.value = historicalData.value
+      if (statsFetchTimer) clearTimeout(statsFetchTimer)
+      statsFetchTimer = setTimeout(() => {
+        if (stock.symbol && selectedPeriod.value === '1D') fetchStatsHistoricalData()
+      }, 1500)
     }
     else {
       $waveui.notify(`NO DATA: No historical data available for ${stock.symbol} from Alpaca API.`, 'error', 0)
@@ -1778,11 +1783,27 @@ function onToggleTrading(side) {
 async function refreshBotDecision() {
   if (!stock.symbol || !historicalData.value?.length) return
 
+  const currentQty = currentPosition.value ? Number(currentPosition.value.qty || 0) : 0
+  const lastCandle = historicalData.value.at(-1)
+  const signature = [
+    stock.symbol,
+    selectedRiskProfile.value,
+    Number(stock.price || 0).toFixed(2),
+    currentQty,
+    historicalData.value.length,
+    lastCandle?.timestamp || lastCandle?.time || lastCandle?.date || ''
+  ].join('|')
+  const now = Date.now()
+  if (botDecisionPromise && signature === lastBotDecisionSignature) return botDecisionPromise
+  if (signature === lastBotDecisionSignature && now - lastBotDecisionSignatureAt < 3000) return
+  lastBotDecisionSignature = signature
+  lastBotDecisionSignatureAt = now
+
   lastBotEval = Date.now() // reset debounce clock so neither the WS path nor the
                            // fallback interval double-fires right after this call
   botLoading.value = true
   botError.value = ''
-  try {
+  botDecisionPromise = (async () => {
     const closes = historicalData.value.map(item => Number(item?.close)).filter(Number.isFinite)
     const volumes = historicalData.value.map(item => Number(item?.volume)).filter(Number.isFinite)
 
@@ -1794,11 +1815,15 @@ async function refreshBotDecision() {
       volumes,
       currentVolume: volumes.at(-1),
       spreadPct: 0.08,
-      positionQty: currentPosition.value ? Number(currentPosition.value.qty || 0) : 0,
+      positionQty: currentQty,
       avgEntryPrice: currentPosition.value ? Number(currentPosition.value.avg_entry_price || currentPosition.value.avgEntryPrice || 0) : 0
     })
 
     botDecision.value = decision
+  })()
+
+  try {
+    await botDecisionPromise
   }
   catch (error) {
     botDecision.value = null
@@ -1806,6 +1831,7 @@ async function refreshBotDecision() {
   }
   finally {
     botLoading.value = false
+    botDecisionPromise = null
   }
 }
 
@@ -1819,37 +1845,35 @@ async function runBacktest() {
   try {
     const candles = historicalData.value
       .map(item => ({
+        open: Number(item?.open ?? item?.o ?? item?.close),
+        high: Number(item?.high ?? item?.h ?? item?.close),
+        low: Number(item?.low ?? item?.l ?? item?.close),
         close: Number(item?.close),
         volume: Number(item?.volume || 0),
         timestamp: item?.timestamp || item?.time || item?.date
       }))
       .filter(item => Number.isFinite(item.close))
 
-    const profiles = ['conservative', 'balanced', 'aggressive']
-    const comparisonResults = []
+    const { backtest, comparisons, capture } = await compareDayTradingBacktests({
+      symbol: stock.symbol,
+      riskProfile: selectedRiskProfile.value,
+      profiles: ['conservative', 'balanced', 'aggressive'],
+      candles,
+      cohort: ['trend-rider', 'breakout-surfer', 'pullback-prober']
+    })
 
-    for (const profile of profiles) {
-      const { backtest, capture } = await runDayTradingBacktest({
-        symbol: stock.symbol,
-        riskProfile: profile,
-        candles,
-        cohort: ['trend-rider', 'breakout-surfer', 'pullback-prober']
-      })
-      comparisonResults.push({
-        riskProfile: profile,
-        totalReturnPct: backtest.totalReturnPct,
-        maxDrawdownPct: backtest.maxDrawdownPct,
-        tradeCount: backtest.tradeCount,
-        winRatePct: backtest.winRatePct,
-        realizedPnL: backtest.realizedPnL
-      })
-
-      if (profile === selectedRiskProfile.value) {
-        backtestResult.value = { ...backtest, captureId: capture?.id || null }
-      }
-    }
-
-    backtestComparisons.value = comparisonResults
+    backtestResult.value = backtest ? { ...backtest, captureId: capture?.id || null } : null
+    backtestComparisons.value = (comparisons || []).map(({ riskProfile, backtest }) => ({
+      riskProfile,
+      totalReturnPct: backtest?.totalReturnPct,
+      maxDrawdownPct: backtest?.maxDrawdownPct,
+      tradeCount: backtest?.tradeCount,
+      winRatePct: backtest?.winRatePct,
+      profitFactor: backtest?.profitFactor,
+      rewardRiskRatio: backtest?.rewardRiskRatio,
+      sharpeAnnualized: backtest?.sharpeAnnualized,
+      realizedPnL: backtest?.realizedPnL
+    }))
   }
   catch (error) {
     backtestResult.value = null
@@ -1869,6 +1893,9 @@ async function runEvolution() {
   try {
     const candles = historicalData.value
       .map(item => ({
+        open: Number(item?.open ?? item?.o ?? item?.close),
+        high: Number(item?.high ?? item?.h ?? item?.close),
+        low: Number(item?.low ?? item?.l ?? item?.close),
         close: Number(item?.close),
         volume: Number(item?.volume || 0),
         timestamp: item?.timestamp || item?.time || item?.date
@@ -1939,7 +1966,14 @@ async function onBotExecuteRecommendation(decision) {
       currentPrice: stock.price,
       positionQty: currentPosition.value ? Number(currentPosition.value.qty || 0) : 0
     })
-    $waveui.notify(`Bought ${stock.symbol} from the bot panel (market, bot size plan).`, 'success')
+    const actionVerb = d.action === 'trim'
+      ? 'Trimmed'
+      : ['exit', 'sell'].includes(d.action)
+        ? 'Sold'
+        : d.action === 'add'
+          ? 'Added to'
+          : 'Bought'
+    $waveui.notify(`${actionVerb} ${stock.symbol} from the bot panel (market, bot size plan).`, 'success')
     onOrderPlacedFromPanel()
   }
   catch (error) {
@@ -1990,7 +2024,7 @@ function initializeRealtimeBot() {
         positionQty: currentPosition.value ? Number(currentPosition.value.qty || 0) : 0
       })
       notifyAutoExecution(
-        `Auto-executed: ${decision.action.toUpperCase()} ${stock.symbol} × order placed @ ${confidence}% confidence`,
+        `Auto-executed: ${decision.action.toUpperCase()} ${stock.symbol} order placed @ ${confidence}% confidence`,
         'success'
       )
       console.log(`✅ [REALTIME BOT] Order submitted:`, response)
@@ -2022,10 +2056,6 @@ onMounted(async () => {
 
   setupWebSocket()
 
-  // Initialize smart timeframe selection before fetching data.
-  const availableTimeframe = await selectAvailableTimeframe(selectedPeriod.value, selectedTimeframe.value)
-  selectedTimeframe.value = availableTimeframe
-
   // Use batch endpoint to fetch stock + position + orders + market status in one call.
   // Market status is included in ticker data, so we don't need a separate call.
   try {
@@ -2035,8 +2065,6 @@ onMounted(async () => {
     tickerQuoteBootstrapPending.value = false
   }
   await refreshBotDecision()
-  await runBacktest()
-  await runEvolution()
   startMarketStatusMonitoring()
 
   // Start real-time bot re-evaluation on WebSocket price events
@@ -2153,12 +2181,7 @@ watch(() => currentPosition.value, () => {
 })
 
 watch(() => historicalData.value.length, (newLength, oldLength) => {
-  if (newLength >= MIN_CANDLES) refreshBotDecision()
-  if (newLength === MIN_CANDLES) {
-    // First time we cross the threshold — also kick off backtest + evolution
-    runBacktest()
-    runEvolution()
-  }
+  if (newLength >= MIN_CANDLES && !tickerQuoteBootstrapPending.value) refreshBotDecision()
   if (newLength > oldLength) console.log(`📊 Added ${newLength - oldLength} historical data points`)
 })
 </script>

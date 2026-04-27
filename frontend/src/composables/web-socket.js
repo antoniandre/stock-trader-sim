@@ -104,6 +104,18 @@ function unsubscribeFromStock(symbol) {
   return send({ type: 'unsubscribe', symbol })
 }
 
+function subscribeToStocks(symbols = []) {
+  const normalized = [...new Set((symbols || []).map(symbol => String(symbol || '').trim()).filter(Boolean))]
+  if (!normalized.length) return false
+  return send({ type: 'subscribe-batch', symbols: normalized })
+}
+
+function unsubscribeFromStocks(symbols = []) {
+  const normalized = [...new Set((symbols || []).map(symbol => String(symbol || '').trim()).filter(Boolean))]
+  if (!normalized.length) return false
+  return send({ type: 'unsubscribe-batch', symbols: normalized })
+}
+
 function addMessageHandler(type, handler) {
   if (!messageHandlers.has(type)) messageHandlers.set(type, [])
   messageHandlers.get(type).push(handler)
@@ -151,6 +163,8 @@ export function useWebSocket(url = getDefaultWebSocketUrl()) {
     send,
     subscribeToStock,
     unsubscribeFromStock,
+    subscribeToStocks,
+    unsubscribeFromStocks,
     addMessageHandler,
     removeMessageHandler,
     destroyWebSocket

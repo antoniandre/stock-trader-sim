@@ -271,7 +271,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, onBeforeUnmount, computed, inject, watch } from 'vue'
-import { fetchAllStocks, fetchTopMovers, fetchBatchTrends, fetchTradeCandidates, fetchAlpacaWatchlist, postOrder, fetchMarketStatus, checkHealth } from '@/api'
+import { fetchAllStocks, fetchTopMovers, fetchBatchTrends, fetchTradeCandidates, fetchScreenerSummary, fetchAlpacaWatchlist, postOrder, fetchMarketStatus, checkHealth } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { formatCurrency } from '@/utils/formatters'
 import TickerCard from '@/components/ticker-card.vue'
@@ -356,30 +356,68 @@ const alpacaWatchlistSelectItems = computed(() =>
   }))
 )
 
-const { lastUpdate, addMessageHandler, send, wsConnected } = useWebSocket()
+const { lastUpdate, addMessageHandler, removeMessageHandler, send, wsConnected, subscribeToStocks, unsubscribeFromStocks } = useWebSocket()
 
-const RECOMMENDED_TRADES_REFRESH_MS = 60_000
-let recommendedTradesPollInterval = null
+let subscribedWatchlistSymbols = []
+let subscribedScreenerSymbols = []
+let screenersFallbackTimer = null
 
 function notifyScreenerDeskPresence(active) {
-  const ok = send(JSON.stringify({ type: 'screener-desk', active }))
+  const ok = send({ type: 'screener-desk', active })
   if (!ok && active) {
     // Socket not ready yet; watch(wsConnected) will retry.
   }
 }
 
-function startRecommendedTradesPolling() {
-  if (recommendedTradesPollInterval) return
-  recommendedTradesPollInterval = setInterval(() => {
-    if (!recommendedTrades.loading) loadRecommendedTrades()
-  }, RECOMMENDED_TRADES_REFRESH_MS)
+function syncWatchlistSubscriptions() {
+  const next = alpacaWatchlist.stocks
+    .slice(0, 30)
+    .map(stock => stock.symbol)
+    .filter(Boolean)
+  const nextSet = new Set(next)
+  const prevSet = new Set(subscribedWatchlistSymbols)
+  const toAdd = next.filter(symbol => !prevSet.has(symbol))
+  const toRemove = subscribedWatchlistSymbols.filter(symbol => !nextSet.has(symbol))
+  if (toAdd.length) subscribeToStocks(toAdd)
+  if (toRemove.length) unsubscribeFromStocks(toRemove)
+  subscribedWatchlistSymbols = next
 }
 
-function stopRecommendedTradesPolling() {
-  if (recommendedTradesPollInterval) {
-    clearInterval(recommendedTradesPollInterval)
-    recommendedTradesPollInterval = null
+function syncScreenerSubscriptions() {
+  const symbols = [
+    ...topMovers.value.data.gainers.slice(0, topMovers.value.gainersDisplayCount),
+    ...topMovers.value.data.losers.slice(0, topMovers.value.losersDisplayCount),
+    ...recommendedTrades.candidates
+  ].map(item => item.symbol).filter(Boolean)
+  const next = [...new Set(symbols)]
+  const nextSet = new Set(next)
+  const prevSet = new Set(subscribedScreenerSymbols)
+  const toAdd = next.filter(symbol => !prevSet.has(symbol))
+  const toRemove = subscribedScreenerSymbols.filter(symbol => !nextSet.has(symbol))
+  if (toAdd.length) subscribeToStocks(toAdd)
+  if (toRemove.length) unsubscribeFromStocks(toRemove)
+  subscribedScreenerSymbols = next
+}
+
+function requestScreenerSnapshot({ fallback = true } = {}) {
+  recommendedTrades.loading = true
+  const sent = send({
+    type: 'screeners-snapshot',
+    market: props.market,
+    top: topMovers.value.count,
+    limit: 8
+  })
+  if (!sent && fallback) {
+    loadDashboardScreeners()
+    return false
   }
+  if (screenersFallbackTimer) clearTimeout(screenersFallbackTimer)
+  if (fallback) {
+    screenersFallbackTimer = setTimeout(() => {
+      if (recommendedTrades.loading && !recommendedTrades.candidates.length) loadDashboardScreeners()
+    }, 2500)
+  }
+  return sent
 }
 const paginatedStocks = computed(() => stocks.value)
 
@@ -455,11 +493,13 @@ async function refreshTradingContext() {
 }
 
 async function loadRecommendedTrades() {
+  if (requestScreenerSnapshot({ fallback: false })) return
   recommendedTrades.loading = true
   try {
     const payload = await fetchTradeCandidates(8, props.market)
     recommendedTrades.candidates = payload?.candidates || []
     recommendedTrades.meta = payload || null
+    syncScreenerSubscriptions()
   }
   catch (candidateError) {
     console.error('Failed to load trade candidates:', candidateError)
@@ -468,6 +508,51 @@ async function loadRecommendedTrades() {
   }
   finally {
     recommendedTrades.loading = false
+  }
+}
+
+async function loadDashboardScreeners() {
+  recommendedTrades.loading = true
+  const started = performance.now()
+  try {
+    const payload = await fetchScreenerSummary({
+      top: topMovers.value.count,
+      limit: 8,
+      market: props.market,
+      trendPoints: 20
+    })
+    const movers = payload?.movers || {}
+    const trends = payload?.trends || {}
+    const attachTrend = item => {
+      const trendInfo = trends?.[item.symbol]
+      return {
+        ...item,
+        market: props.market,
+        pct: extractPercent(item),
+        trendData: trendInfo?.data || item.trendData || [],
+        trendFallback: trendInfo?.fallback || item.trendFallback || null,
+        volumeAnalysis: trendInfo?.volumeAnalysis || item.volumeAnalysis || null
+      }
+    }
+    topMovers.value.data = {
+      gainers: (movers.gainers || []).slice(0, topMovers.value.count).map(attachTrend),
+      losers: (movers.losers || []).slice(0, topMovers.value.count).map(attachTrend)
+    }
+    recommendedTrades.candidates = payload?.candidates || []
+    recommendedTrades.meta = {
+      ...(payload?.candidatesMeta || {}),
+      ...(payload?.meta || {}),
+      loadedInMs: Math.round(performance.now() - started)
+    }
+    syncScreenerSubscriptions()
+  }
+  catch (summaryError) {
+    console.warn('Dashboard screener summary failed, falling back to dedicated loaders:', summaryError.message)
+    await Promise.all([loadMovers(), loadRecommendedTrades()])
+  }
+  finally {
+    recommendedTrades.loading = false
+    lastUpdate.value = new Date().toLocaleTimeString()
   }
 }
 
@@ -719,6 +804,7 @@ function handlePriceUpdate(data) {
       wl.nextClose = data.nextClose
     }
   }
+  updateScreenerPrice(data)
 }
 
 function handleTrade(data) {
@@ -742,6 +828,57 @@ function handleTrade(data) {
       wl.nextClose = data.nextClose
     }
   }
+  updateScreenerPrice(data)
+}
+
+function patchScreenerItem(item, data) {
+  if (!item || item.symbol !== data.symbol) return
+  item.price = data.price
+  item.lastSide = data.lastSide || item.lastSide || 'buy'
+  item.currency = data.currency || item.currency || 'USD'
+  item.currencySymbol = data.currencySymbol || item.currencySymbol || '$'
+}
+
+function updateScreenerPrice(data) {
+  for (const item of topMovers.value.data.gainers) patchScreenerItem(item, data)
+  for (const item of topMovers.value.data.losers) patchScreenerItem(item, data)
+  for (const item of recommendedTrades.candidates) patchScreenerItem(item, data)
+}
+
+function normalizeMoverItem(item) {
+  return {
+    ...item,
+    market: props.market,
+    pct: extractPercent(item)
+  }
+}
+
+function handleScreenerSnapshot(message) {
+  if (message.market && message.market !== props.market) return
+  if (screenersFallbackTimer) {
+    clearTimeout(screenersFallbackTimer)
+    screenersFallbackTimer = null
+  }
+  const payload = message.data || {}
+  const movers = payload.movers || {}
+  topMovers.value.data = {
+    gainers: (movers.gainers || []).slice(0, topMovers.value.count).map(normalizeMoverItem),
+    losers: (movers.losers || []).slice(0, topMovers.value.count).map(normalizeMoverItem)
+  }
+  recommendedTrades.candidates = payload.candidates || []
+  recommendedTrades.meta = {
+    ...(payload.candidatesMeta || {}),
+    ...(message.meta || {}),
+    loadedVia: 'websocket'
+  }
+  recommendedTrades.loading = false
+  syncScreenerSubscriptions()
+}
+
+function handleScreenerError(message) {
+  if (message.market && message.market !== props.market) return
+  console.warn('WS screener snapshot failed, falling back to HTTP:', message.error)
+  loadDashboardScreeners()
 }
 
 function handleMarketStatusUpdate(data) {
@@ -760,19 +897,27 @@ function setupWebSocket() {
   addMessageHandler('price', handlePriceUpdate)
   addMessageHandler('trade', handleTrade)
   addMessageHandler('market-status-update', handleMarketStatusUpdate)
+  addMessageHandler('screeners-snapshot', handleScreenerSnapshot)
+  addMessageHandler('screeners-error', handleScreenerError)
 }
 
 watch(wsConnected, online => {
-  if (online) notifyScreenerDeskPresence(true)
+  if (online) {
+    notifyScreenerDeskPresence(true)
+    requestScreenerSnapshot()
+    syncWatchlistSubscriptions()
+    syncScreenerSubscriptions()
+  }
 })
 
 onMounted(async () => {
   loading.value = true
   try {
-    await Promise.all([fetchStocks(), loadMovers(), loadRecommendedTrades(), loadAlpacaWatchlist(), refreshTradingContext()])
     setupWebSocket()
+    await Promise.all([fetchStocks(), loadAlpacaWatchlist(), refreshTradingContext()])
     notifyScreenerDeskPresence(true)
-    startRecommendedTradesPolling()
+    requestScreenerSnapshot()
+    syncWatchlistSubscriptions()
   }
   catch (mountedError) {
     console.error('Error during trading desk initialization:', mountedError)
@@ -785,13 +930,25 @@ watch(() => props.market, async () => {
   currentPage.value = 1
   lastLoadedAlpacaWatchlistId = null
   alpacaWatchlist.selectedWatchlistId = null
-  await Promise.all([fetchStocks(true), loadMovers(), loadRecommendedTrades(), loadAlpacaWatchlist(), refreshTradingContext()])
-}, { immediate: true })
+  topMovers.value.data = { gainers: [], losers: [] }
+  recommendedTrades.candidates = []
+  await Promise.all([fetchStocks(true), loadAlpacaWatchlist(), refreshTradingContext()])
+  requestScreenerSnapshot()
+  syncWatchlistSubscriptions()
+})
 
 onBeforeUnmount(() => {
   if (searchTimeout) clearTimeout(searchTimeout)
-  stopRecommendedTradesPolling()
+  if (screenersFallbackTimer) clearTimeout(screenersFallbackTimer)
   notifyScreenerDeskPresence(false)
+  removeMessageHandler('market-update', handleMarketUpdate)
+  removeMessageHandler('price', handlePriceUpdate)
+  removeMessageHandler('trade', handleTrade)
+  removeMessageHandler('market-status-update', handleMarketStatusUpdate)
+  removeMessageHandler('screeners-snapshot', handleScreenerSnapshot)
+  removeMessageHandler('screeners-error', handleScreenerError)
+  if (subscribedWatchlistSymbols.length) unsubscribeFromStocks(subscribedWatchlistSymbols)
+  if (subscribedScreenerSymbols.length) unsubscribeFromStocks(subscribedScreenerSymbols)
 })
 </script>
 

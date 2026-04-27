@@ -168,7 +168,8 @@ const selectedExchanges = ref({}) // Object to track which exchanges are selecte
 const countdown = ref(0) // Countdown timer for next auto-refresh.
 
 // WebSocket.
-const { addMessageHandler } = useWebSocket()
+const { addMessageHandler, removeMessageHandler, subscribeToStocks, unsubscribeFromStocks } = useWebSocket()
+let subscribedVisibleSymbols = []
 
 // Options.
 const countOptions = [
@@ -467,6 +468,20 @@ function handlePriceUpdate(priceData) {
   }
 }
 
+function syncVisibleSubscriptions() {
+  const next = filteredStocks.value
+    .slice(0, selectedCount.value)
+    .map(stock => stock.symbol)
+    .filter(Boolean)
+  const nextSet = new Set(next)
+  const prevSet = new Set(subscribedVisibleSymbols)
+  const toAdd = next.filter(symbol => !prevSet.has(symbol))
+  const toRemove = subscribedVisibleSymbols.filter(symbol => !nextSet.has(symbol))
+  if (toAdd.length) subscribeToStocks(toAdd)
+  if (toRemove.length) unsubscribeFromStocks(toRemove)
+  subscribedVisibleSymbols = next
+}
+
 // Auto-refresh for real-time updates - incremental updates only.
 let autoRefreshInterval = null
 let countdownInterval = null
@@ -516,6 +531,7 @@ function stopAutoRefresh() {
 // Watchers.
 // --------------------------------------------------------
 watch(selectedCount, loadMovers)
+watch(filteredStocks, syncVisibleSubscriptions, { deep: false })
 
 // Lifecycle.
 // --------------------------------------------------------
@@ -530,6 +546,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopAutoRefresh()
   stopCountdown()
+  removeMessageHandler('price', handlePriceUpdate)
+  if (subscribedVisibleSymbols.length) unsubscribeFromStocks(subscribedVisibleSymbols)
 })
 </script>
 

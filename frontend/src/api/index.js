@@ -590,6 +590,26 @@ export async function fetchTradeCandidates(limit = 8, market = 'stocks') {
   }
 }
 
+export async function fetchScreenerSummary({ top = 20, limit = 8, market = 'stocks', trendPoints = 20 } = {}) {
+  try {
+    const params = new URLSearchParams({
+      top: String(top),
+      limit: String(limit),
+      market,
+      trendPoints: String(trendPoints)
+    })
+    const response = await fetch(`${API_BASE}/screeners/summary?${params}`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+    const payload = await response.json()
+    return payload.data || payload
+  }
+  catch (error) {
+    console.error('Screener summary API Error:', error)
+    throw error
+  }
+}
+
 /** Symbols and metadata from the signed-in Alpaca account watchlists (Trading API). */
 export async function fetchAlpacaWatchlist({ market = 'stocks', watchlistId = null } = {}) {
   const params = new URLSearchParams({ market })

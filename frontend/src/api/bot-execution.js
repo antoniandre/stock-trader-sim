@@ -15,7 +15,7 @@ export function shouldAutoFire(decision, autonomousTrading) {
   if (!autonomousTrading || !decision) return false
   
   const confidence = Number(decision.confidence || 0)
-  const isValidAction = ['buy', 'sell', 'exit', 'trim'].includes(decision.action)
+  const isValidAction = ['buy', 'add', 'sell', 'exit', 'trim'].includes(decision.action)
   
   return confidence >= 80 && isValidAction
 }
@@ -32,6 +32,9 @@ export async function fireOrderAutomatically(decision, executionContext) {
   
   if (!symbol) throw new Error('Symbol is required')
   if (!executionPlan) throw new Error('Execution plan is required')
+  if (['sell', 'exit', 'trim'].includes(action) && !(Number(heldQty) > 0)) {
+    throw new Error(`${action.toUpperCase()} requires an existing position`)
+  }
   
   const qty = calculateOrderQtyForBotAction(action, executionPlan, currentPrice, heldQty, executionContext)
   
@@ -73,6 +76,9 @@ export async function fireOrderAutomatically(decision, executionContext) {
  */
 function calculateOrderQtyForBotAction(action, executionPlan, currentPrice, positionQty, executionContext = {}) {
   const held = Number(positionQty)
+  if (action === 'sell' && Number.isFinite(held) && held > 0) {
+    return Math.max(1, Math.floor(held))
+  }
   if (action === 'exit' && Number.isFinite(held) && held > 0) {
     return Math.max(1, Math.floor(held))
   }

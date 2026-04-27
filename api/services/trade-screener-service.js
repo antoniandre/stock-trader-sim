@@ -213,7 +213,7 @@ async function getFallbackCandidates(market, limit) {
   }))
 }
 
-export async function getTradeCandidates({ market = 'stocks', limit = DEFAULT_LIMIT } = {}) {
+export async function getTradeCandidates({ market = 'stocks', limit = DEFAULT_LIMIT, enrichTrends = true } = {}) {
   const normalizedMarket = String(market).toLowerCase() === 'crypto' ? 'crypto' : 'stocks'
   const finalLimit = clampLimit(limit)
   const marketStatus = normalizedMarket === 'crypto'
@@ -241,7 +241,7 @@ export async function getTradeCandidates({ market = 'stocks', limit = DEFAULT_LI
     candidates = await getFallbackCandidates(normalizedMarket, finalLimit)
   }
 
-  if (normalizedMarket === 'stocks') {
+  if (normalizedMarket === 'stocks' && enrichTrends) {
     await enrichStockCandidatesStaged(candidates)
   }
 

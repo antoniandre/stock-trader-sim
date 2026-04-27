@@ -31,6 +31,31 @@ import { normalizeBrokerError } from './services/broker-error.js'
 import { getTradeCandidates } from './services/trade-screener-service.js'
 import { resolveCryptoBuyVenueSymbol } from './services/crypto-usd-quote-fallback.js'
 
+const tinyDedupe = new Map()
+const TINY_DEDUPE_MS = 1000
+
+async function withTinyDedupe(key, fn, ttlMs = TINY_DEDUPE_MS) {
+  const now = Date.now()
+  const existing = tinyDedupe.get(key)
+  if (existing && now - existing.startedAt <= ttlMs) {
+    return { value: await existing.promise, deduped: true, cacheAgeMs: now - existing.startedAt }
+  }
+
+  const entry = {
+    startedAt: now,
+    promise: Promise.resolve().then(fn)
+  }
+  tinyDedupe.set(key, entry)
+  try {
+    return { value: await entry.promise, deduped: false, cacheAgeMs: 0 }
+  }
+  finally {
+    setTimeout(() => {
+      if (tinyDedupe.get(key) === entry) tinyDedupe.delete(key)
+    }, ttlMs).unref?.()
+  }
+}
+
 function midPriceFromCryptoQuote(q) {
   if (!q || typeof q !== 'object') return 0
   const ap = Number(q.ap)
@@ -124,7 +149,113 @@ export function createRestApiRoutes() {
     }
   }
 
+  function routeTiming(startedAt, extra = {}) {
+    return {
+      durationMs: Date.now() - startedAt,
+      ...extra
+    }
+  }
+
+  async function buildMoversPayload({ market = 'stocks', direction = 'both', top = '10' } = {}) {
+    const validMarket = market === 'all' ? 'stocks' : market
+    const marketDataProvider = await getMarketDataProvider()
+    const response = await marketDataProvider.getTopMovers(validMarket, direction, parseInt(top))
+
+    if (response.error) {
+      const error = new Error(response.message || 'Failed to fetch top movers.')
+      error.status = 500
+      throw error
+    }
+
+    const movers = response.data && !Array.isArray(response.data)
+      ? response.data
+      : { gainers: [], losers: [] }
+
+    return {
+      gainers: movers.gainers || [],
+      losers: movers.losers || [],
+      isFallbackData: !!response.isFallbackData
+    }
+  }
+
+  async function buildBatchTrendResults(symbols, points = 20) {
+    const results = {}
+    const batchSize = 5 // Keep bounded concurrency to respect provider limits.
+    const normalizedPoints = parseInt(points)
+
+    async function fetchTrendForSymbol(symbol) {
+      try {
+        const historicalData = await withRateLimitBackoff(
+          () => getStockHistoricalData(symbol, '1W', '1Day'),
+          { label: `trend:${symbol}`, retries: 2, baseDelayMs: 600, maxDelayMs: 2500 }
+        )
+
+        if (historicalData?.data && historicalData.data.length >= 2) {
+          const trendData = historicalData.data
+            .slice(-normalizedPoints)
+            .map(item => ({
+              timestamp: item.timestamp,
+              price: item.close || item.price || 0
+            }))
+
+          return {
+            symbol,
+            data: trendData,
+            volumeAnalysis: analyzeVolume(historicalData.data),
+            fallback: { period: '1W', timeframe: '1Day' }
+          }
+        }
+
+        return {
+          symbol,
+          data: [],
+          volumeAnalysis: {
+            currentVolume: 0,
+            averageVolume: 0,
+            volumeRatio: 0,
+            isUnusualVolume: false,
+            volumeStatus: 'no-historical-data'
+          },
+          fallback: null
+        }
+      }
+      catch (error) {
+        console.warn(`Failed to fetch trend for ${symbol}:`, error.message)
+        return {
+          symbol,
+          data: [],
+          volumeAnalysis: {
+            currentVolume: 0,
+            averageVolume: 0,
+            volumeRatio: 0,
+            isUnusualVolume: false,
+            volumeStatus: 'no-historical-data'
+          },
+          fallback: null
+        }
+      }
+    }
+
+    for (let i = 0; i < symbols.length; i += batchSize) {
+      const batch = symbols.slice(i, i + batchSize)
+      const batchResults = await Promise.all(batch.map(fetchTrendForSymbol))
+
+      for (const result of batchResults) {
+        results[result.symbol] = {
+          data: result.data,
+          volumeAnalysis: result.volumeAnalysis,
+          fallback: result.fallback
+        }
+      }
+
+      if (i + batchSize < symbols.length) await sleep(250)
+    }
+
+    return results
+  }
+
   app.post('/api/bot/day-trading/decision', async (req, res) => {
+    const startedAt = Date.now()
     try {
       const input = { ...req.body }
       // Auto-inject dailyLossesPct from server-side risk state when the caller doesn't provide it.
@@ -154,7 +285,11 @@ export function createRestApiRoutes() {
       res.json(createStandardResponse({
         decision,
         capture,
-        availableRiskProfiles: Object.keys(RISK_PROFILES)
+        availableRiskProfiles: Object.keys(RISK_PROFILES),
+        meta: {
+          timing: routeTiming(startedAt),
+          profile: decision.effectiveProfile?.name || decision.symbolBehavior?.profile || null
+        }
       }))
     }
     catch (error) {
@@ -167,6 +302,7 @@ export function createRestApiRoutes() {
   })
 
   app.post('/api/bot/day-trading/backtest', async (req, res) => {
+    const startedAt = Date.now()
     try {
       const input = req.body || {}
       const backtest = runDayTradingBacktest(input)
@@ -187,7 +323,8 @@ export function createRestApiRoutes() {
       res.json(createStandardResponse({
         backtest,
         capture,
-        availableRiskProfiles: Object.keys(RISK_PROFILES)
+        availableRiskProfiles: Object.keys(RISK_PROFILES),
+        meta: { timing: routeTiming(startedAt) }
       }))
     }
     catch (error) {
@@ -200,6 +337,7 @@ export function createRestApiRoutes() {
   })
 
   app.post('/api/bot/day-trading/evolve', async (req, res) => {
+    const startedAt = Date.now()
     try {
       const input = req.body || {}
       const evolution = evolveTradingStrategies(input)
@@ -221,7 +359,8 @@ export function createRestApiRoutes() {
       res.json(createStandardResponse({
         evolution,
         capture,
-        availableRiskProfiles: Object.keys(RISK_PROFILES)
+        availableRiskProfiles: Object.keys(RISK_PROFILES),
+        meta: { timing: routeTiming(startedAt) }
       }))
     }
     catch (error) {
@@ -235,26 +374,23 @@ export function createRestApiRoutes() {
 
   // Top movers endpoint (gainers/losers).
   app.get('/api/movers', async (req, res) => {
+    const startedAt = Date.now()
     try {
       const { market = 'stocks', direction = 'both', top = '10' } = req.query
-
-      // Handle 'all' market type by defaulting to 'stocks'
-      const validMarket = market === 'all' ? 'stocks' : market
-      const marketDataProvider = await getMarketDataProvider()
-      const response = await marketDataProvider.getTopMovers(validMarket, direction, parseInt(top))
-
-      if (response.error) {
-        return res.status(500).json({ error: response.message || 'Failed to fetch top movers.' })
-      }
-
-      const movers = response.data && !Array.isArray(response.data)
-        ? response.data
-        : { gainers: [], losers: [] }
+      const dedupeKey = `movers:${market}:${direction}:${top}`
+      const { value: movers, deduped, cacheAgeMs } = await withTinyDedupe(
+        dedupeKey,
+        () => buildMoversPayload({ market, direction, top })
+      )
 
       res.json(createStandardResponse({
         gainers: movers.gainers || [],
         losers: movers.losers || [],
-        isFallbackData: !!response.isFallbackData
+        isFallbackData: !!movers.isFallbackData,
+        meta: {
+          timing: routeTiming(startedAt, { deduped, cacheAgeMs }),
+          loadingModel: 'dedicated'
+        }
       }))
     }
     catch (error) {
@@ -264,14 +400,72 @@ export function createRestApiRoutes() {
   })
 
   app.get('/api/screener/candidates', async (req, res) => {
+    const startedAt = Date.now()
     try {
       const { market = 'stocks', limit = '8' } = req.query
-      const payload = await getTradeCandidates({ market, limit })
-      res.json(createStandardResponse(payload))
+      const dedupeKey = `candidates:${market}:${limit}`
+      const { value: payload, deduped, cacheAgeMs } = await withTinyDedupe(
+        dedupeKey,
+        () => getTradeCandidates({ market, limit })
+      )
+      res.json(createStandardResponse({
+        ...payload,
+        meta: {
+          ...(payload.meta || {}),
+          timing: routeTiming(startedAt, { deduped, cacheAgeMs }),
+          loadingModel: 'dedicated'
+        }
+      }))
     }
     catch (error) {
       logger.error({ err: error, market: req.query?.market }, 'failed to build trade screener candidates')
       res.status(500).json({ error: 'Failed to build trade screener candidates.' })
+    }
+  })
+
+  app.get('/api/screeners/summary', async (req, res) => {
+    const startedAt = Date.now()
+    try {
+      const { market = 'stocks', top = '20', limit = '8', trendPoints = '20' } = req.query
+      const dedupeKey = `screeners-summary:${market}:${top}:${limit}:${trendPoints}`
+      const { value: payload, deduped, cacheAgeMs } = await withTinyDedupe(dedupeKey, async () => {
+        const [movers, candidatesPayload] = await Promise.all([
+          buildMoversPayload({ market, direction: 'both', top }),
+          getTradeCandidates({ market, limit })
+        ])
+
+        const moverSymbols = [...(movers.gainers || []), ...(movers.losers || [])]
+          .map(stock => stock.symbol)
+          .filter(Boolean)
+        const uniqueMoverSymbols = [...new Set(moverSymbols)].slice(0, Number(top) * 2)
+        const trends = uniqueMoverSymbols.length
+          ? await buildBatchTrendResults(uniqueMoverSymbols, trendPoints)
+          : {}
+
+        return {
+          market,
+          movers,
+          candidates: candidatesPayload.candidates || [],
+          candidatesMeta: {
+            usedFallback: candidatesPayload.usedFallback,
+            catalystDiagnostics: candidatesPayload.catalystDiagnostics,
+            catalystTradingDay: candidatesPayload.catalystTradingDay
+          },
+          trends
+        }
+      })
+
+      res.json(createStandardResponse({
+        ...payload,
+        meta: {
+          timing: routeTiming(startedAt, { deduped, cacheAgeMs }),
+          loadingModel: 'dashboard-summary'
+        }
+      }))
+    }
+    catch (error) {
+      logger.error({ err: error, market: req.query?.market }, 'failed to build screener summary')
+      res.status(error.status || 500).json({ error: error.message || 'Failed to build screener summary.' })
     }
   })
 
@@ -1133,6 +1327,7 @@ export function createRestApiRoutes() {
 
   // Batch trend data endpoint for multiple stocks (much faster than individual calls).
   app.post('/api/stocks/trends/batch', async (req, res) => {
+    const startedAt = Date.now()
     try {
       const { symbols, points = 20 } = req.body
 
@@ -1141,82 +1336,20 @@ export function createRestApiRoutes() {
       }
 
       console.log(`🚀 Batch trends: Processing ${symbols.length} symbols with bounded concurrency`)
+      const normalizedSymbols = [...new Set(symbols.map(symbol => String(symbol || '').trim().toUpperCase()).filter(Boolean))]
+      const dedupeKey = `trends:${normalizedSymbols.join(',')}:${points}`
+      const { value: results, deduped, cacheAgeMs } = await withTinyDedupe(
+        dedupeKey,
+        () => buildBatchTrendResults(normalizedSymbols, points)
+      )
 
-      const results = {}
-      const batchSize = 5 // Keep bounded concurrency to respect provider limits.
-      const normalizedPoints = parseInt(points)
-
-      async function fetchTrendForSymbol(symbol) {
-        try {
-          const historicalData = await withRateLimitBackoff(
-            () => getStockHistoricalData(symbol, '1W', '1Day'),
-            { label: `trend:${symbol}`, retries: 2, baseDelayMs: 600, maxDelayMs: 2500 }
-          )
-
-          if (historicalData?.data && historicalData.data.length >= 2) {
-            const trendData = historicalData.data
-              .slice(-normalizedPoints)
-              .map(item => ({
-                timestamp: item.timestamp,
-                price: item.close || item.price || 0
-              }))
-
-            const volumeAnalysis = analyzeVolume(historicalData.data)
-
-            return {
-              symbol,
-              data: trendData,
-              volumeAnalysis,
-              fallback: { period: '1W', timeframe: '1Day' }
-            }
-          }
-
-          return {
-            symbol,
-            data: [],
-            volumeAnalysis: {
-              currentVolume: 0,
-              averageVolume: 0,
-              volumeRatio: 0,
-              isUnusualVolume: false,
-              volumeStatus: 'no-historical-data'
-            },
-            fallback: null
-          }
+      res.json(createStandardResponse({
+        ...results,
+        meta: {
+          timing: routeTiming(startedAt, { deduped, cacheAgeMs }),
+          symbolCount: normalizedSymbols.length
         }
-        catch (error) {
-          console.warn(`Failed to fetch trend for ${symbol}:`, error.message)
-          return {
-            symbol,
-            data: [],
-            volumeAnalysis: {
-              currentVolume: 0,
-              averageVolume: 0,
-              volumeRatio: 0,
-              isUnusualVolume: false,
-              volumeStatus: 'no-historical-data'
-            },
-            fallback: null
-          }
-        }
-      }
-
-      for (let i = 0; i < symbols.length; i += batchSize) {
-        const batch = symbols.slice(i, i + batchSize)
-        const batchResults = await Promise.all(batch.map(fetchTrendForSymbol))
-
-        for (const result of batchResults) {
-          results[result.symbol] = {
-            data: result.data,
-            volumeAnalysis: result.volumeAnalysis,
-            fallback: result.fallback
-          }
-        }
-
-        if (i + batchSize < symbols.length) await sleep(250)
-      }
-
-      res.json(createStandardResponse(results))
+      }))
     }
     catch (error) {
       console.error('Error in batch trend fetch:', error)

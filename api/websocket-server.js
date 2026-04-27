@@ -1,6 +1,6 @@
 import WebSocket, { WebSocketServer } from 'ws'
 import { IS_SIMULATION, state, ALPACA_CRYPTO_DATA_STREAM_URL } from './config.js'
-import { getMarketStatus, getStockMarketStatus, startPricePolling, stopPricePolling } from './market-data.js'
+import { getMarketStatus, getStockMarketStatus, getTopMovers, startPricePolling, stopPricePolling } from './market-data.js'
 import { runSimulation, mockPrices } from './simulation.js'
 import {
   createAlpacaWebSocket,
@@ -11,6 +11,7 @@ import {
 } from './clients/alpaca-websocket-client.js'
 import { getWatchlist } from './screener-watch-symbols.js'
 import { tradableSymbolsEquivalent, isCryptoStreamSymbol } from './utils/tradable-symbol.js'
+import { getTradeCandidates } from './services/trade-screener-service.js'
 
 // WebSocket State.
 // --------------------------------------------------------
@@ -60,6 +61,63 @@ function maybeStopOrStartPricePolling() {
     if (liveFeedsCoverSubscriptions()) stopPricePolling()
     else startPricePolling(subscribedStocks, broadcast)
   })
+}
+
+function sendWs(ws, payload) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload))
+}
+
+async function sendScreenerSnapshot(ws, message = {}) {
+  const startedAt = Date.now()
+  const market = String(message.market || 'stocks').toLowerCase() === 'crypto' ? 'crypto' : 'stocks'
+  const top = Math.min(Math.max(Number.parseInt(message.top || 20, 10) || 20, 1), 100)
+  const limit = Math.min(Math.max(Number.parseInt(message.limit || 8, 10) || 8, 1), 12)
+
+  try {
+    const [movers, candidatesPayload] = await Promise.all([
+      getTopMovers(market, 'both', top),
+      getTradeCandidates({ market, limit, enrichTrends: false })
+    ])
+
+    const moverData = movers?.data && !Array.isArray(movers.data)
+      ? movers.data
+      : { gainers: [], losers: [] }
+
+    sendWs(ws, {
+      type: 'screeners-snapshot',
+      market,
+      top,
+      limit,
+      data: {
+        movers: {
+          gainers: moverData.gainers || [],
+          losers: moverData.losers || [],
+          isFallbackData: !!movers?.isFallbackData
+        },
+        candidates: candidatesPayload.candidates || [],
+        candidatesMeta: {
+          usedFallback: candidatesPayload.usedFallback,
+          catalystDiagnostics: candidatesPayload.catalystDiagnostics,
+          catalystTradingDay: candidatesPayload.catalystTradingDay
+        }
+      },
+      meta: {
+        durationMs: Date.now() - startedAt,
+        loadingModel: 'websocket-fast-snapshot',
+        enrichedTrends: false
+      },
+      timestamp: new Date().toISOString()
+    })
+  }
+  catch (error) {
+    console.error('❌ Failed to build WS screener snapshot:', error.message)
+    sendWs(ws, {
+      type: 'screeners-error',
+      market,
+      error: error.message || 'Failed to build screener snapshot',
+      timestamp: new Date().toISOString()
+    })
+  }
 }
 
 // Market Status Tracking.
@@ -355,12 +413,33 @@ export function createWebSocketServer(server) {
           subscribeToStock(message.symbol)
           clientSubscriptions.get(ws)?.add(message.symbol)
         }
+        else if (message.type === 'subscribe-batch' && Array.isArray(message.symbols)) {
+          const symbols = [...new Set(message.symbols.map(symbol => String(symbol || '').trim().toUpperCase()).filter(Boolean))]
+          console.log(`📡 Client requesting batch subscription to ${symbols.length} symbol(s)`)
+          for (const symbol of symbols) {
+            subscribeToStock(symbol)
+            clientSubscriptions.get(ws)?.add(symbol)
+          }
+        }
         else if (message.type === 'unsubscribe' && message.symbol) {
           console.log(`📡 Client requesting unsubscription from ${message.symbol}`)
           clientSubscriptions.get(ws)?.delete(message.symbol)
           // Only remove from global set if no other client still wants this symbol.
           const stillWanted = [...clientSubscriptions.values()].some(s => s.has(message.symbol))
           if (!stillWanted) unsubscribeFromStock(message.symbol)
+        }
+        else if (message.type === 'unsubscribe-batch' && Array.isArray(message.symbols)) {
+          const symbols = [...new Set(message.symbols.map(symbol => String(symbol || '').trim().toUpperCase()).filter(Boolean))]
+          console.log(`📡 Client requesting batch unsubscription from ${symbols.length} symbol(s)`)
+          for (const symbol of symbols) {
+            clientSubscriptions.get(ws)?.delete(symbol)
+            const stillWanted = [...clientSubscriptions.values()].some(s => s.has(symbol))
+            if (!stillWanted) unsubscribeFromStock(symbol)
+          }
+        }
+        else if (message.type === 'screeners-snapshot') {
+          console.log(`📊 Client requesting fast screener snapshot for ${message.market || 'stocks'}`)
+          sendScreenerSnapshot(ws, message)
         }
         else if (message.type === 'screener-desk') {
           const next = Boolean(message.active)
