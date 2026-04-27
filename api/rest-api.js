@@ -336,6 +336,56 @@ export function createRestApiRoutes() {
     }
   })
 
+  app.post('/api/bot/day-trading/backtest/compare', async (req, res) => {
+    const startedAt = Date.now()
+    try {
+      const input = req.body || {}
+      const profiles = Array.isArray(input.profiles) && input.profiles.length
+        ? input.profiles
+        : Object.keys(RISK_PROFILES)
+      const comparisons = profiles
+        .filter(profile => profile in RISK_PROFILES)
+        .map(profile => {
+          const backtest = runDayTradingBacktest({ ...input, riskProfile: profile })
+          return {
+            riskProfile: profile,
+            backtest
+          }
+        })
+
+      const selectedProfile = typeof input.riskProfile === 'string' && input.riskProfile in RISK_PROFILES
+        ? input.riskProfile
+        : 'balanced'
+      const selected = comparisons.find(item => item.riskProfile === selectedProfile) || comparisons[0] || null
+      const capture = await safeRecordStrategyRun({
+        type: 'day-trading-backtest-compare',
+        symbol: input.symbol,
+        riskProfile: selectedProfile,
+        summary: selected?.backtest || null,
+        metrics: {
+          candleCount: Array.isArray(input.candles) ? input.candles.length : 0,
+          comparedProfiles: comparisons.map(item => item.riskProfile)
+        }
+      })
+
+      res.json(createStandardResponse({
+        selectedRiskProfile: selectedProfile,
+        backtest: selected?.backtest || null,
+        comparisons,
+        capture,
+        availableRiskProfiles: Object.keys(RISK_PROFILES),
+        meta: { timing: routeTiming(startedAt) }
+      }))
+    }
+    catch (error) {
+      logger.error({ err: error }, 'failed to compare day-trading backtests')
+      res.status(400).json({
+        error: 'Bad Request',
+        message: error.message || 'Unable to compare day-trading backtests.'
+      })
+    }
+  })
+
   app.post('/api/bot/day-trading/evolve', async (req, res) => {
     const startedAt = Date.now()
     try {

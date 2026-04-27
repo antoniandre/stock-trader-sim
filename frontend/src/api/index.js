@@ -240,6 +240,27 @@ export async function runDayTradingBacktest(payload) {
   }
 }
 
+export async function compareDayTradingBacktests(payload) {
+  try {
+    const response = await fetch(`${API_BASE}/bot/day-trading/backtest/compare`, {
+      method: 'POST',
+      headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload)
+    })
+
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(getErrorMessage(result, `HTTP ${response.status}: ${response.statusText}`))
+    }
+
+    return result.data || result
+  }
+  catch (error) {
+    console.error('Compare day-trading backtests failed:', error)
+    throw error
+  }
+}
+
 export async function evolveDayTradingStrategies(payload) {
   try {
     const response = await fetch(`${API_BASE}/bot/day-trading/evolve`, {

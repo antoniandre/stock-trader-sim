@@ -93,6 +93,9 @@ export function evolveTradingStrategies(input = {}) {
         realizedPnL: backtest.realizedPnL,
         profitFactor: backtest.profitFactor,
         expectancyPerTrade: backtest.expectancyPerTrade,
+        sharpeAnnualized: backtest.sharpeAnnualized,
+        rewardRiskRatio: backtest.rewardRiskRatio,
+        rejectedTradeCount: backtest.rejectedTradeCount,
         endingEquity: backtest.endingEquity
       },
       score: scoreBacktest(backtest)

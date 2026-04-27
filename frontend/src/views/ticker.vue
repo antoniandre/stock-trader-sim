@@ -210,7 +210,7 @@ import {
   fetchMarketStatus,
   fetchStockHistoryRange,
   fetchDayTradingDecision,
-  runDayTradingBacktest,
+  compareDayTradingBacktests,
   evolveDayTradingStrategies,
   invalidateTickerCache
 } from '@/api'
