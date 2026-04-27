@@ -149,6 +149,18 @@ w-dialog(
           .size--xs.op6 Win rate
           .title3.mt1 {{ formatPct(backtest.winRatePct) }}%
         .bot-panel__stat
+          .size--xs.op6 Profit factor
+          .title3.mt1 {{ backtest.profitFactor == null ? '∞' : formatNumber(backtest.profitFactor) }}
+        .bot-panel__stat
+          .size--xs.op6 R:R
+          .title3.mt1 {{ backtest.rewardRiskRatio == null ? '∞' : formatNumber(backtest.rewardRiskRatio) }}
+        .bot-panel__stat
+          .size--xs.op6 Sharpe
+          .title3.mt1 {{ formatNumber(backtest.sharpeAnnualized) }}
+        .bot-panel__stat
+          .size--xs.op6 Rejects
+          .title3.mt1 {{ backtest.rejectedTradeCount || 0 }}
+        .bot-panel__stat
           .size--xs.op6 Realized P/L
           .title3.mt1(:class="backtest.realizedPnL >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatCurrency(backtest.realizedPnL) }}
         .bot-panel__stat
@@ -167,7 +179,12 @@ w-dialog(
               strong {{ item.riskProfile }}
               span.size--xs.op6 {{ item.tradeCount }} trades
             .size--sm.mt1(:class="item.totalReturnPct >= 0 ? 'currency-positive' : 'currency-negative'") {{ formatPct(item.totalReturnPct) }}%
-            .size--xs.op6 Drawdown {{ formatPct(item.maxDrawdownPct) }}% · Win {{ formatPct(item.winRatePct) }}%
+            .size--xs.op6 Drawdown {{ formatPct(item.maxDrawdownPct) }}% · Win {{ formatPct(item.winRatePct) }}% · PF {{ item.profitFactor == null ? '∞' : formatNumber(item.profitFactor) }}
+      template(v-if="decision?.effectiveProfile")
+        p.size--xs.op6.mb1 Active bot profile
+        .bot-panel__chip.mb3
+          .size--xs.op6 {{ decision.effectiveProfile.name }}
+          strong {{ decision.effectiveProfile.activeGates?.length ? `${decision.effectiveProfile.activeGates.length} gate(s) active` : 'No active profile gates' }}
     p.size--sm.op6(v-else-if="!backtestLoading") No backtest loaded yet — run one to see drawdown, win rate, and equity for this profile.
 
   w-divider.my4
