@@ -448,15 +448,15 @@ onUnmounted(() => {
     border: 2px solid transparent;
 
     &--buy {
-      border-color: var(--w-success-color);
+      border-color: color-mix(in srgb, var(--w-success-color) 30%, transparent);
       background-image: linear-gradient(135deg, color-mix(in srgb, var(--w-success-color) 8%, transparent), transparent 80%);
     }
     &--sell {
-      border-color: var(--w-error-color);
+      border-color: color-mix(in srgb, var(--w-error-color) 30%, transparent);
       background-image: linear-gradient(135deg, color-mix(in srgb, var(--w-error-color) 8%, transparent), transparent 80%);
     }
     &--disabled {
-      border-color: color-mix(in srgb, var(--w-warning-color) 40%, transparent);
+      border-color: color-mix(in srgb, var(--w-warning-color) 30%, transparent);
       background-image: linear-gradient(135deg, color-mix(in srgb, var(--w-warning-color) 8%, transparent), transparent 80%);
 
 
