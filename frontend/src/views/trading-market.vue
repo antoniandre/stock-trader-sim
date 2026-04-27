@@ -181,13 +181,18 @@
 
   div(v-else)
     .glass-box.ova.mt6
-      w-table.bd0(:headers="tableHeaders" :items="paginatedStocks")
+      w-table.bd0(
+        :headers="tableHeaders"
+        :items="stocks"
+        :pagination="tablePagination"
+        :fetch="fetchStocksPage"
+        :loading="tableLoading")
         template(#no-data)
           .w-flex.column.align-center.justify-center.py12
             w-icon(color="info" size="4rem") wi-info-circle
             h2.title2.info.mt4.mb2 No results found
             p.mb4 No {{ instrumentLabel.toLowerCase() }} matched your search.
-            w-button(@click="fetchStocks(true)" text bg-color="info" round) Refresh
+            w-button(@click="refreshStocks(true)" text bg-color="info" round) Refresh
         template(#item="{ item: stock }")
           tr.w-table__row.clickable-row(@click="$router.push(tradingTickerPath(stock.symbol, market))")
             td.w-table__cell.pl4.pr2.py2
@@ -212,26 +217,9 @@
                   strong.size--xs BUY
                 w-button.px2(@click="openListOrderConfirmation(stock, 'sell')" color="error" outline round sm :disabled="stock.price === 0 || stock.tradable === false")
                   strong.size--xs SELL
-
-    .w-flex.align-center.justify-between.mt4(v-if="totalPages > 1")
-      .w-flex.align-center.gap2
-        w-button(
-          :disabled="currentPage === 1"
-          @click="prevPage"
-          icon="wi-chevron-left"
-          tooltip="Previous"
-          :tooltip-props="{ top: true }")
-        span Page {{ currentPage }} of {{ totalPages }}
-        w-button(
-          :disabled="currentPage === totalPages"
-          @click="nextPage"
-          icon="wi-chevron-right"
-          tooltip="Next"
-          :tooltip-props="{ top: true }")
-      .w-flex.align-center.gap2.wrap.justify-end
-        span.op5.size--sm Showing {{ stocks.length }} of {{ totalStocks }} {{ instrumentLabel.toLowerCase() }}
-        span.op5.size--sm • Desk: {{ selectedMarketLabel }}
-        span.op5.size--sm(v-if="searchQuery") • Filtered by "{{ searchQuery }}"
+    .w-flex.align-center.gap2.wrap.justify-end.mt2
+      span.op5.size--sm Desk: {{ selectedMarketLabel }}
+      span.op5.size--sm(v-if="searchQuery") • Filtered by "{{ searchQuery }}"
 
   OrderConfirmationDialog(
     v-model="showOrderConfirmation"
@@ -271,6 +259,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, onBeforeUnmount, computed, inject, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { fetchAllStocks, fetchTopMovers, fetchBatchTrends, fetchTradeCandidates, fetchScreenerSummary, fetchAlpacaWatchlist, postOrder, fetchMarketStatus, checkHealth } from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { formatCurrency } from '@/utils/formatters'
@@ -291,16 +280,19 @@ const props = defineProps({
 usePageTitle(computed(() => props.market === 'crypto' ? 'Crypto' : 'Stocks'))
 
 const $waveui = inject('$waveui')
+const route = useRoute()
+const router = useRouter()
 const stocks = ref([])
-const searchQuery = ref('')
+const searchQuery = ref(searchFromQuery())
 const marketOptions = [
   { label: 'Stocks', value: 'stocks' },
   { label: 'Crypto', value: 'crypto' }
 ]
 const loading = ref(true)
 const error = ref(null)
-const currentPage = ref(1)
-const itemsPerPage = 50
+const currentPage = ref(pageFromQuery())
+const itemsPerPageOptions = [20, 50, 100, 200]
+const currentItemsPerPage = ref(50)
 const totalStocks = ref(0)
 const totalPages = ref(1)
 const fetchingPrices = ref(false)
@@ -419,7 +411,13 @@ function requestScreenerSnapshot({ fallback = true } = {}) {
   }
   return sent
 }
-const paginatedStocks = computed(() => stocks.value)
+const tablePagination = computed(() => ({
+  page: currentPage.value,
+  itemsPerPage: currentItemsPerPage.value,
+  total: totalStocks.value,
+  itemsPerPageOptions
+}))
+const tableLoading = computed(() => fetchingPrices.value && stocks.value.length ? 'header' : false)
 
 const tableHeaders = [
   { key: 'symbol', label: 'Symbol' },
@@ -490,6 +488,53 @@ async function refreshTradingContext() {
   catch (contextError) {
     console.error('Failed to refresh trading context:', contextError)
   }
+}
+
+function firstQueryValue(value) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+function pageFromQuery(query = route.query) {
+  const parsed = Number.parseInt(firstQueryValue(query.page), 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+}
+
+function searchFromQuery(query = route.query) {
+  return String(firstQueryValue(query.search) || '').trim()
+}
+
+function syncListStateFromRoute() {
+  currentPage.value = pageFromQuery()
+  searchQuery.value = searchFromQuery()
+}
+
+function queryForListState({ page = currentPage.value, search = searchQuery.value } = {}) {
+  const nextQuery = { ...route.query }
+  const normalizedPage = Number.parseInt(page, 10)
+  const cleanPage = Number.isFinite(normalizedPage) && normalizedPage > 0 ? normalizedPage : 1
+  const cleanSearch = String(search || '').trim()
+
+  if (cleanPage > 1) nextQuery.page = String(cleanPage)
+  else delete nextQuery.page
+
+  if (cleanSearch) nextQuery.search = cleanSearch
+  else delete nextQuery.search
+
+  return nextQuery
+}
+
+async function syncListUrlState({ page = currentPage.value, search = searchQuery.value, replace = false } = {}) {
+  const cleanPage = Math.max(1, Number.parseInt(page, 10) || 1)
+  const cleanSearch = String(search || '').trim()
+  if (pageFromQuery() === cleanPage && searchFromQuery() === cleanSearch) return false
+
+  const location = {
+    path: route.path,
+    query: queryForListState({ page: cleanPage, search: cleanSearch })
+  }
+  if (replace) await router.replace(location)
+  else await router.push(location)
+  return true
 }
 
 async function loadRecommendedTrades() {
@@ -649,10 +694,11 @@ async function loadMovers() {
 async function fetchStocks(resetPage = false) {
   try {
     if (resetPage) currentPage.value = 1
-    loading.value = true
+    const showPageLoader = !stocks.value.length
+    loading.value = showPageLoader
     fetchingPrices.value = true
 
-    const data = await fetchAllStocks(currentPage.value, itemsPerPage, searchQuery.value, props.market)
+    const data = await fetchAllStocks(currentPage.value, currentItemsPerPage.value, searchQuery.value, props.market)
     stocks.value = (data.stocks || []).map(stock => ({
       ...stock,
       market: props.market,
@@ -664,8 +710,8 @@ async function fetchStocks(resetPage = false) {
 
     totalStocks.value = data.pagination?.total || 0
     totalPages.value = data.pagination?.totalPages || 1
-    loading.value = false
     fetchingPrices.value = false
+    loading.value = false
     lastUpdate.value = new Date().toLocaleTimeString()
   }
   catch (err) {
@@ -676,9 +722,21 @@ async function fetchStocks(resetPage = false) {
   }
 }
 
+async function refreshStocks(resetPage = false) {
+  if (!resetPage) {
+    await fetchStocks()
+    return
+  }
+
+  const navigated = await syncListUrlState({ page: 1, search: searchQuery.value, replace: true })
+  if (!navigated) await fetchStocks(true)
+}
+
 function onSearchInput() {
   if (searchTimeout) clearTimeout(searchTimeout)
-  searchTimeout = setTimeout(() => { fetchStocks(true) }, 500)
+  searchTimeout = setTimeout(() => {
+    syncListUrlState({ page: 1, search: searchQuery.value, replace: true })
+  }, 500)
 }
 
 function handleSearchChange() {
@@ -687,17 +745,22 @@ function handleSearchChange() {
 
 async function goToPage(page) {
   if (page >= 1 && page <= totalPages.value && page !== currentPage.value) {
-    currentPage.value = page
-    await fetchStocks()
+    const navigated = await syncListUrlState({ page })
+    if (!navigated) await fetchStocks()
   }
 }
 
-async function nextPage() {
-  await goToPage(currentPage.value + 1)
-}
-
-async function prevPage() {
-  await goToPage(currentPage.value - 1)
+async function fetchStocksPage({ page, itemsPerPage }) {
+  const previousItemsPerPage = currentItemsPerPage.value
+  if (Number.isFinite(Number(itemsPerPage)) && Number(itemsPerPage) > 0) {
+    currentItemsPerPage.value = Number(itemsPerPage)
+  }
+  const nextPage = Number(page) || 1
+  if (nextPage === currentPage.value && previousItemsPerPage !== currentItemsPerPage.value) {
+    await fetchStocks()
+    return
+  }
+  await goToPage(nextPage)
 }
 
 function openListOrderConfirmation(stock, side) {
@@ -913,6 +976,7 @@ watch(wsConnected, online => {
 onMounted(async () => {
   loading.value = true
   try {
+    syncListStateFromRoute()
     setupWebSocket()
     await Promise.all([fetchStocks(), loadAlpacaWatchlist(), refreshTradingContext()])
     notifyScreenerDeskPresence(true)
@@ -926,16 +990,23 @@ onMounted(async () => {
 })
 
 watch(() => props.market, async () => {
-  searchQuery.value = ''
-  currentPage.value = 1
+  syncListStateFromRoute()
   lastLoadedAlpacaWatchlistId = null
   alpacaWatchlist.selectedWatchlistId = null
   topMovers.value.data = { gainers: [], losers: [] }
   recommendedTrades.candidates = []
-  await Promise.all([fetchStocks(true), loadAlpacaWatchlist(), refreshTradingContext()])
+  await Promise.all([fetchStocks(), loadAlpacaWatchlist(), refreshTradingContext()])
   requestScreenerSnapshot()
   syncWatchlistSubscriptions()
 })
+
+watch(
+  () => [route.query.page, route.query.search],
+  async () => {
+    syncListStateFromRoute()
+    await fetchStocks()
+  }
+)
 
 onBeforeUnmount(() => {
   if (searchTimeout) clearTimeout(searchTimeout)
