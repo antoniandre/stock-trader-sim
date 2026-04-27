@@ -34,11 +34,10 @@ const BAR_MINUTES    = TIMEFRAME === '5Min' ? 5 : 1
 const POLL_MS        = (BAR_MINUTES * 60 + 15) * 1000   // slightly after bar close
 const ORB_BARS       = Math.ceil(30 / BAR_MINUTES)       // 30-min opening range
 const HTF_STEP       = Math.ceil(15 / BAR_MINUTES)       // bars per 15-min candle
-// 8-symbol live set (2026-04-27). All validated walk-forward at 365d open+mid unified config.
-// BA (730d open-only) and MU (365d open-only) are excluded: they drag in unified config (-$536
-// combined in the 300-trade run) and have their own non-reproducible optimal configs.
-// Live config: PF 1.47, Sharpe 2.59, MaxDD 0.74%, +5bps PF 1.13
-const SYMBOLS        = ['NVDA', 'ABNB', 'SBUX', 'NET', 'INTC', 'CRM', 'ARM', 'TGT']
+// 10-symbol walk-forward validated universe (2026-04-27). Each has its own optimal backtest config
+// but all run here in unified balanced mode. BA/MU/TGT are net-positive at 365d open+mid in combined run.
+// CRM: 730d open+mid | BA: 730d open | ARM: 730d trend+open | MU: 365d open | TGT: 500d open
+const SYMBOLS        = ['NVDA', 'ABNB', 'SBUX', 'NET', 'INTC', 'CRM', 'BA', 'ARM', 'MU', 'TGT']
 const SPY            = 'SPY'
 const TARGET_TRIPS   = 30
 const RISK_PROFILE   = 'balanced'
