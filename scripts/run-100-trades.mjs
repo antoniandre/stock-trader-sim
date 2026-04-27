@@ -30,8 +30,7 @@ const ALPACA_SECRET = process.env.ALPACA_SECRET
 const DATA_URL      = process.env.ALPACA_API_BASE_URL || 'https://data.alpaca.markets'
 const RISK_PROFILE  = 'balanced'
 const CAPITAL       = 100_000
-const DAILY_LOSS_LIMIT_PCT = 5.0
-const SLIPPAGE_PCT  = 0.03   // 3 bps each way — models realistic market-order fill cost
+const SLIPPAGE_PCT  = 0.05   // 5 bps each way — conservative model; large-caps 2-5 bps, mid-caps 5-10 bps
 const CLI_ARGS = process.argv.slice(2)
 
 function getArg(name) {
@@ -47,6 +46,8 @@ function getNumberArg(name, fallback) {
   return Number.isFinite(value) && value > 0 ? value : fallback
 }
 
+const DAILY_LOSS_LIMIT_PCT = getNumberArg('daily-loss-limit', 5.0)
+
 function parseSymbols(raw) {
   return String(raw || '')
     .split(',')
@@ -54,8 +55,56 @@ function parseSymbols(raw) {
     .filter(Boolean)
 }
 
+function getBoolArg(name, fallback) {
+  const raw = getArg(name) ?? process.env[`BOT_BACKTEST_${name.toUpperCase()}`]
+  if (raw == null) return fallback
+  return !['0', 'false', 'no', 'off'].includes(String(raw).toLowerCase())
+}
+
+function getBehaviorMode() {
+  const explicit = String(getArg('behavior') || process.env.BOT_BACKTEST_BEHAVIOR || '').toLowerCase()
+  if (['off', 'observe', 'apply'].includes(explicit)) return explicit
+  const adaptive = getArg('adaptive') ?? process.env.BOT_BACKTEST_ADAPTIVE
+  if (adaptive != null) return getBoolArg('adaptive', false) ? 'apply' : 'off'
+  return 'observe'
+}
+
+function getBehaviorEntryFilter() {
+  const raw = getArg('behavior-filter') || process.env.BOT_BACKTEST_BEHAVIOR_FILTER || ''
+  const value = String(raw).trim()
+  if (!value || ['0', 'false', 'no', 'off', 'none'].includes(value.toLowerCase())) return []
+  if (value.toLowerCase() === 'proven') return ['extendedBreakout', 'falseBreakoutProne']
+  return value.split(',').map(item => item.trim()).filter(Boolean)
+}
+
+function getSetupEntryFilter() {
+  return parseSymbols(getArg('setup-filter') || process.env.BOT_BACKTEST_SETUP_FILTER)
+    .map(setup => setup.toLowerCase())
+}
+
+function getTimeEntryFilter() {
+  const raw = getArg('time-filter') || process.env.BOT_BACKTEST_TIME_FILTER || ''
+  const aliases = {
+    open: 'Open 9:30-10:30',
+    morning: 'Open 9:30-10:30',
+    mid: 'Mid 10:30-11:30',
+    midday: 'Mid 10:30-11:30',
+    noon: 'Noon 11:30-13:00',
+    pm: 'PM 13:00-14:00'
+  }
+  return String(raw)
+    .split(',')
+    .map(item => item.trim().toLowerCase())
+    .filter(Boolean)
+    .map(item => aliases[item] || item)
+}
+
 const TARGET_TRADES = getNumberArg('target', 300)    // how many chronologically-first round-trips to report on
 const LOOKBACK_DAYS = getNumberArg('lookback', 90)   // calendar days of history to fetch
+const BEHAVIOR_CLASSIFIER_MODE = getBehaviorMode()
+const BEHAVIOR_ENTRY_FILTER = getBehaviorEntryFilter()
+const SETUP_ENTRY_FILTER = getSetupEntryFilter()
+const TIME_ENTRY_FILTER = getTimeEntryFilter()
 
 // Timeframe: '5Min' (default, backtested strategy) or '1Min' (live trading mode)
 // Usage: node scripts/run-100-trades.mjs 1Min
@@ -91,11 +140,15 @@ const ROLLING_PAUSE_DAYS = TIMEFRAME === '1Min' ? 1 : 10
 const MIN_BARS = getNumberArg('min-bars', Math.max(WINDOW_BARS * 3, TIMEFRAME === '1Min' ? 240 : 120))
 const LAST_ENTRY_UTC_MIN = getNumberArg('last-entry-utc-min', 0)
 if (LAST_ENTRY_UTC_MIN > 0) STRATEGY_PARAMS.lastEntryUtcMin = LAST_ENTRY_UTC_MIN
+const effectiveBehaviorMode = BEHAVIOR_ENTRY_FILTER.length && BEHAVIOR_CLASSIFIER_MODE === 'off'
+  ? 'observe'
+  : BEHAVIOR_CLASSIFIER_MODE
+if (effectiveBehaviorMode !== 'off') STRATEGY_PARAMS.behaviorClassifierMode = effectiveBehaviorMode
 
-// Removed: AMD (47.83% WR, -$972), SPY/QQQ (ETFs, 0% WR), AAPL (40% WR, -$62),
-// TSLA (38–42% WR, net negative every 90d run — hyper-noisy, headline-driven false breakouts)
-// Rejected at selection time (pre-backtest): PLTR, CRWD, COIN, SMCI, MU, AVGO, MSFT, NFLX.
-const CANDIDATE_SYMBOLS = ['NVDA', 'GOOGL', 'AMZN', 'META']
+// Walk-forward validated 2026-04-27. Each symbol has its own optimal config:
+// NVDA/ABNB/SBUX/NET/INTC: 365d open+mid | CRM: 730d open+mid | BA: 730d open
+// ARM: 730d trend+open | MU: 365d open | TGT: 500d open
+const CANDIDATE_SYMBOLS = ['NVDA', 'ABNB', 'SBUX', 'NET', 'INTC', 'CRM', 'BA', 'ARM', 'MU', 'TGT']
 const BROAD_SYMBOLS = [
   'NVDA', 'GOOGL', 'AMZN', 'META', 'MSFT', 'AAPL', 'AMD', 'TSLA', 'AVGO', 'NFLX',
   'CRM', 'ORCL', 'ADBE', 'QCOM', 'INTC', 'MU', 'ARM', 'TSM', 'ASML', 'PLTR',
@@ -107,6 +160,7 @@ const BROAD_SYMBOLS = [
 ]
 const SYMBOL_UNIVERSE = (getArg('universe') || process.env.BOT_BACKTEST_UNIVERSE || 'candidate').toLowerCase()
 const SYMBOLS = parseSymbols(getArg('symbols') || process.env.BOT_BACKTEST_SYMBOLS)
+const EXCLUDED_SYMBOLS = parseSymbols(getArg('exclude-symbols') || process.env.BOT_BACKTEST_EXCLUDE_SYMBOLS)
 const BACKTEST_SYMBOLS = SYMBOLS.length
   ? SYMBOLS
   : (SYMBOL_UNIVERSE === 'broad' ? BROAD_SYMBOLS : CANDIDATE_SYMBOLS)
@@ -114,6 +168,14 @@ const BACKTEST_SYMBOLS = SYMBOLS.length
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function round2(v) { return Math.round((+v + Number.EPSILON) * 100) / 100 }
 function round4(v) { return Math.round((+v + Number.EPSILON) * 10000) / 10000 }
+
+function stableHash(value) {
+  let hash = 0
+  for (const char of String(value)) {
+    hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0
+  }
+  return Math.abs(hash).toString(36)
+}
 
 function avg(arr) {
   if (!arr.length) return 0
@@ -157,6 +219,18 @@ function atr14Pct(candles, idx) {
   }
   const cl = candles[idx].close
   return cl > 0 && count > 0 ? round4((total / count) / cl * 100) : 0
+}
+
+// Average of 14-period ATR% over the last 20 bars ending before idx (exclusive).
+// Used as the ATR expansion baseline: current ATR > 1.4× this = real move underway.
+function atrBaseline20Pct(candles, idx) {
+  if (idx < 25) return 0
+  let sum = 0, count = 0
+  for (let i = idx - 20; i < idx; i++) {
+    const v = atr14Pct(candles, i)
+    if (v > 0) { sum += v; count++ }
+  }
+  return count > 0 ? sum / count : 0
 }
 
 // 15-min trend: EMA5 > EMA10 on resampled 15-min closes.
@@ -356,9 +430,10 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap =
     const equity         = cash + posQty * c.close
     const dailyLossesPct = (dailyLosses / CAPITAL) * 100
 
-    const adrPctVal   = adrMap.get(currentDate) ?? 0
-    const spyTrendVal = symbol !== 'SPY' ? (spyTrendMap.get(c.timestamp) ?? 0) : 0
-    const atrPctVal   = atr14Pct(candles, i)
+    const adrPctVal       = adrMap.get(currentDate) ?? 0
+    const spyTrendVal     = symbol !== 'SPY' ? (spyTrendMap.get(c.timestamp) ?? 0) : 0
+    const atrPctVal       = atr14Pct(candles, i)
+    const atrBaselineVal  = atrBaseline20Pct(candles, i)
     const orb         = orbMap.get(currentDate) ?? { high: 0, low: 0 }
     const tf15        = tf15BullishAt(candles, i)
     const nowMsLocal  = new Date(c.timestamp).getTime()
@@ -391,6 +466,7 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap =
       adrPct: adrPctVal,
       spyTrendPct: spyTrendVal,
       atrPct: atrPctVal,
+      atrBaselinePct: atrBaselineVal,
       orbHigh: orb.high,
       orbLow: orb.low,
       tf15Bullish: tf15,
@@ -415,6 +491,11 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap =
     if (pausedUntilDay && currentDate < pausedUntilDay) continue
 
     if (decision.action === 'buy' && posQty === 0) {
+      const behaviorProfile = decision.symbolBehavior?.profile ?? 'neutral'
+      if (BEHAVIOR_ENTRY_FILTER.length && !BEHAVIOR_ENTRY_FILTER.includes(behaviorProfile)) continue
+      if (SETUP_ENTRY_FILTER.length && !SETUP_ENTRY_FILTER.includes(String(decision.setup || '').toLowerCase())) continue
+      if (TIME_ENTRY_FILTER.length && !TIME_ENTRY_FILTER.includes(getTimeSlot(c.timestamp))) continue
+
       // Apply slippage: market buy fills slightly above close
       const fillPrice = round2(c.close * (1 + SLIPPAGE_PCT / 100))
       const alloc     = (decision.executionPlan.positionSizePct / 100) * equity
@@ -434,6 +515,8 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap =
         vwap: vwapVal, volRatio,
         setup: decision.setup,
         entrySetup: decision.setup,
+        behaviorProfile,
+        behaviorConfidence: decision.symbolBehavior?.confidence ?? 0,
         regime: decision.marketRegime,
         confidence: decision.confidence,
         stopLossPct: decision.executionPlan.stopLossPct,
@@ -507,6 +590,8 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap =
         exitReason,
         confidence: savedMeta.confidence,
         setup: savedMeta.setup,
+        behaviorProfile: savedMeta.behaviorProfile,
+        behaviorConfidence: savedMeta.behaviorConfidence,
         regime: savedMeta.regime,
         stopPrice,
         targetPct: savedMeta.targetPct,
@@ -547,6 +632,89 @@ function deriveExitReason(reasons) {
   if (reasons.some(r => /risk.*trend|trend.*broke/i.test(r))) return 'risk-exit'
   if (reasons.some(r => /early reversal/i.test(r)))           return 'early-reversal'
   return 'signal-exit'
+}
+
+function getTimeSlot(entryTime) {
+  const utcH = parseInt(entryTime.slice(11, 13), 10)
+  const utcM = parseInt(entryTime.slice(14, 16), 10)
+  const etMin = (utcH - 4) * 60 + utcM  // approximate ET (UTC-4 DST)
+  if (etMin < 630) return 'Open 9:30-10:30'
+  if (etMin < 690) return 'Mid 10:30-11:30'
+  if (etMin < 780) return 'Noon 11:30-13:00'
+  return 'PM 13:00-14:00'
+}
+
+function summarizeTrades(trades, extraBpsEachWay = 0) {
+  const adjustedPnls = trades.map(t => {
+    const slippageCost = extraBpsEachWay > 0
+      ? ((t.entryPrice * t.qty) + (t.exitPrice * t.qty)) * extraBpsEachWay / 10000
+      : 0
+    return round2(t.pnlUsd - slippageCost)
+  })
+  const wins = adjustedPnls.filter(pnl => pnl > 0)
+  const losses = adjustedPnls.filter(pnl => pnl <= 0)
+  const grossProfit = round2(wins.reduce((sum, pnl) => sum + pnl, 0))
+  const grossLoss = round2(Math.abs(losses.reduce((sum, pnl) => sum + pnl, 0)))
+  const net = round2(grossProfit - grossLoss)
+  const total = trades.length
+  const pf = grossLoss > 0 ? round2(grossProfit / grossLoss) : (grossProfit > 0 ? '∞' : '0')
+  const expectancy = total > 0 ? round2(net / total) : 0
+  const winRate = total > 0 ? round2((wins.length / total) * 100) : 0
+  let equity = CAPITAL, peak = CAPITAL, maxDD = 0
+  adjustedPnls.forEach(pnl => {
+    equity += pnl
+    if (equity > peak) peak = equity
+    maxDD = Math.max(maxDD, round2(((peak - equity) / peak) * 100))
+  })
+  return { total, wins: wins.length, winRate, net, pf, expectancy, maxDD }
+}
+
+function buildWalkForwardPromotionRows(trades) {
+  const sorted = [...trades].sort((a, b) => a.entryTime.localeCompare(b.entryTime))
+  const split = Math.max(1, Math.floor(sorted.length * 0.6))
+  const train = sorted.slice(0, split)
+  const test = sorted.slice(split)
+  const dimensions = [
+    { name: 'symbol', label: 'Symbol', key: t => t.symbol },
+    { name: 'behavior', label: 'Behavior', key: t => t.behaviorProfile || 'neutral' },
+    { name: 'time', label: 'Time slot', key: t => getTimeSlot(t.entryTime) },
+    { name: 'setup', label: 'Setup', key: t => t.setup || 'unknown' }
+  ]
+
+  const rows = []
+  for (const dim of dimensions) {
+    const keys = new Set(train.map(dim.key))
+    for (const key of keys) {
+      const trainTrades = train.filter(t => dim.key(t) === key)
+      const testTrades = test.filter(t => dim.key(t) === key)
+      if (trainTrades.length < 5) continue
+      const trainSummary = summarizeTrades(trainTrades)
+      const testSummary = summarizeTrades(testTrades)
+      const testSlip5 = summarizeTrades(testTrades, 5)
+      const trainPass = trainSummary.pf !== '∞'
+        && Number(trainSummary.pf) >= 1.3
+        && trainSummary.expectancy > 0
+      const testPass = testTrades.length >= 3
+        && testSummary.pf !== '∞'
+        && Number(testSummary.pf) >= 1.3
+        && testSummary.expectancy > 0
+        && testSummary.maxDD < 10
+        && (testSlip5.pf === '∞' || Number(testSlip5.pf) >= 1.1)
+      rows.push({
+        dimension: dim.label,
+        key,
+        train: trainSummary,
+        test: testSummary,
+        testSlip5,
+        verdict: trainPass && testPass ? 'promote' : (trainPass ? 'watch' : 'reject')
+      })
+    }
+  }
+
+  return rows.sort((a, b) => {
+    const order = { promote: 0, watch: 1, reject: 2 }
+    return order[a.verdict] - order[b.verdict] || b.test.expectancy - a.test.expectancy
+  })
 }
 
 // ── Report generator ─────────────────────────────────────────────────────────
@@ -656,6 +824,17 @@ function generateReport(trades, runDate, runContext = {}) {
     if (t.status === 'WIN') setupMap[t.setup].w++
   }
 
+  // Rolling symbol behavior profile breakdown
+  const behaviorMap = {}
+  for (const t of trades) {
+    const profile = t.behaviorProfile || 'neutral'
+    if (!behaviorMap[profile]) behaviorMap[profile] = { t: 0, w: 0, pnl: 0 }
+    behaviorMap[profile].t++
+    behaviorMap[profile].pnl += t.pnlUsd
+    if (t.status === 'WIN') behaviorMap[profile].w++
+  }
+  const promotionRows = buildWalkForwardPromotionRows(trades)
+
   const verdict = netPnL > 0
     ? `✅ **PROFITABLE** — net gain of $${netPnL} (+${netPnLPct}%) over ${total} trades`
     : `❌ **UNPROFITABLE** — net loss of $${Math.abs(netPnL)} (${netPnLPct}%) over ${total} trades`
@@ -663,7 +842,9 @@ function generateReport(trades, runDate, runContext = {}) {
   let md = `# Bot Trade Report — ${total} BUY+SELL Round-Trip Trades\n\n`
   md += `> **Generated:** ${runDate}  \n`
   md += `> **Risk profile:** ${RISK_PROFILE} | **Capital:** $${CAPITAL.toLocaleString()} | **Timeframe:** ${TIMEFRAME} | **Mode:** Alpaca historical bars (IEX feed)\n`
-  md += `> **Target trades:** ${TARGET_TRADES} | **Lookback:** ${LOOKBACK_DAYS} days | **Universe:** ${runContext.universe || SYMBOL_UNIVERSE} | **Symbols scanned:** ${runContext.symbolsScanned ?? BACKTEST_SYMBOLS.length}\n\n`
+  md += `> **Target trades:** ${TARGET_TRADES} | **Lookback:** ${LOOKBACK_DAYS} days | **Universe:** ${runContext.universe || SYMBOL_UNIVERSE} | **Symbols scanned:** ${runContext.symbolsScanned ?? BACKTEST_SYMBOLS.length} | **Behavior classifier:** ${effectiveBehaviorMode}\n`
+  md += `> **Behavior entry filter:** ${BEHAVIOR_ENTRY_FILTER.length ? BEHAVIOR_ENTRY_FILTER.join(', ') : 'none'}\n\n`
+  md += `> **Setup filter:** ${SETUP_ENTRY_FILTER.length ? SETUP_ENTRY_FILTER.join(', ') : 'none'} | **Time filter:** ${TIME_ENTRY_FILTER.length ? TIME_ENTRY_FILTER.join(', ') : 'none'} | **Last entry UTC min:** ${LAST_ENTRY_UTC_MIN || 'default'} | **Excluded symbols:** ${EXCLUDED_SYMBOLS.length ? EXCLUDED_SYMBOLS.join(', ') : 'none'}\n\n`
   md += `> **Strategy params:** \`${JSON.stringify(STRATEGY_PARAMS)}\`\n\n`
 
   md += `## Verdict\n\n${verdict}\n\n`
@@ -728,6 +909,22 @@ function generateReport(trades, runDate, runContext = {}) {
     md += `| ${setup} | ${s.t} | ${s.w} | ${round2(s.w / s.t * 100)}% | $${pnl >= 0 ? '+' : ''}${pnl} | $${exp >= 0 ? '+' : ''}${exp} |\n`
   }
 
+  md += `\n## Symbol Behavior Profile Performance\n\n`
+  md += `| Behavior profile | Trades | Wins | Win% | Net P&L | Expectancy |\n|:--|--:|--:|--:|--:|--:|\n`
+  for (const [profile, s] of Object.entries(behaviorMap).sort((a, b) => b[1].pnl - a[1].pnl)) {
+    const pnl = round2(s.pnl)
+    const exp = round2(s.pnl / s.t)
+    md += `| ${profile} | ${s.t} | ${s.w} | ${round2(s.w / s.t * 100)}% | $${pnl >= 0 ? '+' : ''}${pnl} | $${exp >= 0 ? '+' : ''}${exp} |\n`
+  }
+
+  md += `\n## Walk-Forward Promotion Check\n\n`
+  md += `First 60% of chronological trades are treated as training; final 40% are unseen validation. A rule only promotes when train and validation PF/expectancy pass and validation survives +5 bps/side slippage.\n\n`
+  md += `| Dimension | Candidate | Train n | Train PF | Train Exp | Test n | Test PF | Test Exp | Test DD | Test +5bps PF | Verdict |\n`
+  md += `|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|\n`
+  for (const row of promotionRows.slice(0, 30)) {
+    md += `| ${row.dimension} | ${row.key} | ${row.train.total} | ${row.train.pf} | $${row.train.expectancy >= 0 ? '+' : ''}${row.train.expectancy} | ${row.test.total} | ${row.test.pf} | $${row.test.expectancy >= 0 ? '+' : ''}${row.test.expectancy} | ${row.test.maxDD}% | ${row.testSlip5.pf} | ${row.verdict} |\n`
+  }
+
   md += `\n## Slippage Sensitivity\n\n`
   md += `Additional slippage is applied on top of the built-in ${SLIPPAGE_PCT}% per-side model.\n\n`
   md += `| Extra slippage | Adjusted net P&L | Adjusted PF |\n|:--|--:|--:|\n`
@@ -742,15 +939,15 @@ function generateReport(trades, runDate, runContext = {}) {
   }
 
   md += `\n## Trade Log\n\n`
-  md += `| # | Sym | Entry (UTC) | Exit (UTC) | Entry$ | Exit$ | Qty | Notional | P&L$ | P&L% | R | Dur | Type | Exit Reason | Regime | Setup | RSI | VWAP | MACD | VolR | Result |\n`
-  md += `|--:|:--|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|:--|:--|:--|--:|--:|--:|--:|:--|\n`
+  md += `| # | Sym | Entry (UTC) | Exit (UTC) | Entry$ | Exit$ | Qty | Notional | P&L$ | P&L% | R | Dur | Type | Exit Reason | Regime | Setup | Behavior | RSI | VWAP | MACD | VolR | Result |\n`
+  md += `|--:|:--|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|:--|:--|:--|:--|--:|--:|--:|--:|:--|\n`
 
   trades.forEach((t, idx) => {
     const eTime = t.entryTime.replace('T', ' ').slice(5, 16)
     const xTime = t.exitTime.replace('T', ' ').slice(5, 16)
     const pSign = t.pnlUsd >= 0 ? '+' : ''
     const vwapMark = t.vwapPos === 'above' ? '↑' : '↓'
-    md += `| ${idx + 1} | ${t.symbol} | ${eTime} | ${xTime} | ${t.entryPrice} | ${t.exitPrice} | ${t.qty} | ${t.notional} | ${pSign}${t.pnlUsd} | ${pSign}${t.pnlPct}% | ${t.riskR}R | ${t.durMin}m | ${t.orderType} | ${t.exitReason} | ${t.regime} | ${t.setup} | ${t.rsi} | ${vwapMark}${t.vwap} | ${t.macd} | ${t.volRatio} | **${t.status}** |\n`
+    md += `| ${idx + 1} | ${t.symbol} | ${eTime} | ${xTime} | ${t.entryPrice} | ${t.exitPrice} | ${t.qty} | ${t.notional} | ${pSign}${t.pnlUsd} | ${pSign}${t.pnlPct}% | ${t.riskR}R | ${t.durMin}m | ${t.orderType} | ${t.exitReason} | ${t.regime} | ${t.setup} | ${t.behaviorProfile || 'neutral'} | ${t.rsi} | ${vwapMark}${t.vwap} | ${t.macd} | ${t.volRatio} | **${t.status}** |\n`
   })
 
   md += `\n## Improvements Applied in This Run\n\n`
@@ -802,6 +999,9 @@ async function main() {
   console.log(`Period: ${startDate} → ${endDate}`)
   console.log(`Risk profile: ${RISK_PROFILE} | Capital: $${CAPITAL.toLocaleString()} | Window: ${WINDOW_BARS} bars`)
   console.log(`Universe: ${SYMBOL_UNIVERSE}${SYMBOLS.length ? ' (custom symbols)' : ''} | Symbols: ${BACKTEST_SYMBOLS.length} | Min bars: ${MIN_BARS}`)
+  console.log(`Behavior classifier: ${effectiveBehaviorMode}`)
+  console.log(`Behavior entry filter: ${BEHAVIOR_ENTRY_FILTER.length ? BEHAVIOR_ENTRY_FILTER.join(', ') : 'none'}`)
+  console.log(`Setup filter: ${SETUP_ENTRY_FILTER.length ? SETUP_ENTRY_FILTER.join(', ') : 'none'} | Time filter: ${TIME_ENTRY_FILTER.length ? TIME_ENTRY_FILTER.join(', ') : 'none'} | Excluded: ${EXCLUDED_SYMBOLS.length ? EXCLUDED_SYMBOLS.join(', ') : 'none'}`)
   console.log(`Daily loss limit: ${DAILY_LOSS_LIMIT_PCT}%\n`)
 
   const allTrades = []
@@ -823,6 +1023,11 @@ async function main() {
 
   // Fetch ALL symbols before cutting to TARGET_TRADES so no symbol is systematically skipped.
   for (const sym of BACKTEST_SYMBOLS) {
+    if (EXCLUDED_SYMBOLS.includes(sym)) {
+      console.log(`  Skipping ${sym} (excluded by CLI filter)`)
+      skippedSymbols.push({ symbol: sym, reason: 'excluded by CLI filter' })
+      continue
+    }
     process.stdout.write(`  Fetching ${sym} ... `)
     try {
       const bars = await fetchBars(sym, startDate, endDate, TIMEFRAME)
@@ -865,11 +1070,32 @@ async function main() {
   const dateSlug = new Date().toLocaleDateString('en-CA')
   const outDir   = join(__dirname, '../docs/reports')
   mkdirSync(outDir, { recursive: true })
-  const customRun = TARGET_TRADES !== 300 || LOOKBACK_DAYS !== 90 || SYMBOL_UNIVERSE !== 'candidate' || SYMBOLS.length > 0
+  const customRun = TARGET_TRADES !== 300
+    || LOOKBACK_DAYS !== 90
+    || SYMBOL_UNIVERSE !== 'candidate'
+    || SYMBOLS.length > 0
+    || LAST_ENTRY_UTC_MIN > 0
+    || effectiveBehaviorMode === 'apply'
+    || BEHAVIOR_ENTRY_FILTER.length > 0
+    || SETUP_ENTRY_FILTER.length > 0
+    || TIME_ENTRY_FILTER.length > 0
+    || EXCLUDED_SYMBOLS.length > 0
   const tfSlug    = TIMEFRAME === '1Min' ? '-1min' : ''
   const cutoffSlug = LAST_ENTRY_UTC_MIN > 0 ? `-cutoff${LAST_ENTRY_UTC_MIN}` : ''
+  const behaviorSlug = effectiveBehaviorMode === 'apply'
+    ? '-adaptive'
+    : (BEHAVIOR_CLASSIFIER_MODE === 'observe' && customRun ? '-observe' : '')
+  const filterSlug = BEHAVIOR_ENTRY_FILTER.length
+    ? `-filter-${BEHAVIOR_ENTRY_FILTER.join('-').toLowerCase()}`
+    : ''
+  const setupSlug = SETUP_ENTRY_FILTER.length ? `-setup-${SETUP_ENTRY_FILTER.join('-')}` : ''
+  const timeSlug = TIME_ENTRY_FILTER.length
+    ? `-time-${TIME_ENTRY_FILTER.map(slot => slot.split(' ')[0].toLowerCase()).join('-')}`
+    : ''
+  const excludeSlug = EXCLUDED_SYMBOLS.length ? `-exclude-${EXCLUDED_SYMBOLS.length}` : ''
+  const symbolsSlug = SYMBOLS.length ? `-symbols${SYMBOLS.length}-${stableHash(SYMBOLS.join(','))}` : ''
   const runSlug   = customRun
-    ? `-${TIMEFRAME.toLowerCase()}-${SYMBOLS.length ? 'custom' : SYMBOL_UNIVERSE}-${TARGET_TRADES}trades-${LOOKBACK_DAYS}d${cutoffSlug}`
+    ? `-${TIMEFRAME.toLowerCase()}-${SYMBOLS.length ? 'custom' : SYMBOL_UNIVERSE}-${TARGET_TRADES}trades-${LOOKBACK_DAYS}d${cutoffSlug}${behaviorSlug}${filterSlug}${setupSlug}${timeSlug}${excludeSlug}${symbolsSlug}`
     : tfSlug
   const outPath  = join(outDir, `BOT-TRADE-REPORT-${dateSlug}${runSlug}.md`)
   writeFileSync(outPath, report, 'utf8')

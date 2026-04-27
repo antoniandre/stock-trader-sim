@@ -117,10 +117,16 @@ async function main() {
   const validSlip = rows.map(row => row.slippagePct).filter(Number.isFinite)
   const avgSlip = validSlip.length ? round2(validSlip.reduce((sum, value) => sum + value, 0) / validSlip.length) : null
   const worstSlip = validSlip.length ? round2(Math.max(...validSlip)) : null
+  const verdict = rows.length === 0
+    ? 'NO-GO — no filled paper orders were available for validation'
+    : (avgSlip != null && avgSlip <= 0.05
+        ? 'PROVISIONAL GO — fill quality is within tolerance; continue supervised paper validation'
+        : 'NO-GO — fill quality or missing slippage data needs more paper validation')
 
   let md = `# Paper Validation Report — ${REPORT_DATE}\n\n`
   md += `Educational reference only; not investment advice.\n\n`
   md += `| Metric | Value |\n|:--|--:|\n`
+  md += `| Verdict | ${verdict} |\n`
   md += `| Filled orders | ${rows.length} |\n`
   md += `| Avg slippage vs nearest 1m close | ${avgSlip == null ? 'n/a' : `${avgSlip}%`} |\n`
   md += `| Worst slippage vs nearest 1m close | ${worstSlip == null ? 'n/a' : `${worstSlip}%`} |\n\n`
@@ -131,8 +137,12 @@ async function main() {
     md += `| ${idx + 1} | ${row.symbol} | ${row.side} | ${row.qty} | ${round2(row.fillPrice)} | ${row.expectedClose == null ? 'n/a' : round2(row.expectedClose)} | ${row.slippagePct == null ? 'n/a' : `${round2(row.slippagePct)}%`} | ${row.filledAt || ''} |\n`
   })
   md += `\n## Go / No-Go Notes\n\n`
+  if (rows.length === 0) {
+    md += `- **NO-GO:** no filled paper orders exist for ${REPORT_DATE}; run the exact 5-minute curated paper bot before considering live capital.\n`
+  }
   md += `- Stay paper if sell/trim/exit orders are rejected, canceled, expired, or materially delayed.\n`
   md += `- Stay paper if average live-paper slippage turns a backtested PF above 1.5 into an adjusted PF below 1.5.\n`
+  md += `- Validate the 10-symbol curated universe: NVDA, ABNB, SBUX, NET, INTC, CRM, BA, ARM, MU, TGT; broad scanning and behavior filters remain disabled.\n`
   md += `- Real-money week-one size should remain capped by server-side live gates.\n`
 
   mkdirSync(OUT_DIR, { recursive: true })

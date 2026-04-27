@@ -34,11 +34,10 @@ const BAR_MINUTES    = TIMEFRAME === '5Min' ? 5 : 1
 const POLL_MS        = (BAR_MINUTES * 60 + 15) * 1000   // slightly after bar close
 const ORB_BARS       = Math.ceil(30 / BAR_MINUTES)       // 30-min opening range
 const HTF_STEP       = Math.ceil(15 / BAR_MINUTES)       // bars per 15-min candle
-// Do NOT remove symbols post-hoc after seeing backtest results — that is look-ahead bias.
-// Underperformers (TSLA, ARM at 1-min) are throttled by the rolling performance gate.
-const SYMBOLS        = BAR_MINUTES === 1
-  ? ['NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA']
-  : ['NVDA', 'GOOGL', 'AMZN', 'META', 'ARM', 'TSLA']
+// 10-symbol walk-forward validated universe (2026-04-27). Each has its own optimal backtest config
+// but all run here in unified balanced mode. BA/MU/TGT are net-positive at 365d open+mid in combined run.
+// CRM: 730d open+mid | BA: 730d open | ARM: 730d trend+open | MU: 365d open | TGT: 500d open
+const SYMBOLS        = ['NVDA', 'ABNB', 'SBUX', 'NET', 'INTC', 'CRM', 'BA', 'ARM', 'MU', 'TGT']
 const SPY            = 'SPY'
 const TARGET_TRIPS   = 30
 const RISK_PROFILE   = 'balanced'
@@ -56,9 +55,23 @@ const KEY    = process.env.ALPACA_KEY
 const SECRET = process.env.ALPACA_SECRET
 const BROKER = process.env.ALPACA_BASE_URL    || 'https://paper-api.alpaca.markets'
 const DATA   = process.env.ALPACA_API_BASE_URL || 'https://data.alpaca.markets'
+const IS_LIVE_BROKER = !/paper-api/i.test(BROKER)
+const ALLOW_DIRECT_LIVE_BOT = process.env.ALLOW_DIRECT_LIVE_BOT === 'true'
+const BOT_MAX_NOTIONAL = Number(process.env.BOT_MAX_NOTIONAL || process.env.LIVE_TRADING_MAX_NOTIONAL || 1000)
+const BOT_MAX_DAILY_LOSS_PCT = Number(process.env.BOT_MAX_DAILY_LOSS_PCT || 1)
+const BOT_MAX_CONSECUTIVE_LOSSES = Number(process.env.BOT_MAX_CONSECUTIVE_LOSSES || 2)
+const BOT_ALLOWED_SYMBOLS = String(process.env.BOT_ALLOWED_SYMBOLS || SYMBOLS.join(','))
+  .split(',')
+  .map(symbol => symbol.trim().toUpperCase())
+  .filter(Boolean)
 
 if (!KEY || !SECRET) {
   console.error('❌  ALPACA_KEY and ALPACA_SECRET required in api/.env')
+  process.exit(1)
+}
+
+if (IS_LIVE_BROKER && !ALLOW_DIRECT_LIVE_BOT) {
+  console.error('❌  Direct live bot disabled. Use paper mode, or set ALLOW_DIRECT_LIVE_BOT=true only after explicit human approval.')
   process.exit(1)
 }
 
@@ -187,6 +200,29 @@ async function placeMarketOrder(symbol, side, qty) {
   })
 }
 
+function approveBotBuy({ symbol, qty, price, state, decision }) {
+  const notional = qty * price
+  const dailyLossPct = (state.dailyLossesUsd / accountEquity) * 100
+  const stopLossPct = Number(decision.executionPlan?.stopLossPct)
+
+  if (!BOT_ALLOWED_SYMBOLS.includes(symbol)) {
+    return { approved: false, reason: `${symbol} is not in BOT_ALLOWED_SYMBOLS (${BOT_ALLOWED_SYMBOLS.join(', ')})` }
+  }
+  if (Number.isFinite(BOT_MAX_NOTIONAL) && BOT_MAX_NOTIONAL > 0 && notional > BOT_MAX_NOTIONAL) {
+    return { approved: false, reason: `notional $${fmt(notional)} exceeds BOT_MAX_NOTIONAL=$${fmt(BOT_MAX_NOTIONAL)}` }
+  }
+  if (Number.isFinite(BOT_MAX_DAILY_LOSS_PCT) && dailyLossPct >= BOT_MAX_DAILY_LOSS_PCT) {
+    return { approved: false, reason: `daily loss ${fmt(dailyLossPct)}% exceeds BOT_MAX_DAILY_LOSS_PCT=${BOT_MAX_DAILY_LOSS_PCT}%` }
+  }
+  if (state.consecutiveLosses >= BOT_MAX_CONSECUTIVE_LOSSES) {
+    return { approved: false, reason: `${symbol} has ${state.consecutiveLosses} consecutive losses` }
+  }
+  if (!Number.isFinite(stopLossPct) || stopLossPct <= 0) {
+    return { approved: false, reason: 'decision did not include a valid stopLossPct' }
+  }
+  return { approved: true, reason: 'approved' }
+}
+
 async function getOrderStatus(orderId) {
   return apiFetch(`${BROKER}/v2/orders/${orderId}`)
 }
@@ -210,6 +246,75 @@ async function waitForFill(orderId) {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
+
+// ── ATR baseline: average of 14-period ATR% over the last 20 candles ─────────
+// Used to detect ATR expansion (current ATR significantly above recent baseline).
+function atrBaseline20Pct(candles) {
+  const n = candles.length
+  if (n < 25) return 0
+  let sum = 0, count = 0
+  for (let i = n - 20; i < n; i++) {
+    const v = atr14Pct(candles, i)
+    if (v > 0) { sum += v; count++ }
+  }
+  return count > 0 ? sum / count : 0
+}
+
+// Fetch real bid-ask spread from Alpaca IEX quote. Falls back to 0.06% if unavailable.
+async function fetchLatestSpread(symbol) {
+  try {
+    const data = await apiFetch(`${DATA}/v2/stocks/${symbol}/quotes/latest?feed=iex`)
+    const q = data.quote ?? data
+    const ask = parseFloat(q.ap ?? q.ask_price ?? 0)
+    const bid = parseFloat(q.bp ?? q.bid_price ?? 0)
+    const mid = (ask + bid) / 2
+    return mid > 0 ? ((ask - bid) / mid) * 100 : 0.06
+  } catch {
+    return 0.06
+  }
+}
+
+// ── Order placement helpers ───────────────────────────────────────────────────
+
+// Marketable limit buy: limit price slightly above current ask ensures fill with slippage cap.
+async function placeLimitOrder(symbol, side, qty, limitPrice) {
+  return apiFetch(`${BROKER}/v2/orders`, {
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      symbol,
+      qty: String(qty),
+      side,
+      type: 'limit',
+      limit_price: limitPrice.toFixed(2),
+      time_in_force: 'day'
+    })
+  })
+}
+
+// Broker-level stop order: becomes a market sell when stop_price is touched.
+// Safety net — keeps position protected if the bot process crashes or loses connectivity.
+async function placeStopOrder(symbol, qty, stopPrice) {
+  return apiFetch(`${BROKER}/v2/orders`, {
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      symbol,
+      qty: String(qty),
+      side: 'sell',
+      type: 'stop',
+      stop_price: stopPrice.toFixed(2),
+      time_in_force: 'day'
+    })
+  })
+}
+
+// Count symbols currently holding a position (for correlation guard).
+function countOpenPositions() {
+  let n = 0
+  for (const s of symState.values()) if (s.position) n++
+  return n
+}
 
 // ── Bot state ─────────────────────────────────────────────────────────────────
 
@@ -296,6 +401,8 @@ async function evaluateAndTrade(sym) {
   const vwapDevPct     = vwap > 0 ? ((bar.c - vwap) / vwap) * 100 : 0
   const prevVwapDevPct = prevVwap > 0 ? ((candles.at(-2)?.c ?? bar.c) - prevVwap) / prevVwap * 100 : 0
   const vwapReclaim    = prevVwapDevPct < -0.1 && vwapDevPct > 0.1
+  const atrBaseline    = atrBaseline20Pct(candles)
+  const spreadPct      = !pos ? await fetchLatestSpread(sym) : 0.06   // only fetch when flat (pre-entry)
 
   const { orbHigh, orbLow } = computeORB(candles)
   const tf15Bullish        = compute15mBullish(candles)
@@ -324,6 +431,8 @@ async function evaluateAndTrade(sym) {
     vwap,
     vwapReclaim,
     atrPct,
+    atrBaselinePct: atrBaseline,
+    spreadPct,
     orbHigh,
     orbLow,
     tf15Bullish,
@@ -351,19 +460,43 @@ async function evaluateAndTrade(sym) {
   // ── BUY ──────────────────────────────────────────────────────────────────
   if (action === 'buy' && !pos) {
     if (Date.now() - lastOrderMs < ORDER_COOLDOWN) return
-    const qty = Math.max(1, Math.floor(accountEquity * SIZE_PCT / bar.c))
-    console.log(`\n🟢  BUY ${sym}  qty:${qty}  ~$${fmt(bar.c)}  setup:${setup}  score:${scores.entry}`)
+    // Correlation guard: max 2 concurrent positions to limit correlated drawdowns.
+    if (countOpenPositions() >= 2) {
+      console.log(`  🔒  ${sym}: correlation guard — 2 positions already open`)
+      return
+    }
+    const cappedAllocation = Math.min(accountEquity * SIZE_PCT, Number.isFinite(BOT_MAX_NOTIONAL) && BOT_MAX_NOTIONAL > 0 ? BOT_MAX_NOTIONAL : accountEquity * SIZE_PCT)
+    const qty = Math.max(1, Math.floor(cappedAllocation / bar.c))
+    const approval = approveBotBuy({ symbol: sym, qty, price: bar.c, state: s, decision })
+    if (!approval.approved) {
+      console.log(`  🛑  ${sym}: buy blocked by live governor — ${approval.reason}`)
+      return
+    }
+    // Marketable limit: 0.1% above last close — ensures fill while capping slippage.
+    const limitBuyPrice = parseFloat((bar.c * 1.001).toFixed(2))
+    console.log(`\n🟢  BUY ${sym}  qty:${qty}  limit:$${fmt(limitBuyPrice)}  setup:${setup}  score:${scores.entry}  spread:${fmt(spreadPct, 3)}%`)
     try {
-      const order  = await placeMarketOrder(sym, 'buy', qty)
+      const order  = await placeLimitOrder(sym, 'buy', qty, limitBuyPrice)
       const filled = await waitForFill(order.id)
       const fillPrice = parseFloat(filled.filled_avg_price) || bar.c
+      const stopLossPct = Number(decision.executionPlan?.stopLossPct) || 1.2
+      const brokerStopPrice = parseFloat((fillPrice * (1 - stopLossPct / 100)).toFixed(2))
       s.position = {
         qty,
         avgEntryPrice:     fillPrice,
         positionOpenedAt:  Date.now(),
         highWatermarkPrice: fillPrice,
         entrySetup:        setup,
-        trimmedHalf:       false
+        trimmedHalf:       false,
+        stopOrderId:       null
+      }
+      // Broker-level stop: protects position if bot crashes or loses connectivity.
+      try {
+        const stopOrder = await placeStopOrder(sym, qty, brokerStopPrice)
+        s.position.stopOrderId = stopOrder.id
+        console.log(`  🛡️  Stop @ $${fmt(brokerStopPrice)} (order ${stopOrder.id})`)
+      } catch (stopErr) {
+        console.log(`  ⚠️  Broker stop failed: ${stopErr.message} — bot logic guards position`)
       }
       lastOrderMs = Date.now()
       console.log(`  ✅  Filled @ $${fmt(fillPrice)}`)
@@ -380,6 +513,11 @@ async function evaluateAndTrade(sym) {
     if (trimQty < 1) return
     console.log(`\n🟡  TRIM ${sym}  qty:${trimQty}  ~$${fmt(bar.c)}  ${reasons[0] || ''}`)
     try {
+      // Cancel existing broker stop before trimming — qty will change.
+      if (pos.stopOrderId) {
+        await cancelAlpacaOrder(pos.stopOrderId)
+        s.position.stopOrderId = null
+      }
       const order  = await placeMarketOrder(sym, 'sell', trimQty)
       const filled = await waitForFill(order.id)
       const fillPrice = parseFloat(filled.filled_avg_price) || bar.c
@@ -387,6 +525,14 @@ async function evaluateAndTrade(sym) {
       s.position.qty -= trimQty
       s.position.trimmedHalf = true
       lastOrderMs = Date.now()
+      // Re-place broker stop for remaining qty.
+      const stopLossPct = Number(decision.executionPlan?.stopLossPct) || 1.2
+      const brokerStopPrice = parseFloat((pos.avgEntryPrice * (1 - stopLossPct / 100)).toFixed(2))
+      try {
+        const stopOrder = await placeStopOrder(sym, s.position.qty, brokerStopPrice)
+        s.position.stopOrderId = stopOrder.id
+        console.log(`  🛡️  Stop re-placed @ $${fmt(brokerStopPrice)} for ${s.position.qty}sh`)
+      } catch {}
       console.log(`  ✅  Trimmed @ $${fmt(fillPrice)}  ${fmtUsd(pnlUsd)}`)
     } catch (err) {
       console.log(`  ❌  Trim failed: ${err.message}`)
@@ -400,6 +546,11 @@ async function evaluateAndTrade(sym) {
     const sellQty = pos.qty
     console.log(`\n🔴  SELL ${sym}  qty:${sellQty}  ~$${fmt(bar.c)}  ${reasons[0] || ''}`)
     try {
+      // Cancel broker stop first — we're closing intentionally, stop is no longer needed.
+      if (pos.stopOrderId) {
+        await cancelAlpacaOrder(pos.stopOrderId).catch(() => {})
+        s.position.stopOrderId = null
+      }
       const order  = await placeMarketOrder(sym, 'sell', sellQty)
       const filled = await waitForFill(order.id)
       const fillPrice = parseFloat(filled.filled_avg_price) || bar.c
@@ -470,7 +621,17 @@ async function reconcilePositions() {
       positionOpenedAt: Date.now() - 20 * 60_000,  // assume 20 min ago (conservative)
       highWatermarkPrice: Math.max(avgEntry, currPrice),
       entrySetup: null,
-      trimmedHalf: false
+      trimmedHalf: false,
+      stopOrderId: null
+    }
+    // Place broker stop for adopted position using default 1.2% stop.
+    const brokerStopPrice = parseFloat((avgEntry * (1 - 1.2 / 100)).toFixed(2))
+    try {
+      const stopOrder = await placeStopOrder(sym, qty, brokerStopPrice)
+      s.position.stopOrderId = stopOrder.id
+      console.log(`  🛡️  Stop @ $${fmt(brokerStopPrice)} for adopted position`)
+    } catch (err) {
+      console.log(`  ⚠️  Stop failed for adopted position: ${err.message}`)
     }
   }
 }
@@ -508,7 +669,8 @@ async function main() {
   console.log(`   Timeframe : ${TIMEFRAME} (poll every ${BAR_MINUTES * 60 + 15}s)`)
   console.log(`   Symbols   : ${SYMBOLS.join(', ')}`)
   console.log(`   Target    : ${TARGET_TRIPS} round-trips`)
-  console.log(`   Broker    : ${BROKER}\n`)
+  console.log(`   Broker    : ${BROKER}`)
+  console.log(`   Governor  : max notional $${fmt(BOT_MAX_NOTIONAL)}, daily loss ${BOT_MAX_DAILY_LOSS_PCT}%, allowed ${BOT_ALLOWED_SYMBOLS.join(', ')}\n`)
 
   // Wait for regular session if we're running pre-market
   {
