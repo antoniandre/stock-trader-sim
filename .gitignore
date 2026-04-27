@@ -1,6 +1,7 @@
 node_modules
 .env
 dist
+.claude
 
 # Generated runtime data
 api/input/
