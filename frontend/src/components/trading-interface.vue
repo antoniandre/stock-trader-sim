@@ -262,7 +262,8 @@ const tradingDisabled = computed(() => {
   const isMarketOpen = marketGate.value.reason === 'open'
   const isQuotePending = props.tickerQuotePending
   const isPriceAvailable = props.stock.price > 0
-  return !isTradable || !isMarketOpen || !isQuotePending || !isPriceAvailable
+
+  return !isTradable || !isMarketOpen || isQuotePending || !isPriceAvailable
 })
 
 const isOrderValid = computed(() => {
