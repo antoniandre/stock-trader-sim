@@ -349,6 +349,7 @@ const showMACD = ref(true)
 const zoomRange = ref({ min: null, max: null })
 const isInternalZoom = ref(false)
 const hasInitialized = ref(false)
+let lastAutoFocusRange = null
 
 // Helper Functions
 // --------------------------------------------------------
@@ -357,7 +358,7 @@ const getAllChartInstances = () => {
   const charts = []
 
   // First add the main price chart (line or candlestick) with null checks.
-  const mainChart = candleChartRef.value?.chart || lineChartRef.value?.chart
+  const mainChart = getActiveChart()
   if (mainChart) charts.push(mainChart)
 
   // Indicator charts.
@@ -463,19 +464,25 @@ const focusOnRecentData = () => {
   const bounds = computeRecentDataFocusBounds()
   if (!bounds) return
 
+  applyRecentDataFocusBounds(bounds)
+  hasInitialized.value = true
+}
+
+function applyRecentDataFocusBounds(bounds) {
   calculateZoomLimits()
 
   const { focusMin, focusMax, yMin, yMax } = bounds
   zoomRange.value = { min: focusMin, max: focusMax }
-  hasInitialized.value = true
-  manualYRange.value = { min: yMin, max: yMax }
+  lastAutoFocusRange = { min: focusMin, max: focusMax }
+  if (!yAxisManuallySet.value) manualYRange.value = { min: yMin, max: yMax }
 
   getAllChartInstances().forEach(chart => {
     if (chart?.scales?.x?.options) {
       chart.scales.x.options.min = focusMin
       chart.scales.x.options.max = focusMax
       if (chart.scales.y && !chart.canvas.parentElement.classList.contains('rsi-pane') &&
-          !chart.canvas.parentElement.classList.contains('macd-pane')) {
+          !chart.canvas.parentElement.classList.contains('macd-pane') &&
+          !yAxisManuallySet.value) {
         chart.scales.y.options.min = yMin
         chart.scales.y.options.max = yMax
       }
@@ -980,6 +987,21 @@ function computeRecentDataFocusBounds() {
   return { focusMin, focusMax, yMin, yMax }
 }
 
+function xRangeMatches(a, b) {
+  if (!a || !b || a.min == null || a.max == null || b.min == null || b.max == null) return false
+  const eps = 0.15
+  return Math.abs(a.min - b.min) < eps && Math.abs(a.max - b.max) < eps
+}
+
+function followLatestDataIfAnchored() {
+  if (!hasInitialized.value || !lastAutoFocusRange) return
+  if (!xRangeMatches(zoomRange.value, lastAutoFocusRange)) return
+
+  const bounds = computeRecentDataFocusBounds()
+  if (!bounds) return
+  applyRecentDataFocusBounds(bounds)
+}
+
 // Simple RSI calculation function.
 function calculateSimpleRSI(prices, period = 14) {
   if (!prices || prices.length < period) return []
@@ -1350,6 +1372,7 @@ function handlePanClamp(context) {
 // Replace multiple reset functions with a single resetView.
 function resetView() {
   zoomRange.value = { min: null, max: null }
+  lastAutoFocusRange = null
   hasInitialized.value = false
   yAxisManuallySet.value = false
   manualYRange.value = { min: null, max: null }
@@ -1973,9 +1996,14 @@ watch(
     const shouldResetInitialization = !hasInitialized.value ||
       !currentDataRange ||
       Math.abs(currentDataRange.size - (lastDataRange?.size || 0)) > currentDataRange.size * 0.3 // More than 30% size difference.
+    const shouldFollowLatest = !shouldResetInitialization &&
+      currentDataRange &&
+      lastDataRange &&
+      (currentDataRange.end !== lastDataRange.end || currentDataRange.size !== lastDataRange.size)
 
     if (shouldResetInitialization) {
       hasInitialized.value = false
+      lastAutoFocusRange = null
 
       // Recalculate zoom limits for new data
       calculateZoomLimits()
@@ -1992,6 +2020,7 @@ watch(
     // Only auto-focus if we reset initialization.
     // Slightly longer delay for smooth transitions.
     if (!hasInitialized.value) setTimeout(focusOnRecentData, 100)
+    else if (shouldFollowLatest) setTimeout(followLatestDataIfAnchored, 0)
   },
   { deep: true, immediate: true }
 )
@@ -1999,11 +2028,13 @@ watch(
 // Watch for symbol changes to reset initialization.
 watch(() => props.symbol, () => {
   hasInitialized.value = false
+  lastAutoFocusRange = null
 })
 
 // Watch for period/timeframe changes to reset initialization.
 watch(() => [props.selectedPeriod, props.selectedTimeframe], () => {
   hasInitialized.value = false
+  lastAutoFocusRange = null
 })
 
 // Expose refs and methods for parent access if needed.
