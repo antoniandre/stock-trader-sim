@@ -15,21 +15,6 @@ function candleTimeMs(candle, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function calculateVwap(candles = []) {
-  let weighted = 0
-  let volume = 0
-  for (const candle of candles) {
-    const close = Number(candle.close ?? candle.c)
-    if (!Number.isFinite(close) || close <= 0) continue
-    const high = Number(candle.high ?? candle.h ?? close)
-    const low = Number(candle.low ?? candle.l ?? close)
-    const vol = Number(candle.volume ?? candle.v ?? 0)
-    if (!Number.isFinite(vol) || vol <= 0) continue
-    weighted += ((high + low + close) / 3) * vol
-    volume += vol
-  }
-  return volume > 0 ? weighted / volume : 0
-}
 
 function atrPct(candles = [], index, period = 14) {
   if (index < 1) return 0
@@ -111,6 +96,9 @@ export function runDayTradingBacktest(input = {}) {
   let dailyLosses = 0
   let lastTradeDate = null
   const rollingPnl = []
+  let dayCandles = []
+  let vwapWeighted = 0
+  let vwapVolume = 0
 
   for (let index = 20; index < candles.length; index += 1) {
     const window = candles.slice(Math.max(0, index - 30), index + 1)
@@ -120,6 +108,7 @@ export function runDayTradingBacktest(input = {}) {
     const currentPrice = Number(current.close ?? current.c)
     const currentOpen = Number(current.open ?? current.o ?? currentPrice)
     const currentHigh = Number(current.high ?? current.h ?? currentPrice)
+    const currentLow = Number(current.low ?? current.l ?? currentPrice)
     const currentTimeMs = candleTimeMs(current, index * barDurationMs)
     if (!Number.isFinite(currentPrice) || currentPrice <= 0) continue
     if (positionQty > 0) highWatermarkPrice = Math.max(highWatermarkPrice || avgEntryPrice, currentHigh, currentPrice)
@@ -127,13 +116,18 @@ export function runDayTradingBacktest(input = {}) {
     if (tradeDate !== lastTradeDate) {
       dailyLosses = 0
       lastTradeDate = tradeDate
+      dayCandles = []
+      vwapWeighted = 0
+      vwapVolume = 0
     }
-    const dayCandles = candles.slice(0, index + 1).filter(candle => {
-      const ts = candleTimeMs(candle)
-      return Number.isFinite(ts) && new Date(ts).toISOString().slice(0, 10) === tradeDate
-    })
-    const vwap = calculateVwap(dayCandles)
-    const prevVwap = calculateVwap(dayCandles.slice(0, -1))
+    const prevVwap = vwapVolume > 0 ? vwapWeighted / vwapVolume : 0
+    const currentVol = Number(current.volume ?? current.v ?? 0)
+    if (currentVol > 0 && Number.isFinite(currentVol)) {
+      vwapWeighted += ((currentHigh + currentLow + currentPrice) / 3) * currentVol
+      vwapVolume += currentVol
+    }
+    const vwap = vwapVolume > 0 ? vwapWeighted / vwapVolume : 0
+    dayCandles.push(current)
     const prevClose = Number(candles[index - 1]?.close ?? candles[index - 1]?.c ?? currentPrice)
     const vwapDevPct = vwap > 0 ? ((currentPrice - vwap) / vwap) * 100 : 0
     const prevVwapDevPct = prevVwap > 0 ? ((prevClose - prevVwap) / prevVwap) * 100 : 0
