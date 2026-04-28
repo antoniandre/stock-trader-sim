@@ -1,5 +1,5 @@
 <template lang="pug">
-.trading-market-view
+.trading-market-view.w-flex.column.gap3
   .w-flex.gap2.align-center
     .title1.mb1 Trading
     w-button.text-upper(
@@ -16,13 +16,13 @@
 
   p.op6.mb0 {{ pageSubtitle }}
 
-  .glass-box.w-flex.wrap.gap2.my4.py2.px4
+  .glass-box.w-flex.wrap.gap2.py2.px4
     .w-flex.column.gap1
       .w-flex.align-center.gap2
-        .title3.size--sm.op4 TOP GAINERS
+        .title3.size--sm.op5 TOP GAINERS
         w-button.ml2(@click="$router.push(tradingTopMoversPath('gainers', market))" text xs round) View All
       .w-flex.gap1.wrap
-        template(v-for="n in topMovers.gainersDisplayCount" :key="`g-${n}`")
+        template(v-for="mover in displayedGainers" :key="`g-${mover.symbol}`")
           w-tag.clickable.px2.py1(
             v-if="topMovers.data.gainers[n - 1]"
             @click="$router.push(tradingTickerPath(topMovers.data.gainers[n - 1].symbol, market))"
@@ -34,13 +34,12 @@
           span.mb2.mt-1.size--xl ...
     .w-flex.column.gap1
       .w-flex.align-center.gap2
-        .title3.size--sm.op4 TOP LOSERS
+        .title3.size--sm.op5 TOP LOSERS
         w-button.ml2(@click="$router.push(tradingTopMoversPath('losers', market))" text xs round) View All
       .w-flex.gap1.wrap
-        template(v-for="n in topMovers.losersDisplayCount" :key="`l-${n}`")
+        template(v-for="mover in displayedLosers" :key="`l-${mover.symbol}`")
           w-tag.clickable.px2.py1(
-            v-if="topMovers.data.losers[n - 1]"
-            @click="$router.push(tradingTickerPath(topMovers.data.losers[n - 1].symbol, market))"
+            @click="$router.push(tradingTickerPath(mover.symbol, market))"
             round
             xs)
             strong {{ topMovers.data.losers[n - 1].symbol }}
@@ -48,7 +47,7 @@
         w-button(v-if="topMovers.losersDisplayCount < 15" @click="topMovers.losersDisplayCount += 15" color="info" text xs round)
           span.mb2.mt-1.size--xl ...
 
-  .glass-box.px4.py2.mt2
+  .glass-box.px4.py2
     .w-flex.align-center.justify-between.gap3.wrap
       .w-flex.column.gap1
         .w-flex.align-center.gap1
@@ -75,7 +74,7 @@
             .w-flex.align-center.justify-between(:class="recommendedTrades.expanded ? 'gap2' : 'gap1'")
               .w-flex.align-center.gap1.no-grow
                 strong.title3.no-grow {{ candidate.symbol }}
-                w-tooltip(v-if="candidate.dailyCatalyst")
+                w-tooltip(v-if="candidate.dailyCatalyst && candidate.catalystBadgeEligible !== false")
                   template(#activator="{ on }")
                     span.catalyst-fire-wrap(
                       v-on="on"
@@ -124,10 +123,10 @@
       w-icon(color="info" size="3rem") wi-info-circle
       p.op6.mt3.mb0 No ranked candidates yet. Try refreshing once market data settles.
 
-  .glass-box.px4.py2.mt2.watchlist
+  .glass-box.px4.py2.watchlist
     .w-flex.align-center.justify-between.gap2.wrap
-      div
-        .title3.size--sm.op4 WATCHLIST
+      .grow
+        .title3.size--sm.op5 WATCHLIST
         p.caption.op6.mb0(v-if="alpacaWatchlist.name") {{ alpacaWatchlist.name }}
         p.caption.op6.mb0(v-else) From your Alpaca account
         p.caption.op5.mb0(v-if="alpacaWatchlist.tradingEnvironment && !alpacaWatchlist.stocks.length && !alpacaWatchlist.loading") Watchlists follow this API environment ({{ alpacaWatchlist.tradingEnvironment }}). Paper and live accounts have separate lists.
@@ -139,7 +138,10 @@
           outline
           round
           xs)
-        w-button(@click="loadAlpacaWatchlist" :loading="alpacaWatchlist.loading" text xs round) Refresh
+        w-button(
+          @click="loadAlpacaWatchlist"
+          :loading="alpacaWatchlist.loading"
+          text xs round) Refresh
     .w-flex.column.py6.align-center.justify-center(v-if="alpacaWatchlist.loading && !alpacaWatchlist.stocks.length")
       w-progress(circle xs)
       p.op5.mt2.mb0 Loading watchlist…
@@ -156,18 +158,8 @@
         :key="stock.symbol"
         :stock="stock"
         :market="market"
-        :hide-empty-trends="true")
-
-  .w-flex.align-center.gap2.wrap.my4
-    w-input.w-input.light.h-auto.grow(
-      v-model="searchQuery"
-      @input="handleSearchChange"
-      outline
-      round
-      :placeholder="searchPlaceholder"
-      input-class="py4 px6")
-      template(#icon-left)
-        w-icon.ml4.mr-4(size="1.5rem") wi-search
+        :hide-empty-trends="true"
+        :daily-catalyst="dailyCatalystForWatchlistSymbol(stock.symbol)")
 
   .w-flex.column.py12.align-center.justify-center(v-if="loading")
     w-progress(circle)
@@ -180,13 +172,26 @@
     w-button(@click="connectWebSocket" text bg-color="error" round) Try again
 
   div(v-else)
-    .glass-box.ova.mt6
+    .glass-box.ovh
+      w-input.search-input.w-input.light.h-auto.grow(
+        v-model="symbolListSearch.keyword"
+        @input="handleSearchChange"
+        type="search"
+        :placeholder="searchPlaceholder"
+        input-class="py3 pl5 pr3 title3")
+        template(#icon-left)
+          w-icon.pl6(size="1.5rem") wi-search
+
       w-table.bd0(
         :headers="tableHeaders"
         :items="stocks"
+        :filter="symbolListSearch.keywordFilter(symbolListSearch.keyword)"
         :pagination="tablePagination"
         :fetch="fetchStocksPage"
-        :loading="tableLoading")
+        :loading="tableLoading"
+        fixed-headers
+        fixed-footers
+        style="height: 600px")
         template(#no-data)
           .w-flex.column.align-center.justify-center.py12
             w-icon(color="info" size="4rem") wi-info-circle
@@ -219,7 +224,7 @@
                   strong.size--xs SELL
     .w-flex.align-center.gap2.wrap.justify-end.mt2
       span.op5.size--sm Desk: {{ selectedMarketLabel }}
-      span.op5.size--sm(v-if="searchQuery") • Filtered by "{{ searchQuery }}"
+      span.op5.size--sm(v-if="symbolListSearch.keyword") • Filtered by "{{ symbolListSearch.keyword }}"
 
   OrderConfirmationDialog(
     v-model="showOrderConfirmation"
@@ -283,7 +288,15 @@ const $waveui = inject('$waveui')
 const route = useRoute()
 const router = useRouter()
 const stocks = ref([])
-const searchQuery = ref(searchFromQuery())
+
+const symbolListSearch = reactive({
+  keyword: searchFromQuery(),
+  keywordFilter: keyword => item => {
+    const kw = String(keyword || '')
+    const allTheColumns = `${item.symbol || ''} ${item.name || ''}`
+    return new RegExp(kw.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&'), 'i').test(allTheColumns)
+  }
+})
 const marketOptions = [
   { label: 'Stocks', value: 'stocks' },
   { label: 'Crypto', value: 'crypto' }
@@ -422,7 +435,7 @@ const tableLoading = computed(() => fetchingPrices.value && stocks.value.length 
 const tableHeaders = [
   { key: 'symbol', label: 'Symbol' },
   { key: 'name', label: 'Name' },
-  { key: 'price', label: 'Price', align: 'right' },
+  { key: 'price', label: 'Price', align: 'right', width: '100px' },
   { key: 'actions', label: 'Actions', align: 'center' }
 ]
 
@@ -505,10 +518,10 @@ function searchFromQuery(query = route.query) {
 
 function syncListStateFromRoute() {
   currentPage.value = pageFromQuery()
-  searchQuery.value = searchFromQuery()
+  symbolListSearch.keyword = searchFromQuery()
 }
 
-function queryForListState({ page = currentPage.value, search = searchQuery.value } = {}) {
+function queryForListState({ page = currentPage.value, search = symbolListSearch.keyword } = {}) {
   const nextQuery = { ...route.query }
   const normalizedPage = Number.parseInt(page, 10)
   const cleanPage = Number.isFinite(normalizedPage) && normalizedPage > 0 ? normalizedPage : 1
@@ -523,7 +536,7 @@ function queryForListState({ page = currentPage.value, search = searchQuery.valu
   return nextQuery
 }
 
-async function syncListUrlState({ page = currentPage.value, search = searchQuery.value, replace = false } = {}) {
+async function syncListUrlState({ page = currentPage.value, search = symbolListSearch.keyword, replace = false } = {}) {
   const cleanPage = Math.max(1, Number.parseInt(page, 10) || 1)
   const cleanSearch = String(search || '').trim()
   if (pageFromQuery() === cleanPage && searchFromQuery() === cleanSearch) return false
@@ -698,7 +711,7 @@ async function fetchStocks(resetPage = false) {
     loading.value = showPageLoader
     fetchingPrices.value = true
 
-    const data = await fetchAllStocks(currentPage.value, currentItemsPerPage.value, searchQuery.value, props.market)
+    const data = await fetchAllStocks(currentPage.value, currentItemsPerPage.value, symbolListSearch.keyword, props.market)
     stocks.value = (data.stocks || []).map(stock => ({
       ...stock,
       market: props.market,
@@ -728,14 +741,16 @@ async function refreshStocks(resetPage = false) {
     return
   }
 
-  const navigated = await syncListUrlState({ page: 1, search: searchQuery.value, replace: true })
+  const navigated = await syncListUrlState({ page: 1, search: symbolListSearch.keyword, replace: true })
   if (!navigated) await fetchStocks(true)
 }
 
 function onSearchInput() {
   if (searchTimeout) clearTimeout(searchTimeout)
-  searchTimeout = setTimeout(() => {
-    syncListUrlState({ page: 1, search: searchQuery.value, replace: true })
+  searchTimeout = setTimeout(async () => {
+    currentPage.value = 1
+    await fetchStocks()
+    syncListUrlState({ page: 1, search: symbolListSearch.keyword, replace: true })
   }, 500)
 }
 
@@ -1001,9 +1016,10 @@ watch(() => props.market, async () => {
 })
 
 watch(
-  () => [route.query.page, route.query.search],
-  async () => {
-    syncListStateFromRoute()
+  () => route.query.page,
+  async (newPage, oldPage) => {
+    if (newPage === oldPage) return
+    currentPage.value = pageFromQuery()
     await fetchStocks()
   }
 )
@@ -1051,8 +1067,22 @@ onBeforeUnmount(() => {
   padding: 2px 0;
 }
 
+:deep(.w-table__table) {min-height: auto;}
+:deep(.w-table__table:has(.no-data)) {min-height: 100%;}
+
+:deep(.w-table__scroll-wrap) {min-height: auto;flex-grow: 1;}
+:deep(.w-table--fixed-header thead) {
+  background: color-mix(in srgb, var(--w-glass-radial-gradient) 10%, var(--w-base-bg-color) 100%) radial-gradient(20rem circle at 90% 10%, var(--w-glass-radial-gradient), #00ccff12);
+  z-index: 2;
+}
+:deep(.w-table__header) {
+  padding: 4px 8px;
+  background: none;
+  height: 50px;
+
+  &:first-child {padding-left: 16px;}
+  &:last-child {padding-right: 16px;}
+}
+:deep(.w-table tbody) {min-height: 300px;}
 :deep(.no-data .w-table__cell) {background: none;}
-:deep(.w-table__header) {padding: 12px 8px; background: none;}
-:deep(.w-table__header:first-child, .w-table__cell:first-child) {padding-left: 16px;}
-:deep(.w-table__header:last-child, .w-table__cell:last-child) {padding-right: 16px;}
 </style>
