@@ -996,7 +996,7 @@ async function main() {
     // Refresh bars for all symbols
     for (const sym of [...SYMBOLS, SPY]) {
       try {
-      const bars = rankedIntradayBars.get(sym) || await fetchBarsFromSessionOpen(sym)
+        const bars = rankedIntradayBars.get(sym) || await fetchBarsFromSessionOpen(sym)
         if (sym === SPY) { spyCandles = bars }
         else             { symState.get(sym).candles = bars }
       } catch (err) {
