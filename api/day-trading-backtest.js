@@ -52,17 +52,6 @@ function computeOrb(candles = []) {
   }
 }
 
-function compute15mBullish(candles = [], barDurationMs) {
-  const step = Math.max(1, Math.round((15 * 60 * 1000) / Math.max(1, Number(barDurationMs || 5 * 60 * 1000))))
-  const closes = []
-  for (let index = step - 1; index < candles.length; index += step) {
-    const close = Number(candles[index]?.close ?? candles[index]?.c)
-    if (Number.isFinite(close)) closes.push(close)
-  }
-  if (closes.length < 10) return null
-  const avg = values => values.reduce((sum, value) => sum + value, 0) / values.length
-  return avg(closes.slice(-5)) > avg(closes.slice(-10))
-}
 
 export function runDayTradingBacktest(input = {}) {
   const candles = Array.isArray(input.candles) ? input.candles : []
@@ -76,6 +65,12 @@ export function runDayTradingBacktest(input = {}) {
 
   const strategyParams = input.strategyParams || {}
   const barDurationMs = Number(input.barDurationMs || 5 * 60 * 1000)
+  const step15m = Math.max(1, Math.round((15 * 60 * 1000) / barDurationMs))
+  const closes15m = []
+  for (let i = step15m - 1; i < 20; i += step15m) {
+    const close = Number(candles[i]?.close ?? candles[i]?.c)
+    if (Number.isFinite(close)) closes15m.push(close)
+  }
 
   let cash = startingCapital
   let positionQty = 0
@@ -128,6 +123,10 @@ export function runDayTradingBacktest(input = {}) {
     }
     const vwap = vwapVolume > 0 ? vwapWeighted / vwapVolume : 0
     dayCandles.push(current)
+    if ((index - (step15m - 1)) % step15m === 0 && Number.isFinite(currentPrice)) closes15m.push(currentPrice)
+    const tf15Bullish = closes15m.length >= 10
+      ? closes15m.slice(-5).reduce((s, v) => s + v, 0) / 5 > closes15m.slice(-10).reduce((s, v) => s + v, 0) / 10
+      : null
     const prevClose = Number(candles[index - 1]?.close ?? candles[index - 1]?.c ?? currentPrice)
     const vwapDevPct = vwap > 0 ? ((currentPrice - vwap) / vwap) * 100 : 0
     const prevVwapDevPct = prevVwap > 0 ? ((prevClose - prevVwap) / prevVwap) * 100 : 0
@@ -150,7 +149,7 @@ export function runDayTradingBacktest(input = {}) {
       atrPct: currentAtrPct,
       orbHigh,
       orbLow,
-      tf15Bullish: compute15mBullish(candles.slice(0, index + 1), barDurationMs),
+      tf15Bullish,
       dailyLossesPct: startingCapital > 0 ? (dailyLosses / startingCapital) * 100 : 0,
       rollingExpectancy,
       positionQty,
