@@ -14,6 +14,21 @@
           ticker-logo(:symbol="stock.symbol")
         .w-flex.align-center.gap2
           .title2.text-bold {{ stock.symbol }}
+          w-tooltip(v-if="dailyCatalyst && dailyCatalyst.badgeEligible")
+            template(#activator="{ on }")
+              span.catalyst-fire-wrap(
+                v-on="on"
+                @click.stop
+                tabindex="0"
+                aria-label="Daily catalyst")
+                icon.catalyst-fire-icon(icon="mdi:fire" width="1rem" height="1rem" aria-hidden="true")
+            .catalyst-tooltip-content.text-left
+              .w-flex.wrap.gap1.mb2(v-if="dailyCatalyst.catalyst_score || dailyCatalyst.priority")
+                w-tag(v-if="dailyCatalyst.catalyst_score" xs round) {{ dailyCatalyst.catalyst_score }}
+                w-tag(v-if="dailyCatalyst.priority" xs round outline) {{ dailyCatalyst.priority }}
+              p.size--sm.mb2 {{ dailyCatalyst.catalyst }}
+              p.size--xs.op7.mb1(v-if="dailyCatalyst.premarket_direction_and_gap") {{ dailyCatalyst.premarket_direction_and_gap }}
+              p.size--xs.op6.mb0(v-if="dailyCatalyst.setup_potential") Setup: {{ dailyCatalyst.setup_potential }}
       w-button.text-bold.mla.bd1.bdrsr.px2.py1.size--xs(
         @click.stop
         :route="`${tradingTickerPath(stock.symbol, market)}#buy`"
@@ -57,7 +72,9 @@ const props = defineProps({
   market: { type: String, default: 'stocks' },
   showPercentageChange: { type: Boolean, default: false }, // Show percentage change for top movers.
   hideEmptyTrends: { type: Boolean, default: false }, // Hide trend chart completely when no data (for trading view).
-  realtime: { type: Boolean, default: false }
+  realtime: { type: Boolean, default: false },
+  /** Row from GET /api/daily-catalysts/today (intersection with watchlist / desk). */
+  dailyCatalyst: { type: Object, default: null }
 })
 
 // Use the reusable stock status composable.
@@ -231,5 +248,19 @@ onBeforeUnmount(() => {
   }
 
   .w-spinner {height: 12px;}
+
+  .catalyst-fire-wrap {
+    cursor: help;
+    display: inline-flex;
+    align-items: center;
+    line-height: 0;
+  }
+
+  .catalyst-fire-icon {color: #ff922b;}
+
+  .catalyst-tooltip-content {
+    max-width: 20rem;
+    padding: 2px 0;
+  }
 }
 </style>

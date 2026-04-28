@@ -24,12 +24,26 @@
       .w-flex.gap1.wrap
         template(v-for="mover in displayedGainers" :key="`g-${mover.symbol}`")
           w-tag.clickable.px2.py1(
-            v-if="topMovers.data.gainers[n - 1]"
-            @click="$router.push(tradingTickerPath(topMovers.data.gainers[n - 1].symbol, market))"
+            @click="$router.push(tradingTickerPath(mover.symbol, market))"
             round
             xs)
-            strong {{ topMovers.data.gainers[n - 1].symbol }}
-            span.ml2.currency-positive {{ ~~(topMovers.data.gainers[n - 1].pct) }}%
+            .w-flex.align-center.gap1
+              strong {{ mover.symbol }}
+              w-tooltip(v-if="mover.dailyCatalystDesk")
+                template(#activator="{ on }")
+                  span.catalyst-fire-wrap(
+                    v-on="on"
+                    @click.stop
+                    tabindex="0"
+                    aria-label="Daily catalyst")
+                    icon.catalyst-fire-icon(icon="mdi:fire" width="0.9rem" height="0.9rem" aria-hidden="true")
+                .catalyst-tooltip-content.text-left
+                  .w-flex.wrap.gap1.mb2(v-if="mover.dailyCatalystDesk.catalyst_score || mover.dailyCatalystDesk.priority")
+                    w-tag(v-if="mover.dailyCatalystDesk.catalyst_score" xs round) {{ mover.dailyCatalystDesk.catalyst_score }}
+                    w-tag(v-if="mover.dailyCatalystDesk.priority" xs round outline) {{ mover.dailyCatalystDesk.priority }}
+                  p.size--sm.mb2 {{ mover.dailyCatalystDesk.catalyst }}
+                  p.size--xs.op7.mb1(v-if="mover.dailyCatalystDesk.premarket_direction_and_gap") {{ mover.dailyCatalystDesk.premarket_direction_and_gap }}
+              span.ml1.currency-positive {{ ~~(mover.pct) }}%
         w-button(v-if="topMovers.gainersDisplayCount < 15" @click="topMovers.gainersDisplayCount += 15" color="info" text xs round)
           span.mb2.mt-1.size--xl ...
     .w-flex.column.gap1
@@ -42,8 +56,23 @@
             @click="$router.push(tradingTickerPath(mover.symbol, market))"
             round
             xs)
-            strong {{ topMovers.data.losers[n - 1].symbol }}
-            span.ml2.currency-negative {{ ~~(topMovers.data.losers[n - 1].pct) }}%
+            .w-flex.align-center.gap1
+              strong {{ mover.symbol }}
+              w-tooltip(v-if="mover.dailyCatalystDesk")
+                template(#activator="{ on }")
+                  span.catalyst-fire-wrap(
+                    v-on="on"
+                    @click.stop
+                    tabindex="0"
+                    aria-label="Daily catalyst")
+                    icon.catalyst-fire-icon(icon="mdi:fire" width="0.9rem" height="0.9rem" aria-hidden="true")
+                .catalyst-tooltip-content.text-left
+                  .w-flex.wrap.gap1.mb2(v-if="mover.dailyCatalystDesk.catalyst_score || mover.dailyCatalystDesk.priority")
+                    w-tag(v-if="mover.dailyCatalystDesk.catalyst_score" xs round) {{ mover.dailyCatalystDesk.catalyst_score }}
+                    w-tag(v-if="mover.dailyCatalystDesk.priority" xs round outline) {{ mover.dailyCatalystDesk.priority }}
+                  p.size--sm.mb2 {{ mover.dailyCatalystDesk.catalyst }}
+                  p.size--xs.op7.mb1(v-if="mover.dailyCatalystDesk.premarket_direction_and_gap") {{ mover.dailyCatalystDesk.premarket_direction_and_gap }}
+              span.ml1.currency-negative {{ ~~(mover.pct) }}%
         w-button(v-if="topMovers.losersDisplayCount < 15" @click="topMovers.losersDisplayCount += 15" color="info" text xs round)
           span.mb2.mt-1.size--xl ...
 
@@ -265,7 +294,18 @@
 <script setup>
 import { ref, reactive, onMounted, onBeforeUnmount, computed, inject, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { fetchAllStocks, fetchTopMovers, fetchBatchTrends, fetchTradeCandidates, fetchScreenerSummary, fetchAlpacaWatchlist, postOrder, fetchMarketStatus, checkHealth } from '@/api'
+import {
+  fetchAllStocks,
+  fetchTopMovers,
+  fetchBatchTrends,
+  fetchTradeCandidates,
+  fetchScreenerSummary,
+  fetchAlpacaWatchlist,
+  fetchDailyCatalystsToday,
+  postOrder,
+  fetchMarketStatus,
+  checkHealth
+} from '@/api'
 import { useWebSocket } from '@/composables/web-socket'
 import { formatCurrency } from '@/utils/formatters'
 import TickerCard from '@/components/ticker-card.vue'
@@ -331,6 +371,57 @@ const topMovers = ref({
   gainersDisplayCount: 5,
   losersDisplayCount: 5
 })
+
+/** GET /api/daily-catalysts/today — for watchlist + top-mover fire badges (intersection). */
+const dailyCatalystCatalog = ref(null)
+
+const dailyCatalystBySymbol = computed(() => {
+  const map = new Map()
+  for (const row of dailyCatalystCatalog.value?.catalysts || []) {
+    const sym = String(row.symbol || '').toUpperCase()
+    if (!sym || row.badgeEligible !== true) continue
+    map.set(sym, row)
+  }
+  return map
+})
+
+const displayedGainers = computed(() => {
+  const map = dailyCatalystBySymbol.value
+  return topMovers.value.data.gainers
+    .slice(0, topMovers.value.gainersDisplayCount)
+    .map(mover => ({
+      ...mover,
+      dailyCatalystDesk: map.get(String(mover.symbol || '').toUpperCase()) || null
+    }))
+})
+
+const displayedLosers = computed(() => {
+  const map = dailyCatalystBySymbol.value
+  return topMovers.value.data.losers
+    .slice(0, topMovers.value.losersDisplayCount)
+    .map(mover => ({
+      ...mover,
+      dailyCatalystDesk: map.get(String(mover.symbol || '').toUpperCase()) || null
+    }))
+})
+
+function dailyCatalystForWatchlistSymbol(symbol) {
+  return dailyCatalystBySymbol.value.get(String(symbol || '').toUpperCase()) || null
+}
+
+async function loadDailyCatalystCatalog() {
+  if (props.market !== 'stocks') {
+    dailyCatalystCatalog.value = null
+    return
+  }
+  try {
+    dailyCatalystCatalog.value = await fetchDailyCatalystsToday()
+  }
+  catch (err) {
+    console.warn('Daily catalyst catalog unavailable:', err.message)
+    dailyCatalystCatalog.value = null
+  }
+}
 const recommendedTrades = reactive({
   expanded: false,
   candidates: [],
@@ -993,7 +1084,7 @@ onMounted(async () => {
   try {
     syncListStateFromRoute()
     setupWebSocket()
-    await Promise.all([fetchStocks(), loadAlpacaWatchlist(), refreshTradingContext()])
+    await Promise.all([fetchStocks(), loadAlpacaWatchlist(), refreshTradingContext(), loadDailyCatalystCatalog()])
     notifyScreenerDeskPresence(true)
     requestScreenerSnapshot()
     syncWatchlistSubscriptions()
@@ -1010,7 +1101,7 @@ watch(() => props.market, async () => {
   alpacaWatchlist.selectedWatchlistId = null
   topMovers.value.data = { gainers: [], losers: [] }
   recommendedTrades.candidates = []
-  await Promise.all([fetchStocks(), loadAlpacaWatchlist(), refreshTradingContext()])
+  await Promise.all([fetchStocks(), loadAlpacaWatchlist(), refreshTradingContext(), loadDailyCatalystCatalog()])
   requestScreenerSnapshot()
   syncWatchlistSubscriptions()
 })

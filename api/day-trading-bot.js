@@ -1,4 +1,9 @@
-import { formatTradingDayKey, getDailyCatalystForSymbol, summarizeCatalystRow } from './services/daily-catalysts.js'
+import {
+  formatTradingDayKey,
+  getDailyCatalystForSymbol,
+  getDailyCatalystFreshness,
+  summarizeCatalystRow
+} from './services/daily-catalysts.js'
 import { resolveSymbolTradeProfile } from './services/symbol-trade-profiles.js'
 
 // US regular-session window (UTC). Clocks are in EDT (UTC-4) March–Nov, EST (UTC-5) Nov–Mar.
@@ -289,6 +294,22 @@ export function evaluateDayTradingDecision(input = {}) {
   // Setup at the time of entry — passed back by caller on each in-position bar.
   const entrySetup = input.entrySetup ?? null
 
+  // ── Quality gates (2026-04-28): raise win rate toward 45-60% target ──────────
+  // G4. EMA alignment: trend entries require ema9 > ema21 (bullish short-term structure).
+  //     Buying when the short EMA is below the long EMA chases weakness into a downtrend.
+  const emaWeakForTrendGate = setup === 'trend' && !emaBullish
+  // G5. RSI floor for trend: RSI < 52 = indecisive / weakening stock, not suitable for trend long.
+  const rsiLowForTrendGate = setup === 'trend' && rsi14 < 52
+  // G6. MACD trend gate: MACD line < -0.5 for trend entries = established bearish momentum under the hood.
+  //     (More permissive than the general macdBearishGate at -1.0; -0.5 catches moderate negative divergence.)
+  const macdWeakForTrendGate = setup === 'trend' && macdLine < -0.5
+  // G7. ATR expansion for breakout: require per-bar volatility > 1.05× the 20-bar baseline.
+  //     Entries with no ATR expansion above baseline have a higher false-breakout rate.
+  const atrNoExpansionGate = setup === 'breakout' && atrBaselinePct > 0 && atrPct < atrBaselinePct * 1.05
+  // G8. ADR floor: daily range must be large enough to reach the reward target.
+  //     Stocks with ADR < 75% of the reward target rarely move enough to pay for the risk.
+  const adrTooTightGate = adrPct > 0 && adrPct < effectiveRewardPct * 0.75
+
   // Compute nowMs here so time-of-day awareness can inform entry scoring AND position management.
   const nowMs = Number.isFinite(input.nowMs) ? input.nowMs : Date.now()
   const requestedBarDurationMs = Number(input.barDurationMs ?? strategyParams.barDurationMs ?? 5 * 60 * 1000)
@@ -463,9 +484,12 @@ export function evaluateDayTradingDecision(input = {}) {
   entryScore += symbolBehavior.entryScoreAdj
   entryScore += effectiveProfile.entryScoreAdj
 
+  const entryScoreBeforeCatalyst = entryScore
+
   const dailyCatalystRow = input.disableDailyCatalyst
     ? null
     : ('dailyCatalyst' in input ? input.dailyCatalyst : getDailyCatalystForSymbol(input.symbol))
+  const catalystFromFile = !input.disableDailyCatalyst && !('dailyCatalyst' in input)
 
   let dailyCatalystForResponse = null
   if (dailyCatalystRow && typeof dailyCatalystRow === 'object') {
@@ -486,6 +510,41 @@ export function evaluateDayTradingDecision(input = {}) {
     const confLetter = String(dailyCatalystRow.confidence || '').toUpperCase()
     if (confLetter === 'A') catalystEntryDelta += 2
     else if (confLetter === 'B') catalystEntryDelta += 1
+
+    const catalystFreshness = getDailyCatalystFreshness(_nowDate)
+    if (catalystFromFile) {
+      if (!catalystFreshness.fileExists) {
+        catalystEntryDelta = 0
+      }
+      else if (catalystFreshness.isStale) {
+        catalystEntryDelta *= 0.5
+      }
+    }
+
+    const positivePart = Math.max(0, catalystEntryDelta)
+    const negativePart = Math.min(0, catalystEntryDelta)
+    let adjustedPositive = positivePart
+
+    if (orbHigh > 0 && orbLow > 0 && currentPrice > 0 && currentPrice <= orbLow) {
+      adjustedPositive = 0
+    }
+    if (tf15Bullish === false && setup === 'trend') {
+      adjustedPositive *= 0.25
+    }
+    if (marketRegime === 'bearish' && setup !== 'mean-revert') {
+      adjustedPositive = 0
+    }
+    if (entryScoreBeforeCatalyst < 52) {
+      adjustedPositive = 0
+    }
+    if (weakEvidence) {
+      adjustedPositive *= 0.5
+    }
+
+    const maxPositiveLift = 6
+    adjustedPositive = Math.min(adjustedPositive, maxPositiveLift)
+
+    catalystEntryDelta = negativePart + adjustedPositive
 
     entryScore += catalystEntryDelta
 
@@ -662,6 +721,26 @@ export function evaluateDayTradingDecision(input = {}) {
     else if (bearishCandleGate) {
       action = 'wait'
       reasons.push('Candle gate: signal bar closed below open — no entries on red candles for trend/breakout setups')
+    }
+    else if (emaWeakForTrendGate) {
+      action = 'wait'
+      reasons.push(`EMA gate: ema9 (${round(ema9)}) ≤ ema21 (${round(ema21)}) for trend entry — no long into bearish EMA structure`)
+    }
+    else if (rsiLowForTrendGate) {
+      action = 'wait'
+      reasons.push(`RSI gate: RSI ${round(rsi14)} < 52 for trend entry — indecisive momentum, waiting for confirmed strength`)
+    }
+    else if (macdWeakForTrendGate) {
+      action = 'wait'
+      reasons.push(`MACD gate: MACD line ${round(macdLine)} < -0.5 for trend entry — moderate bearish momentum, waiting for MACD to recover`)
+    }
+    else if (atrNoExpansionGate) {
+      action = 'wait'
+      reasons.push(`ATR expansion gate: per-bar ATR ${round(atrPct)}% < 1.05× baseline ${round(atrBaselinePct)}% — no volatility expansion, likely a false breakout`)
+    }
+    else if (adrTooTightGate) {
+      action = 'wait'
+      reasons.push(`ADR gate: daily range ${round(adrPct)}% < 75% of ${round(effectiveRewardPct)}% reward target — symbol too quiet to reach profit target`)
     }
     else if (spreadPct > 0.35 && setup !== 'mean-revert') {
       action = 'wait'

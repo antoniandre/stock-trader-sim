@@ -30,6 +30,7 @@ import { recordBacktestProfileOutcome } from './services/symbol-profile-learning
 import { tradeState } from './services/risk-management.js'
 import { normalizeBrokerError } from './services/broker-error.js'
 import { getTradeCandidates } from './services/trade-screener-service.js'
+import { listDailyCatalystSummariesWithFlags } from './services/daily-catalysts.js'
 import { resolveCryptoBuyVenueSymbol } from './services/crypto-usd-quote-fallback.js'
 
 const tinyDedupe = new Map()
@@ -476,6 +477,18 @@ export function createRestApiRoutes() {
     }
   })
 
+  /** Today’s NY-session catalyst file (summaries + badge/union flags). Public read for the trading desk. */
+  app.get('/api/daily-catalysts/today', (req, res) => {
+    try {
+      const payload = listDailyCatalystSummariesWithFlags()
+      res.json(createStandardResponse(payload))
+    }
+    catch (error) {
+      logger.error({ err: error }, 'failed to list daily catalysts')
+      res.status(500).json({ error: 'Failed to load daily catalysts.' })
+    }
+  })
+
   app.get('/api/screener/candidates', async (req, res) => {
     const startedAt = Date.now()
     try {
@@ -526,7 +539,8 @@ export function createRestApiRoutes() {
           candidatesMeta: {
             usedFallback: candidatesPayload.usedFallback,
             catalystDiagnostics: candidatesPayload.catalystDiagnostics,
-            catalystTradingDay: candidatesPayload.catalystTradingDay
+            catalystTradingDay: candidatesPayload.catalystTradingDay,
+            catalystFreshness: candidatesPayload.catalystFreshness
           },
           trends
         }

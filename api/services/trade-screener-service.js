@@ -2,7 +2,16 @@ import { getMarketStatus, getTopMovers, fetchStockTrend } from '../market-data.j
 import { sleep } from '../utils.js'
 import { state } from '../config.js'
 import * as AlpacaClient from '../clients/alpaca-client.js'
-import { formatTradingDayKey, getDailyCatalystDiagnostics, getDailyCatalystForSymbol, summarizeCatalystRow } from './daily-catalysts.js'
+import { loadCatalystSymbols } from '../catalyst-symbol-loader.js'
+import {
+  formatTradingDayKey,
+  getDailyCatalystDiagnostics,
+  getDailyCatalystForSymbol,
+  getDailyCatalystFreshness,
+  isCatalystRowScreenerUnionEligible,
+  isCatalystRowBadgeWorthy,
+  summarizeCatalystRow
+} from './daily-catalysts.js'
 
 const DEFAULT_LIMIT = 8
 
@@ -100,18 +109,26 @@ function scoreCandidate(candidate, market, marketStatus) {
   }
 }
 
-function applyCatalystEnrichment(candidate) {
+function applyCatalystEnrichment(candidate, freshness) {
   const catalystRow = getDailyCatalystForSymbol(candidate.symbol)
-  if (catalystRow) {
-    candidate.dailyCatalyst = summarizeCatalystRow(catalystRow)
-    candidate.score = Math.min(100, Math.round((candidate.score || 0) + 8))
-    const reasons = [...(candidate.reasons || [])]
+  if (!catalystRow) return
+
+  candidate.dailyCatalyst = summarizeCatalystRow(catalystRow)
+  candidate.catalystBadgeEligible = isCatalystRowBadgeWorthy(catalystRow)
+  candidate.catalystUnionEligible = freshness
+    ? isCatalystRowScreenerUnionEligible(catalystRow, freshness)
+    : false
+
+  const reasons = [...(candidate.reasons || [])]
+  if (candidate.catalystBadgeEligible) {
+    const scoreBoost = freshness?.isStale ? 4 : 8
+    candidate.score = Math.min(100, Math.round((candidate.score || 0) + scoreBoost))
     const label = `daily catalyst (${catalystRow.catalyst_score || 'on file'})`
     if (!reasons.some(r => String(r).toLowerCase().includes('catalyst'))) {
       reasons.unshift(label)
     }
-    candidate.reasons = reasons.slice(0, 3)
   }
+  candidate.reasons = reasons.slice(0, 3)
 }
 
 async function enrichTrendFromBars(candidate, points = 6) {
@@ -143,7 +160,7 @@ function symbolGetsTrendFetch(candidate, rankIndex) {
 /**
  * Catalyst for everyone (cheap). Bars trend only for top movers / high preview score, one at a time.
  */
-async function enrichStockCandidatesStaged(candidates) {
+async function enrichStockCandidatesStaged(candidates, freshness) {
   let firstTrend = true
   for (let i = 0; i < candidates.length; i++) {
     const c = candidates[i]
@@ -154,7 +171,7 @@ async function enrichStockCandidatesStaged(candidates) {
   }
 
   for (const c of candidates) {
-    applyCatalystEnrichment(c)
+    applyCatalystEnrichment(c, freshness)
   }
 }
 
@@ -165,6 +182,79 @@ function dedupeBySymbol(items) {
     seen.add(item.symbol)
     return true
   })
+}
+
+async function fetchQuickEquityPrice(symbol) {
+  const sym = String(symbol || '').trim().toUpperCase()
+  if (!sym) return 0
+  try {
+    const data = await AlpacaClient.getLatestTrade(sym, 'iex')
+    const p = Number(data?.trade?.p)
+    return Number.isFinite(p) && p > 0 ? p : 0
+  }
+  catch {
+    return 0
+  }
+}
+
+function findEquityDisplayName(symbol) {
+  const sym = String(symbol || '').trim().toUpperCase()
+  const row = (state.allStocks || []).find(s => s.symbol === sym)
+  return row?.name || sym
+}
+
+const CATALYST_UNION_PRICE_SLEEP_MS = 90
+
+/**
+ * Pull catalyst names that pass union gates into the ranked list: promote from a wider
+ * mover pool, or append a thin synthetic row when we can quote a price in the tradeable band.
+ */
+async function mergeCatalystUnionCandidates(candidates, scoredPool, finalLimit, marketStatus, freshness) {
+  if (!freshness?.fileExists) return candidates
+
+  const catalystSyms = loadCatalystSymbols(new Date())
+  if (!catalystSyms.length) return candidates
+
+  const bySymbol = new Map(scoredPool.map(c => [c.symbol, c]))
+  const existing = new Set(candidates.map(c => c.symbol))
+  const extras = []
+
+  for (const sym of catalystSyms) {
+    if (existing.has(sym)) continue
+    const row = getDailyCatalystForSymbol(sym)
+    if (!row || !isCatalystRowScreenerUnionEligible(row, freshness)) continue
+
+    const fromPool = bySymbol.get(sym)
+    if (fromPool) {
+      extras.push({ ...fromPool })
+      existing.add(sym)
+      continue
+    }
+
+    const price = await fetchQuickEquityPrice(sym)
+    if (price <= 0 || price < 5 || price > 250) continue
+
+    const synthetic = {
+      symbol: sym,
+      name: findEquityDisplayName(sym),
+      percent_change: 0,
+      pct: 0,
+      price,
+      volume: 0,
+      exchange: null,
+      assetClass: 'us_equity',
+      class: 'us_equity'
+    }
+    extras.push(scoreCandidate(synthetic, 'stocks', marketStatus))
+    existing.add(sym)
+    await sleep(CATALYST_UNION_PRICE_SLEEP_MS)
+  }
+
+  if (!extras.length) return candidates
+
+  return dedupeBySymbol([...candidates, ...extras])
+    .sort((a, b) => b.score - a.score)
+    .slice(0, finalLimit)
 }
 
 async function getFallbackCandidates(market, limit) {
@@ -220,17 +310,33 @@ export async function getTradeCandidates({ market = 'stocks', limit = DEFAULT_LI
     ? { status: 'open', message: 'Crypto markets trade continuously.' }
     : await getMarketStatus()
 
+  const freshness = normalizedMarket === 'stocks' ? getDailyCatalystFreshness(new Date()) : null
+
   let candidates = []
   let usedFallback = false
 
   try {
-    const movers = await getTopMovers(normalizedMarket, 'both', Math.max(finalLimit, 6))
+    const poolTop = normalizedMarket === 'stocks'
+      ? Math.min(50, Math.max(finalLimit * 5, 24))
+      : Math.max(finalLimit, 6)
+    const movers = await getTopMovers(normalizedMarket, 'both', poolTop)
     const moverData = movers?.data || {}
     const combined = dedupeBySymbol([...(moverData.gainers || []), ...(moverData.losers || [])])
-    candidates = combined
+    const scoredPool = combined
       .map(candidate => scoreCandidate(candidate, normalizedMarket, marketStatus))
       .sort((a, b) => b.score - a.score)
-      .slice(0, finalLimit)
+
+    candidates = scoredPool.slice(0, finalLimit)
+
+    if (normalizedMarket === 'stocks' && freshness) {
+      candidates = await mergeCatalystUnionCandidates(
+        candidates,
+        scoredPool,
+        finalLimit,
+        marketStatus,
+        freshness
+      )
+    }
   }
   catch (_error) {
     candidates = []
@@ -242,16 +348,17 @@ export async function getTradeCandidates({ market = 'stocks', limit = DEFAULT_LI
   }
 
   if (normalizedMarket === 'stocks' && enrichTrends) {
-    await enrichStockCandidatesStaged(candidates)
+    await enrichStockCandidatesStaged(candidates, freshness)
   }
   else if (normalizedMarket === 'stocks') {
-    for (const c of candidates) applyCatalystEnrichment(c)
+    for (const c of candidates) applyCatalystEnrichment(c, freshness)
   }
 
   return {
     market: normalizedMarket,
     asOf: new Date().toISOString(),
     catalystTradingDay: normalizedMarket === 'stocks' ? formatTradingDayKey() : null,
+    catalystFreshness: freshness,
     catalystDiagnostics: normalizedMarket === 'stocks'
       ? getDailyCatalystDiagnostics(new Date(), candidates.map(candidate => candidate.symbol))
       : null,

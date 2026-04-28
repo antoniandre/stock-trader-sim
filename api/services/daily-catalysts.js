@@ -6,6 +6,9 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const CATALYSTS_DIR = path.resolve(__dirname, '../input/daily-catalysts')
 
+/** Catalyst file older than this (mtime) is treated as stale for scoring / union. */
+export const DAILY_CATALYST_STALE_AFTER_MINUTES = 120
+
 /** In-memory index for the current NY trading day (invalidated on day or file change). */
 let cache = { tradingDayKey: null, bySymbol: null, fileMtimeMs: null }
 
@@ -69,6 +72,103 @@ function getCatalystFileMtimeMs(tradingDayKey) {
 
 export function resetDailyCatalystCache() {
   cache = { tradingDayKey: null, bySymbol: null, fileMtimeMs: null }
+}
+
+/**
+ * @param {Date} [asOfDate] — calendar instant; trading day is derived in America/New_York.
+ * @returns {{
+ *   tradingDayKey: string,
+ *   filePath: string,
+ *   fileExists: boolean,
+ *   fileMtimeMs: number | null,
+ *   ageMinutes: number | null,
+ *   isStale: boolean,
+ *   staleAfterMinutes: number
+ * }}
+ */
+export function getDailyCatalystFreshness(asOfDate = new Date()) {
+  const tradingDayKey = formatTradingDayKey(asOfDate)
+  const filePath = path.join(CATALYSTS_DIR, `${tradingDayKey}.json`)
+  const fileExists = fs.existsSync(filePath)
+  let fileMtimeMs = null
+  let ageMinutes = null
+  if (fileExists) {
+    try {
+      fileMtimeMs = fs.statSync(filePath).mtimeMs
+      ageMinutes = (Date.now() - fileMtimeMs) / 60_000
+    }
+    catch {
+      fileMtimeMs = null
+      ageMinutes = null
+    }
+  }
+  const isStale = !fileExists || ageMinutes == null || ageMinutes > DAILY_CATALYST_STALE_AFTER_MINUTES
+  return {
+    tradingDayKey,
+    filePath,
+    fileExists,
+    fileMtimeMs,
+    ageMinutes,
+    isStale,
+    staleAfterMinutes: DAILY_CATALYST_STALE_AFTER_MINUTES
+  }
+}
+
+/**
+ * Desk badge (🔥): catalyst present and not an obvious long no-go from the row alone.
+ * @param {object | null | undefined} row — raw catalyst row from JSON
+ */
+export function isCatalystRowBadgeWorthy(row) {
+  if (!row || typeof row !== 'object') return false
+  const score = String(row.catalyst_score || '').toLowerCase()
+  if (score.includes('weak') || /\blow\b/.test(score)) return false
+  const pre = String(row.premarket_direction_and_gap || '')
+  if (/gap-down/i.test(pre)) return false
+  return true
+}
+
+/**
+ * Eligible to union into screener candidates: fresh file, not weak/low, no gap-down headline.
+ * @param {object | null | undefined} row
+ * @param {ReturnType<typeof getDailyCatalystFreshness>} freshness
+ */
+export function isCatalystRowScreenerUnionEligible(row, freshness) {
+  if (!row || typeof row !== 'object') return false
+  if (!freshness?.fileExists || freshness.isStale) return false
+  return isCatalystRowBadgeWorthy(row)
+}
+
+/**
+ * Today’s catalyst rows with summary + UI / union flags (single file read).
+ * @param {Date} [asOfDate]
+ */
+export function listDailyCatalystSummariesWithFlags(asOfDate = new Date()) {
+  const freshness = getDailyCatalystFreshness(asOfDate)
+  const filePath = path.join(CATALYSTS_DIR, `${freshness.tradingDayKey}.json`)
+  if (!freshness.fileExists) {
+    return { freshness, catalysts: [] }
+  }
+  let data
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8')
+    data = JSON.parse(raw)
+  }
+  catch {
+    return { freshness, catalysts: [] }
+  }
+  if (!Array.isArray(data)) return { freshness, catalysts: [] }
+
+  const catalysts = []
+  for (const row of data) {
+    const summary = summarizeCatalystRow(row)
+    if (!summary) continue
+    catalysts.push({
+      ...summary,
+      badgeEligible: isCatalystRowBadgeWorthy(row),
+      unionEligible: isCatalystRowScreenerUnionEligible(row, freshness)
+    })
+  }
+  return { freshness, catalysts }
 }
 
 /**

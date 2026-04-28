@@ -611,6 +611,14 @@ export async function fetchTradeCandidates(limit = 8, market = 'stocks') {
   }
 }
 
+/** NY-session daily catalyst file: summaries plus badgeEligible / unionEligible flags. */
+export async function fetchDailyCatalystsToday() {
+  const response = await fetch(`${API_BASE}/daily-catalysts/today`)
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+  const payload = await response.json()
+  return payload.data || payload
+}
+
 export async function fetchScreenerSummary({ top = 20, limit = 8, market = 'stocks', trendPoints = 20 } = {}) {
   try {
     const params = new URLSearchParams({

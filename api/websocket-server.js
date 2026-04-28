@@ -98,7 +98,8 @@ async function sendScreenerSnapshot(ws, message = {}) {
         candidatesMeta: {
           usedFallback: candidatesPayload.usedFallback,
           catalystDiagnostics: candidatesPayload.catalystDiagnostics,
-          catalystTradingDay: candidatesPayload.catalystTradingDay
+          catalystTradingDay: candidatesPayload.catalystTradingDay,
+          catalystFreshness: candidatesPayload.catalystFreshness
         }
       },
       meta: {
