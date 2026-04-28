@@ -1,10 +1,126 @@
 import fs from 'fs'
 import path from 'path'
+import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const CATALYSTS_DIR = path.resolve(__dirname, '../input/daily-catalysts')
+const REPO_ROOT = path.resolve(__dirname, '../..')
+
+/** When `CATALYST_AUTO_FETCH_ON_MISS=true`, missing today’s file triggers one background RSS fetch (deduped). */
+const CATALYST_AUTO_FETCH_COOLDOWN_MS = 15 * 60 * 1000
+
+let catalystAutoFetchChild = null
+let catalystAutoFetchCooldownUntil = 0
+let catalystAutoFetchLastError = null
+
+function isCatalystAutoFetchOnMissEnabled() {
+  return process.env.CATALYST_AUTO_FETCH_ON_MISS === 'true'
+}
+
+/**
+ * Shared RSS worker state (manual refetch or auto-fetch-on-miss).
+ * @returns {{ inProgress: boolean, cooldownUntilMs: number | null, lastError: string | null }}
+ */
+export function getCatalystRssWorkerStatus() {
+  const now = Date.now()
+  return {
+    inProgress: catalystAutoFetchChild !== null,
+    cooldownUntilMs: catalystAutoFetchCooldownUntil > now ? catalystAutoFetchCooldownUntil : null,
+    lastError: catalystAutoFetchLastError
+  }
+}
+
+/**
+ * For API clients when auto-fetch is enabled: background job state (not null only if env is on).
+ * @returns {{ enabled: true, inProgress: boolean, cooldownUntilMs: number | null, lastError: string | null } | null}
+ */
+export function getCatalystAutoFetchStatus() {
+  if (!isCatalystAutoFetchOnMissEnabled()) return null
+  return { enabled: true, ...getCatalystRssWorkerStatus() }
+}
+
+/**
+ * @param {string} tradingDayKey — YYYY-MM-DD (America/New_York session)
+ * @param {{ bypassCooldown?: boolean }} [options]
+ * @returns {{ started: true, tradingDayKey: string } | { started: false, reason: string, cooldownUntilMs?: number }}
+ */
+function tryStartCatalystRssFetch(tradingDayKey, { bypassCooldown = false } = {}) {
+  if (!tradingDayKey) return { started: false, reason: 'bad_date' }
+  if (catalystAutoFetchChild) return { started: false, reason: 'in_progress' }
+  const now = Date.now()
+  if (!bypassCooldown && now < catalystAutoFetchCooldownUntil) {
+    return { started: false, reason: 'cooldown', cooldownUntilMs: catalystAutoFetchCooldownUntil }
+  }
+
+  const scriptPath = path.join(REPO_ROOT, 'scripts/fetch-daily-catalysts.mjs')
+  const args = ['--provider', 'rss', '--date', tradingDayKey, '--merge-existing']
+
+  try {
+    catalystAutoFetchChild = spawn(process.execPath, [scriptPath, ...args], {
+      cwd: REPO_ROOT,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+  }
+  catch (err) {
+    catalystAutoFetchLastError = err?.message || String(err)
+    catalystAutoFetchCooldownUntil = now + CATALYST_AUTO_FETCH_COOLDOWN_MS
+    catalystAutoFetchChild = null
+    return { started: false, reason: 'spawn_failed', message: catalystAutoFetchLastError }
+  }
+
+  let stderrBuf = ''
+  catalystAutoFetchChild.stderr?.setEncoding('utf8')
+  catalystAutoFetchChild.stderr?.on('data', chunk => {
+    stderrBuf += chunk
+    if (stderrBuf.length > 4000) stderrBuf = stderrBuf.slice(-4000)
+  })
+
+  catalystAutoFetchChild.on('error', err => {
+    catalystAutoFetchLastError = err?.message || String(err)
+    catalystAutoFetchCooldownUntil = Date.now() + CATALYST_AUTO_FETCH_COOLDOWN_MS
+    catalystAutoFetchChild = null
+    resetDailyCatalystCache()
+  })
+
+  catalystAutoFetchChild.on('close', (code, signal) => {
+    catalystAutoFetchChild = null
+    resetDailyCatalystCache()
+    if (code !== 0) {
+      const tail = stderrBuf.trim().slice(-500)
+      catalystAutoFetchLastError = tail || `catalyst fetch exited ${code ?? 'null'}${signal ? ` (${signal})` : ''}`
+      catalystAutoFetchCooldownUntil = Date.now() + CATALYST_AUTO_FETCH_COOLDOWN_MS
+    }
+    else {
+      catalystAutoFetchLastError = null
+    }
+  })
+
+  return { started: true, tradingDayKey }
+}
+
+/**
+ * If today’s catalyst JSON is missing and `CATALYST_AUTO_FETCH_ON_MISS=true`, starts at most one
+ * background `scripts/fetch-daily-catalysts.mjs --provider rss` for the NY session date (with cooldown on failure).
+ * @param {Date} [asOfDate]
+ */
+export function touchDailyCatalystAutoFetchIfMissing(asOfDate = new Date()) {
+  if (!isCatalystAutoFetchOnMissEnabled()) return
+  const freshness = getDailyCatalystFreshness(asOfDate)
+  if (freshness.fileExists) return
+  tryStartCatalystRssFetch(freshness.tradingDayKey, { bypassCooldown: false })
+}
+
+/**
+ * Manual desk action: start RSS catalyst fetch for the NY session day (merge-existing). Bypasses failure cooldown.
+ * @param {Date} [asOfDate]
+ */
+export function triggerDailyCatalystRssRefetch(asOfDate = new Date()) {
+  const tradingDayKey = formatTradingDayKey(asOfDate)
+  return tryStartCatalystRssFetch(tradingDayKey, { bypassCooldown: true })
+}
 
 /** Catalyst file older than this (mtime) is treated as stale for scoring / union. */
 export const DAILY_CATALYST_STALE_AFTER_MINUTES = 120
@@ -138,15 +254,25 @@ export function isCatalystRowScreenerUnionEligible(row, freshness) {
   return isCatalystRowBadgeWorthy(row)
 }
 
+function finalizeDailyCatalystListPayload(core, autoFetch) {
+  return {
+    ...core,
+    rssFetch: getCatalystRssWorkerStatus(),
+    ...(autoFetch ? { autoFetch } : {})
+  }
+}
+
 /**
  * Today’s catalyst rows with summary + UI / union flags (single file read).
  * @param {Date} [asOfDate]
  */
 export function listDailyCatalystSummariesWithFlags(asOfDate = new Date()) {
+  touchDailyCatalystAutoFetchIfMissing(asOfDate)
   const freshness = getDailyCatalystFreshness(asOfDate)
+  const autoFetch = getCatalystAutoFetchStatus()
   const filePath = path.join(CATALYSTS_DIR, `${freshness.tradingDayKey}.json`)
   if (!freshness.fileExists) {
-    return { freshness, catalysts: [] }
+    return finalizeDailyCatalystListPayload({ freshness, catalysts: [] }, autoFetch)
   }
   let data
   try {
@@ -154,9 +280,11 @@ export function listDailyCatalystSummariesWithFlags(asOfDate = new Date()) {
     data = JSON.parse(raw)
   }
   catch {
-    return { freshness, catalysts: [] }
+    return finalizeDailyCatalystListPayload({ freshness, catalysts: [] }, autoFetch)
   }
-  if (!Array.isArray(data)) return { freshness, catalysts: [] }
+  if (!Array.isArray(data)) {
+    return finalizeDailyCatalystListPayload({ freshness, catalysts: [] }, autoFetch)
+  }
 
   const catalysts = []
   for (const row of data) {
@@ -168,7 +296,7 @@ export function listDailyCatalystSummariesWithFlags(asOfDate = new Date()) {
       unionEligible: isCatalystRowScreenerUnionEligible(row, freshness)
     })
   }
-  return { freshness, catalysts }
+  return finalizeDailyCatalystListPayload({ freshness, catalysts }, autoFetch)
 }
 
 /**

@@ -10,7 +10,8 @@ import {
   getDailyCatalystFreshness,
   isCatalystRowScreenerUnionEligible,
   isCatalystRowBadgeWorthy,
-  summarizeCatalystRow
+  summarizeCatalystRow,
+  touchDailyCatalystAutoFetchIfMissing
 } from './daily-catalysts.js'
 
 const DEFAULT_LIMIT = 8
@@ -310,6 +311,9 @@ export async function getTradeCandidates({ market = 'stocks', limit = DEFAULT_LI
     ? { status: 'open', message: 'Crypto markets trade continuously.' }
     : await getMarketStatus()
 
+  if (normalizedMarket === 'stocks') {
+    touchDailyCatalystAutoFetchIfMissing(new Date())
+  }
   const freshness = normalizedMarket === 'stocks' ? getDailyCatalystFreshness(new Date()) : null
 
   let candidates = []

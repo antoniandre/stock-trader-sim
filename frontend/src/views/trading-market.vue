@@ -89,6 +89,14 @@
         p.caption Ranked {{ selectedMarketLabel.toLowerCase() }} candidates with quick reasons, so the desk has somewhere to start.
       .w-flex.align-center.gap2.no-grow
         w-tag(v-if="recommendedTrades.meta?.usedFallback" round sm color="warning") Fallback data
+        w-tooltip(v-if="market === 'stocks'")
+          template(#activator="{ on }")
+            w-button(
+              v-on="on"
+              @click="pullDailyCatalystNews"
+              :loading="catalystNewsRefetching"
+              text xs round) Re-pull news
+          | Re-run today’s RSS catalyst job in the background (merge with file). Then refresh the screener when it finishes. Requires API token if the server enforces one.
         w-button(@click="loadRecommendedTrades" :loading="recommendedTrades.loading" text xs round) Refresh
     .w-flex.column.py8.align-center.justify-center(v-if="recommendedTrades.loading && !recommendedTrades.candidates.length")
       w-progress(circle)
@@ -302,6 +310,7 @@ import {
   fetchScreenerSummary,
   fetchAlpacaWatchlist,
   fetchDailyCatalystsToday,
+  postDailyCatalystsRefetch,
   postOrder,
   fetchMarketStatus,
   checkHealth
@@ -374,6 +383,7 @@ const topMovers = ref({
 
 /** GET /api/daily-catalysts/today — for watchlist + top-mover fire badges (intersection). */
 const dailyCatalystCatalog = ref(null)
+const catalystNewsRefetching = ref(false)
 
 const dailyCatalystBySymbol = computed(() => {
   const map = new Map()
@@ -420,6 +430,57 @@ async function loadDailyCatalystCatalog() {
   catch (err) {
     console.warn('Daily catalyst catalog unavailable:', err.message)
     dailyCatalystCatalog.value = null
+  }
+}
+
+async function waitForCatalystRssIdle({ maxMs = 120000, stepMs = 3500 } = {}) {
+  const t0 = Date.now()
+  while (Date.now() - t0 < maxMs) {
+    let payload
+    try {
+      payload = await fetchDailyCatalystsToday()
+    }
+    catch {
+      break
+    }
+    dailyCatalystCatalog.value = payload
+    if (!payload?.rssFetch?.inProgress) break
+    await new Promise(resolve => setTimeout(resolve, stepMs))
+  }
+}
+
+async function pullDailyCatalystNews() {
+  if (props.market !== 'stocks') return
+  catalystNewsRefetching.value = true
+  try {
+    const data = await postDailyCatalystsRefetch()
+    if (!data?.started) {
+      const r = data?.reason
+      if (r === 'in_progress') {
+        $waveui.notify('A catalyst RSS job is already running; syncing when it finishes.', 'info')
+      }
+      else if (r === 'spawn_failed' || r === 'bad_date') {
+        $waveui.notify(data?.message || 'Could not start catalyst re-pull.', 'error')
+        return
+      }
+      else {
+        $waveui.notify(data?.message || 'Could not start catalyst re-pull.', 'warning')
+        return
+      }
+    }
+    else {
+      $waveui.notify('Catalyst re-pull started in the background.', 'info')
+    }
+    await waitForCatalystRssIdle()
+    await loadDailyCatalystCatalog()
+    await loadDashboardScreeners()
+    $waveui.notify('Catalyst file and screener updated.', 'success')
+  }
+  catch (err) {
+    $waveui.notify(err.message || 'Catalyst re-pull failed', 'error')
+  }
+  finally {
+    catalystNewsRefetching.value = false
   }
 }
 const recommendedTrades = reactive({

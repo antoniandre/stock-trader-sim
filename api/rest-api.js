@@ -30,7 +30,7 @@ import { recordBacktestProfileOutcome } from './services/symbol-profile-learning
 import { tradeState } from './services/risk-management.js'
 import { normalizeBrokerError } from './services/broker-error.js'
 import { getTradeCandidates } from './services/trade-screener-service.js'
-import { listDailyCatalystSummariesWithFlags } from './services/daily-catalysts.js'
+import { listDailyCatalystSummariesWithFlags, triggerDailyCatalystRssRefetch } from './services/daily-catalysts.js'
 import { resolveCryptoBuyVenueSymbol } from './services/crypto-usd-quote-fallback.js'
 
 const tinyDedupe = new Map()
@@ -486,6 +486,18 @@ export function createRestApiRoutes() {
     catch (error) {
       logger.error({ err: error }, 'failed to list daily catalysts')
       res.status(500).json({ error: 'Failed to load daily catalysts.' })
+    }
+  })
+
+  /** Start background RSS catalyst fetch for today’s NY session (merge-existing). Same script as CLI polling. */
+  app.post('/api/daily-catalysts/refetch', requireMutationAuth, (req, res) => {
+    try {
+      const result = triggerDailyCatalystRssRefetch()
+      res.json(createStandardResponse(result))
+    }
+    catch (error) {
+      logger.error({ err: error }, 'failed to trigger daily catalyst refetch')
+      res.status(500).json({ error: 'Failed to start catalyst refetch.' })
     }
   })
 

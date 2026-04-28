@@ -619,6 +619,21 @@ export async function fetchDailyCatalystsToday() {
   return payload.data || payload
 }
 
+/** Start background RSS catalyst job for today (requires mutation auth when API token is configured). */
+export async function postDailyCatalystsRefetch() {
+  const response = await fetch(`${API_BASE}/daily-catalysts/refetch`, {
+    method: 'POST',
+    headers: await getAuthHeaders()
+  })
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    const message = body.message || body.error || response.statusText
+    throw new Error(message || `HTTP ${response.status}`)
+  }
+  const payload = await response.json()
+  return payload.data || payload
+}
+
 export async function fetchScreenerSummary({ top = 20, limit = 8, market = 'stocks', trendPoints = 20 } = {}) {
   try {
     const params = new URLSearchParams({
