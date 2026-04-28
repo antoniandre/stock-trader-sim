@@ -47,6 +47,10 @@ function getNumberArg(name, fallback) {
 }
 
 const DAILY_LOSS_LIMIT_PCT = getNumberArg('daily-loss-limit', 5.0)
+const FETCH_DELAY_MS = getNumberArg('fetch-delay-ms', 750)
+const RATE_LIMIT_WAIT_MS = getNumberArg('rate-limit-wait-ms', 60_000)
+const MAX_SYMBOLS = Number(getArg('max-symbols') || process.env.BOT_BACKTEST_MAX_SYMBOLS || 0)
+const BAR_CACHE_DIR = join(__dirname, '../api/data/backtest-bars')
 
 function parseSymbols(raw) {
   return String(raw || '')
@@ -158,12 +162,24 @@ const BROAD_SYMBOLS = [
   'DIS', 'V', 'MA', 'ADP', 'INTU', 'TXN', 'AMAT', 'LRCX', 'KLAC', 'MRVL',
   'DELL', 'HPE', 'IBM', 'SBUX', 'NKE', 'TGT', 'LOW', 'ELF', 'CELH', 'RIVN'
 ]
+const EXPANDED_SYMBOLS = [
+  ...BROAD_SYMBOLS,
+  'GOOG', 'ADSK', 'TEAM', 'WDAY', 'ZS', 'OKTA', 'PATH', 'U', 'AI', 'RBLX',
+  'MS', 'WFC', 'C', 'AXP', 'BLK', 'SCHW', 'CSCO', 'ANET', 'FTNT', 'CYBR',
+  'MRK', 'ABBV', 'AMGN', 'ISRG', 'TMO', 'ABT', 'JNJ', 'PFE', 'MDT', 'VRTX',
+  'REGN', 'DE', 'RTX', 'HON', 'ETN', 'URI', 'FDX', 'UPS', 'CMG', 'LULU',
+  'ROST', 'TJX', 'COP', 'SLB', 'EOG', 'VZ', 'T', 'TMUS', 'KO', 'PEP',
+  'PG', 'PM', 'MO', 'CL', 'F', 'GM'
+]
 const SYMBOL_UNIVERSE = (getArg('universe') || process.env.BOT_BACKTEST_UNIVERSE || 'candidate').toLowerCase()
 const SYMBOLS = parseSymbols(getArg('symbols') || process.env.BOT_BACKTEST_SYMBOLS)
 const EXCLUDED_SYMBOLS = parseSymbols(getArg('exclude-symbols') || process.env.BOT_BACKTEST_EXCLUDE_SYMBOLS)
-const BACKTEST_SYMBOLS = SYMBOLS.length
+const RAW_BACKTEST_SYMBOLS = SYMBOLS.length
   ? SYMBOLS
-  : (SYMBOL_UNIVERSE === 'broad' ? BROAD_SYMBOLS : CANDIDATE_SYMBOLS)
+  : (SYMBOL_UNIVERSE === 'expanded' ? EXPANDED_SYMBOLS : SYMBOL_UNIVERSE === 'broad' ? BROAD_SYMBOLS : CANDIDATE_SYMBOLS)
+const BACKTEST_SYMBOLS = Number.isFinite(MAX_SYMBOLS) && MAX_SYMBOLS > 0
+  ? RAW_BACKTEST_SYMBOLS.slice(0, MAX_SYMBOLS)
+  : RAW_BACKTEST_SYMBOLS
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function round2(v) { return Math.round((+v + Number.EPSILON) * 100) / 100 }
@@ -180,6 +196,10 @@ function stableHash(value) {
 function avg(arr) {
   if (!arr.length) return 0
   return arr.reduce((s, v) => s + v, 0) / arr.length
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 function ema(prices, period) {
@@ -255,6 +275,13 @@ function vwap(dayCandles) {
 
 // ── Alpaca data fetch (paginated — Alpaca caps each page at 2000 bars) ────────
 async function fetchBars(symbol, start, end, tf = '5Min') {
+  const cachePath = join(BAR_CACHE_DIR, `${symbol}-${tf}-${start.slice(0, 10)}-${end.slice(0, 10)}.json`)
+  try {
+    return JSON.parse(_readFileSync(cachePath, 'utf8'))
+  } catch {
+    // Cache miss: fetch from Alpaca and persist below.
+  }
+
   const headers = { 'APCA-API-KEY-ID': ALPACA_KEY, 'APCA-API-SECRET-KEY': ALPACA_SECRET }
   const allBars = []
   let pageToken = null
@@ -265,15 +292,23 @@ async function fetchBars(symbol, start, end, tf = '5Min') {
     const url = `${DATA_URL}/v2/stocks/${symbol}/bars?${params}`
 
     let res
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 8; attempt++) {
       try {
         const ac = new AbortController()
         const timer = setTimeout(() => ac.abort(), 90_000)
         res = await fetch(url, { headers, signal: ac.signal })
         clearTimeout(timer)
-        break
+        if (res.status !== 429) break
+
+        const retryAfter = Number(res.headers.get('retry-after') || 0)
+        const waitMs = retryAfter > 0
+          ? retryAfter * 1000
+          : RATE_LIMIT_WAIT_MS * attempt
+        if (attempt === 8) break
+        process.stdout.write(`429 wait ${Math.round(waitMs / 1000)}s ... `)
+        await sleep(waitMs)
       } catch (err) {
-        if (attempt === 3) throw err
+        if (attempt === 8) throw err
         await new Promise(r => setTimeout(r, 3000 * attempt))
       }
     }
@@ -290,8 +325,11 @@ async function fetchBars(symbol, start, end, tf = '5Min') {
     allBars.push(...bars)
     if (!json.next_page_token) break
     pageToken = json.next_page_token
+    await sleep(FETCH_DELAY_MS)
   }
 
+  mkdirSync(BAR_CACHE_DIR, { recursive: true })
+  writeFileSync(cachePath, `${JSON.stringify(allBars)}\n`, 'utf8')
   return allBars
 }
 
@@ -516,6 +554,8 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap =
         setup: decision.setup,
         entrySetup: decision.setup,
         behaviorProfile,
+        tradeState: decision.symbolBehavior?.tradeState ?? behaviorProfile,
+        strategyAction: decision.symbolBehavior?.strategyAction ?? 'trade-if-score-clears',
         behaviorConfidence: decision.symbolBehavior?.confidence ?? 0,
         regime: decision.marketRegime,
         confidence: decision.confidence,
@@ -591,6 +631,8 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap =
         confidence: savedMeta.confidence,
         setup: savedMeta.setup,
         behaviorProfile: savedMeta.behaviorProfile,
+        tradeState: savedMeta.tradeState,
+        strategyAction: savedMeta.strategyAction,
         behaviorConfidence: savedMeta.behaviorConfidence,
         regime: savedMeta.regime,
         stopPrice,
@@ -677,6 +719,8 @@ function buildWalkForwardPromotionRows(trades) {
   const dimensions = [
     { name: 'symbol', label: 'Symbol', key: t => t.symbol },
     { name: 'behavior', label: 'Behavior', key: t => t.behaviorProfile || 'neutral' },
+    { name: 'tradeState', label: 'Trade state', key: t => t.tradeState || t.behaviorProfile || 'neutral' },
+    { name: 'regime', label: 'Regime', key: t => t.regime || 'unknown' },
     { name: 'time', label: 'Time slot', key: t => getTimeSlot(t.entryTime) },
     { name: 'setup', label: 'Setup', key: t => t.setup || 'unknown' }
   ]
@@ -735,6 +779,12 @@ function generateReport(trades, runDate, runContext = {}) {
   const avgDurMin   = Math.round(trades.reduce((s, t) => s + t.durMin, 0) / total)
   const avgRiskR    = round2(trades.reduce((s, t) => s + t.riskR, 0) / total)
   const avgConf     = round2(trades.reduce((s, t) => s + t.confidence, 0) / total)
+  const avgPlannedRR = round2(avg(trades.map(t => {
+    const stopPct = t.entryPrice > 0 && t.stopPrice > 0
+      ? Math.abs((t.entryPrice - t.stopPrice) / t.entryPrice) * 100
+      : 0
+    return stopPct > 0 ? Number(t.targetPct || 0) / stopPct : 0
+  }).filter(value => value > 0)))
 
   // Max drawdown (equity curve)
   let equity = CAPITAL, peak = CAPITAL, maxDD = 0
@@ -817,21 +867,35 @@ function generateReport(trades, runDate, runContext = {}) {
 
   // Setup breakdown
   const setupMap = {}
+  const regimeMap = {}
   for (const t of trades) {
     if (!setupMap[t.setup]) setupMap[t.setup] = { t: 0, w: 0, pnl: 0 }
     setupMap[t.setup].t++
     setupMap[t.setup].pnl += t.pnlUsd
     if (t.status === 'WIN') setupMap[t.setup].w++
+
+    const regime = t.regime || 'unknown'
+    if (!regimeMap[regime]) regimeMap[regime] = { t: 0, w: 0, pnl: 0 }
+    regimeMap[regime].t++
+    regimeMap[regime].pnl += t.pnlUsd
+    if (t.status === 'WIN') regimeMap[regime].w++
   }
 
   // Rolling symbol behavior profile breakdown
   const behaviorMap = {}
+  const tradeStateMap = {}
   for (const t of trades) {
     const profile = t.behaviorProfile || 'neutral'
     if (!behaviorMap[profile]) behaviorMap[profile] = { t: 0, w: 0, pnl: 0 }
     behaviorMap[profile].t++
     behaviorMap[profile].pnl += t.pnlUsd
     if (t.status === 'WIN') behaviorMap[profile].w++
+
+    const tradeState = t.tradeState || profile
+    if (!tradeStateMap[tradeState]) tradeStateMap[tradeState] = { t: 0, w: 0, pnl: 0 }
+    tradeStateMap[tradeState].t++
+    tradeStateMap[tradeState].pnl += t.pnlUsd
+    if (t.status === 'WIN') tradeStateMap[tradeState].w++
   }
   const promotionRows = buildWalkForwardPromotionRows(trades)
 
@@ -866,9 +930,26 @@ function generateReport(trades, runDate, runContext = {}) {
   md += `| Trades / active day | ${tradesPerDay} |\n`
   md += `| Avg confidence | ${avgConf}% |\n`
   md += `| Avg trade duration | ${avgDurMin} min |\n`
+  md += `| Avg planned R:R | ${avgPlannedRR}:1 |\n`
   md += `| Avg risk ratio | ${avgRiskR}R |\n`
   md += `| Starting equity | $${CAPITAL.toLocaleString()} |\n`
   md += `| Ending equity | $${round2(CAPITAL + netPnL).toLocaleString()} |\n\n`
+
+  const targetRows = [
+    ['Net P&L', 'positive', `$${netPnL >= 0 ? '+' : ''}${netPnL}`, netPnL > 0],
+    ['Win rate', '45-60%', `${winRate}%`, winRate >= 45 && winRate <= 60],
+    ['Profit factor', '>= 1.3', `${profitFactor}`, profitFactor === '∞' || Number(profitFactor) >= 1.3],
+    ['Sharpe (ann.)', '> 1.5', `${sharpe}`, sharpe !== 'N/A' && Number(sharpe) > 1.5],
+    ['R:R', '2:1 - 3:1', `${avgPlannedRR}:1 planned`, avgPlannedRR >= 2 && avgPlannedRR <= 3],
+    ['Max drawdown', '< 10%', `${maxDD}%`, maxDD < 10],
+    ['Expectancy', 'positive', `$${expectancy >= 0 ? '+' : ''}${expectancy}`, expectancy > 0]
+  ]
+  md += `## Target Metric Check\n\n`
+  md += `| Metric | Target | Value | Status |\n|:--|--:|:--|:--|\n`
+  for (const [metric, target, value, pass] of targetRows) {
+    md += `| ${metric} | ${target} | ${value} | ${pass ? 'PASS' : 'MISS'} |\n`
+  }
+  md += '\n'
 
   md += `## Time-of-Day Breakdown (ET)\n\n`
   md += `| Window | Trades | Win% | Net P&L | Expectancy |\n|:--|--:|--:|--:|--:|\n`
@@ -909,12 +990,28 @@ function generateReport(trades, runDate, runContext = {}) {
     md += `| ${setup} | ${s.t} | ${s.w} | ${round2(s.w / s.t * 100)}% | $${pnl >= 0 ? '+' : ''}${pnl} | $${exp >= 0 ? '+' : ''}${exp} |\n`
   }
 
+  md += `\n## Regime Performance\n\n`
+  md += `| Regime | Trades | Wins | Win% | Net P&L | Expectancy |\n|:--|--:|--:|--:|--:|--:|\n`
+  for (const [regime, s] of Object.entries(regimeMap).sort((a, b) => b[1].pnl - a[1].pnl)) {
+    const pnl = round2(s.pnl)
+    const exp = round2(s.pnl / s.t)
+    md += `| ${regime} | ${s.t} | ${s.w} | ${round2(s.w / s.t * 100)}% | $${pnl >= 0 ? '+' : ''}${pnl} | $${exp >= 0 ? '+' : ''}${exp} |\n`
+  }
+
   md += `\n## Symbol Behavior Profile Performance\n\n`
   md += `| Behavior profile | Trades | Wins | Win% | Net P&L | Expectancy |\n|:--|--:|--:|--:|--:|--:|\n`
   for (const [profile, s] of Object.entries(behaviorMap).sort((a, b) => b[1].pnl - a[1].pnl)) {
     const pnl = round2(s.pnl)
     const exp = round2(s.pnl / s.t)
     md += `| ${profile} | ${s.t} | ${s.w} | ${round2(s.w / s.t * 100)}% | $${pnl >= 0 ? '+' : ''}${pnl} | $${exp >= 0 ? '+' : ''}${exp} |\n`
+  }
+
+  md += `\n## Dynamic Trade-State Performance\n\n`
+  md += `| Trade state | Trades | Wins | Win% | Net P&L | Expectancy |\n|:--|--:|--:|--:|--:|--:|\n`
+  for (const [state, s] of Object.entries(tradeStateMap).sort((a, b) => b[1].pnl - a[1].pnl)) {
+    const pnl = round2(s.pnl)
+    const exp = round2(s.pnl / s.t)
+    md += `| ${state} | ${s.t} | ${s.w} | ${round2(s.w / s.t * 100)}% | $${pnl >= 0 ? '+' : ''}${pnl} | $${exp >= 0 ? '+' : ''}${exp} |\n`
   }
 
   md += `\n## Walk-Forward Promotion Check\n\n`
@@ -939,15 +1036,15 @@ function generateReport(trades, runDate, runContext = {}) {
   }
 
   md += `\n## Trade Log\n\n`
-  md += `| # | Sym | Entry (UTC) | Exit (UTC) | Entry$ | Exit$ | Qty | Notional | P&L$ | P&L% | R | Dur | Type | Exit Reason | Regime | Setup | Behavior | RSI | VWAP | MACD | VolR | Result |\n`
-  md += `|--:|:--|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|:--|:--|:--|:--|--:|--:|--:|--:|:--|\n`
+  md += `| # | Sym | Entry (UTC) | Exit (UTC) | Entry$ | Exit$ | Qty | Notional | P&L$ | P&L% | R | Dur | Type | Exit Reason | Regime | Setup | Behavior | State | RSI | VWAP | MACD | VolR | Result |\n`
+  md += `|--:|:--|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|:--|:--|:--|:--|:--|:--|--:|--:|--:|--:|:--|\n`
 
   trades.forEach((t, idx) => {
     const eTime = t.entryTime.replace('T', ' ').slice(5, 16)
     const xTime = t.exitTime.replace('T', ' ').slice(5, 16)
     const pSign = t.pnlUsd >= 0 ? '+' : ''
     const vwapMark = t.vwapPos === 'above' ? '↑' : '↓'
-    md += `| ${idx + 1} | ${t.symbol} | ${eTime} | ${xTime} | ${t.entryPrice} | ${t.exitPrice} | ${t.qty} | ${t.notional} | ${pSign}${t.pnlUsd} | ${pSign}${t.pnlPct}% | ${t.riskR}R | ${t.durMin}m | ${t.orderType} | ${t.exitReason} | ${t.regime} | ${t.setup} | ${t.behaviorProfile || 'neutral'} | ${t.rsi} | ${vwapMark}${t.vwap} | ${t.macd} | ${t.volRatio} | **${t.status}** |\n`
+    md += `| ${idx + 1} | ${t.symbol} | ${eTime} | ${xTime} | ${t.entryPrice} | ${t.exitPrice} | ${t.qty} | ${t.notional} | ${pSign}${t.pnlUsd} | ${pSign}${t.pnlPct}% | ${t.riskR}R | ${t.durMin}m | ${t.orderType} | ${t.exitReason} | ${t.regime} | ${t.setup} | ${t.behaviorProfile || 'neutral'} | ${t.tradeState || t.behaviorProfile || 'neutral'} | ${t.rsi} | ${vwapMark}${t.vwap} | ${t.macd} | ${t.volRatio} | **${t.status}** |\n`
   })
 
   md += `\n## Improvements Applied in This Run\n\n`
@@ -998,10 +1095,11 @@ async function main() {
   console.log(`\n=== ${TARGET_TRADES}-Trade Bot Simulation [${TIMEFRAME}] ===`)
   console.log(`Period: ${startDate} → ${endDate}`)
   console.log(`Risk profile: ${RISK_PROFILE} | Capital: $${CAPITAL.toLocaleString()} | Window: ${WINDOW_BARS} bars`)
-  console.log(`Universe: ${SYMBOL_UNIVERSE}${SYMBOLS.length ? ' (custom symbols)' : ''} | Symbols: ${BACKTEST_SYMBOLS.length} | Min bars: ${MIN_BARS}`)
+  console.log(`Universe: ${SYMBOL_UNIVERSE}${SYMBOLS.length ? ' (custom symbols)' : ''} | Symbols: ${BACKTEST_SYMBOLS.length}${MAX_SYMBOLS > 0 ? ` (max ${MAX_SYMBOLS})` : ''} | Min bars: ${MIN_BARS}`)
   console.log(`Behavior classifier: ${effectiveBehaviorMode}`)
   console.log(`Behavior entry filter: ${BEHAVIOR_ENTRY_FILTER.length ? BEHAVIOR_ENTRY_FILTER.join(', ') : 'none'}`)
   console.log(`Setup filter: ${SETUP_ENTRY_FILTER.length ? SETUP_ENTRY_FILTER.join(', ') : 'none'} | Time filter: ${TIME_ENTRY_FILTER.length ? TIME_ENTRY_FILTER.join(', ') : 'none'} | Excluded: ${EXCLUDED_SYMBOLS.length ? EXCLUDED_SYMBOLS.join(', ') : 'none'}`)
+  console.log(`Fetch delay: ${FETCH_DELAY_MS}ms | 429 wait base: ${RATE_LIMIT_WAIT_MS}ms`)
   console.log(`Daily loss limit: ${DAILY_LOSS_LIMIT_PCT}%\n`)
 
   const allTrades = []
@@ -1020,6 +1118,7 @@ async function main() {
   } catch (err) {
     console.error(`    WARN: SPY fetch failed (${err.message}) — breadth/vol-regime filters disabled`)
   }
+  await sleep(FETCH_DELAY_MS)
 
   // Fetch ALL symbols before cutting to TARGET_TRADES so no symbol is systematically skipped.
   for (const sym of BACKTEST_SYMBOLS) {
@@ -1046,6 +1145,7 @@ async function main() {
       console.error(`    ERROR: ${err.message}`)
       skippedSymbols.push({ symbol: sym, reason: err.message })
     }
+    await sleep(FETCH_DELAY_MS)
   }
 
   // Sort by entry time, take first TARGET_TRADES

@@ -6,3 +6,4 @@ dist
 # Generated runtime data
 api/input/
 api/data/strategy-runs.jsonl
+api/data/backtest-bars/

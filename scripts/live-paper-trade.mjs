@@ -26,6 +26,7 @@ for (const line of readFileSync(join(__dirname, '../api/.env'), 'utf8').split('\
 }
 
 const { evaluateDayTradingDecision } = await import('../api/day-trading-bot.js')
+const { recordSymbolProfileOutcome } = await import('../api/services/symbol-profile-learning.js')
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -37,19 +38,25 @@ const HTF_STEP       = Math.ceil(15 / BAR_MINUTES)       // bars per 15-min cand
 // 10-symbol walk-forward validated universe (2026-04-27). Each has its own optimal backtest config
 // but all run here in unified balanced mode. BA/MU/TGT are net-positive at 365d open+mid in combined run.
 // CRM: 730d open+mid | BA: 730d open | ARM: 730d trend+open | MU: 365d open | TGT: 500d open
-const SYMBOLS        = ['NVDA', 'ABNB', 'SBUX', 'NET', 'INTC', 'CRM', 'BA', 'ARM', 'MU', 'TGT']
+const DEFAULT_SYMBOLS = ['NVDA', 'ABNB', 'SBUX', 'NET', 'INTC', 'CRM', 'BA', 'ARM', 'MU', 'TGT']
+const SYMBOLS        = String(process.env.BOT_SYMBOLS || process.env.BOT_ALLOWED_SYMBOLS || DEFAULT_SYMBOLS.join(','))
+  .split(',')
+  .map(symbol => symbol.trim().toUpperCase())
+  .filter(Boolean)
 const SPY            = 'SPY'
 const TARGET_TRIPS   = 30
 const RISK_PROFILE   = 'balanced'
 const SIZE_PCT       = 0.10    // 10% of equity per position
+const ALLOW_LATE_ENTRIES = process.env.BOT_ALLOW_LATE_ENTRIES === 'true'
 // 1-min specific overrides — keep 5-min profile defaults untouched
 const STRATEGY_PARAMS = BAR_MINUTES === 1
-  ? { trailingStopPct: 0.4, enableMeanRevert: true, stopFloorPct: 0.5, rewardTargetPct: 1.2, stagnationMinutes: 15, enableBreakout: false, atrMultiplier: 2.5, breakevenTriggerR: 0.8 }
-  : { trailingStopPct: 1.5, breakoutTrailingStopPct: 1.7, stagnationMinutes: 45, atrMultiplier: 2.5, breakoutThresholdAdj: -5, trendSizeMultiplier: 1.0 }
+  ? { trailingStopPct: 0.4, enableMeanRevert: true, stopFloorPct: 0.5, rewardTargetPct: 1.2, stagnationMinutes: 15, enableBreakout: false, atrMultiplier: 2.5, breakevenTriggerR: 0.8, allowLateEntries: ALLOW_LATE_ENTRIES, lastEntryUtcMin: ALLOW_LATE_ENTRIES ? 19 * 60 + 30 : undefined, enablePilotHtfOverride: process.env.BOT_ENABLE_PILOT_HTF_OVERRIDE === 'true', enablePilotScoutEntry: process.env.BOT_ENABLE_PILOT_SCOUT_ENTRY === 'true', enablePilotWeakMomentum: process.env.BOT_ENABLE_PILOT_WEAK_MOMENTUM === 'true', pilotWeakMomentumMinVolumeRatio: Number(process.env.BOT_PILOT_WEAK_MOMENTUM_MIN_VOLUME || 1.2), pilotWeakMomentumMaxSpreadPct: Number(process.env.BOT_PILOT_WEAK_MOMENTUM_MAX_SPREAD || 0.12), pilotWeakMomentumMaxVolatilityPct: Number(process.env.BOT_PILOT_WEAK_MOMENTUM_MAX_VOLATILITY || 3), enablePilotPullbackCandle: process.env.BOT_ENABLE_PILOT_PULLBACK_CANDLE === 'true', enablePilotVwapPullback: process.env.BOT_ENABLE_PILOT_VWAP_PULLBACK === 'true', pilotVwapPullbackMaxPct: Number(process.env.BOT_PILOT_VWAP_PULLBACK_MAX_PCT || 0.6), pilotPullbackMaxRedPct: Number(process.env.BOT_PILOT_PULLBACK_MAX_RED_PCT || 0.08), pilotScoutThresholdDiscount: Number(process.env.BOT_PILOT_SCOUT_THRESHOLD_DISCOUNT || 10), momentumPilotThresholdBoost: Number(process.env.BOT_MOMENTUM_PILOT_THRESHOLD_BOOST || 8), momentumPilotSizeMultiplier: process.env.BOT_ENABLE_PILOT_SCOUT_ENTRY === 'true' ? 0.25 : undefined, trendSizeMultiplier: process.env.BOT_ENABLE_PILOT_SCOUT_ENTRY === 'true' ? 0.35 : undefined }
+  : { trailingStopPct: 1.5, breakoutTrailingStopPct: 1.7, stagnationMinutes: 45, atrMultiplier: 2.5, breakoutThresholdAdj: -5, trendSizeMultiplier: 1.0, allowLateEntries: ALLOW_LATE_ENTRIES, lastEntryUtcMin: ALLOW_LATE_ENTRIES ? 19 * 60 + 30 : undefined }
 const FILL_TIMEOUT   = 20_000  // ms to wait for order fill
 const ORDER_COOLDOWN = 5_000   // ms between placing orders (rate limit guard)
 const ROLLING_WINDOW_TRADES = 5
 const ROLLING_PAUSE_MS = (BAR_MINUTES === 1 ? 1 : 10) * 86_400_000
+const SHADOW_ENTRY_SCORE = Number(process.env.BOT_SHADOW_ENTRY_SCORE || 75)
 
 const KEY    = process.env.ALPACA_KEY
 const SECRET = process.env.ALPACA_SECRET
@@ -181,6 +188,24 @@ async function fetchBarsFromSessionOpen(symbol) {
   // Strictly filter to today's session — prevents yesterday's bars polluting VWAP / ORB
   return (data.bars || [])
     .filter(b => b.t.startsWith(todayDate))
+    .map(b => ({ t: b.t, o: +b.o, h: +b.h, l: +b.l, c: +b.c, v: +b.v }))
+}
+
+// Fetch prior-session bars for indicator warmup (EMA/ATR/15m). Strictly excludes
+// today's session so these never pollute VWAP or ORB calculations.
+async function fetchWarmupBars(symbol) {
+  const sessionOpen = sessionOpenTime()
+  const start = new Date(sessionOpen.getTime() - 3 * 24 * 60 * 60 * 1000)
+  const params = new URLSearchParams({
+    timeframe: TIMEFRAME,
+    feed: 'iex',
+    start: start.toISOString(),
+    end: sessionOpen.toISOString(),
+    limit: '50',
+    adjustment: 'raw'
+  })
+  const data = await apiFetch(`${DATA}/v2/stocks/${symbol}/bars?${params}`)
+  return (data.bars || [])
     .map(b => ({ t: b.t, o: +b.o, h: +b.h, l: +b.l, c: +b.c, v: +b.v }))
 }
 
@@ -316,12 +341,54 @@ function countOpenPositions() {
   return n
 }
 
+function compactGateList(gates = {}) {
+  return Object.entries(gates)
+    .filter(([, active]) => active)
+    .map(([name]) => name)
+}
+
+function recordShadowSignal({ sym, bar, decision, spreadPct }) {
+  const entryScore = Number(decision.scores?.entry || 0)
+  if (decision.action === 'buy' || entryScore < SHADOW_ENTRY_SCORE) return
+
+  const diagnostics = decision.entryDiagnostics || {}
+  const activeGates = compactGateList(diagnostics.gates)
+  const signal = {
+    symbol: sym,
+    t: bar.t,
+    price: bar.c,
+    setup: decision.setup,
+    regime: decision.marketRegime,
+    action: decision.action,
+    score: entryScore,
+    risk: Number(decision.scores?.risk || 0),
+    threshold: diagnostics.buyThreshold,
+    maxRisk: diagnostics.maxRiskScoreForEntry,
+    allowNewEntry: diagnostics.allowNewEntry,
+    spreadPct,
+    volumeRatio: decision.metrics?.volumeRatio,
+    rewardRiskRatio: decision.metrics?.rewardRiskRatio,
+    profile: decision.effectiveProfile?.name || 'default',
+    activeGates,
+    reason: decision.reasons?.at(-1) || decision.reasons?.[0] || 'unknown'
+  }
+  shadowSignals.push(signal)
+
+  console.log(
+    `  👻 SHADOW ${sym} score:${signal.score}/${signal.threshold ?? '?'} risk:${signal.risk}/${signal.maxRisk ?? '?'} ` +
+    `setup:${signal.setup} regime:${signal.regime} profile:${signal.profile} spread:${fmt(signal.spreadPct, 3)}% ` +
+    `vol:${fmt(signal.volumeRatio || 0, 2)}x rr:${fmt(signal.rewardRiskRatio || 0, 2)} ` +
+    `gates:${activeGates.join(',') || 'none'} reason:${signal.reason}`
+  )
+}
+
 // ── Bot state ─────────────────────────────────────────────────────────────────
 
 // Per-symbol trading state
 function makeSymbolState() {
   return {
-    candles: [],          // all intraday candles from session open
+    candles: [],          // today's session candles (used for VWAP / ORB)
+    warmupCandles: [],    // prior-session candles (used for EMA / ATR warmup only)
     lastBarTime: null,    // ISO timestamp of last processed bar
     position: null,       // null | { qty, avgEntryPrice, positionOpenedAt, highWatermarkPrice, entrySetup, trimmedHalf }
     consecutiveLosses: 0,
@@ -329,15 +396,19 @@ function makeSymbolState() {
     dailyLossesUsd: 0,
     // Rolling performance gate: if last 5 trades net negative or 0 wins, pause 10 calendar days.
     rollingPnl: [],       // last 5 completed trade P&Ls
-    pausedUntilMs: null   // epoch ms; null = not paused
+    pausedUntilMs: null,  // epoch ms; null = not paused
+    lastSkipReason: null, // last skip reason for dashboard display
+    lastRegime: null      // last seen market regime
   }
 }
 
 const symState = new Map(SYMBOLS.map(s => [s, makeSymbolState()]))
-let spyCandles     = []
+let spyCandles        = []
+let spyWarmupCandles  = []
 let accountEquity  = 100_000
 let completedTrips = 0
 const allTrades    = []
+const shadowSignals = []
 let lastOrderMs    = 0
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -367,7 +438,9 @@ function printDashboard() {
       )
     } else {
       const cb = s.circuitBreakerUntil && Date.now() < s.circuitBreakerUntil
-      console.log(`  ${sym.padEnd(6)} $${fmt(price)}  |  — flat${cb ? '  ⚡ circuit breaker' : ''}`)
+      const regime = s.lastRegime ? ` [${s.lastRegime}]` : ''
+      const skip   = s.lastSkipReason ? `  ⏭ ${s.lastSkipReason.slice(0, 55)}` : ''
+      console.log(`  ${sym.padEnd(6)} $${fmt(price)}  |  — flat${cb ? '  ⚡ circuit breaker' : ''}${regime}${skip}`)
     }
   }
 
@@ -389,11 +462,16 @@ function printDashboard() {
 async function evaluateAndTrade(sym) {
   const s = symState.get(sym)
   const candles = s.candles
-  if (candles.length < 30) return   // insufficient warmup
+  if (candles.length < 1) return   // need at least one today bar
+
+  // Combine prior-session warmup + today's bars for indicator computation.
+  // VWAP and ORB use session-only candles; EMA/ATR/15m use allCandles.
+  const allCandles = [...s.warmupCandles, ...s.candles]
+  if (allCandles.length < 15) return  // insufficient history even with warmup
 
   const bar = candles.at(-1)
-  const prices  = candles.map(c => c.c)
-  const volumes = candles.map(c => c.v)
+  const prices  = allCandles.map(c => c.c)
+  const volumes = allCandles.map(c => c.v)
   const nowMs   = new Date(bar.t).getTime() + BAR_MINUTES * 60_000  // bar close time
 
   const vwap           = computeVWAP(candles)
@@ -401,17 +479,20 @@ async function evaluateAndTrade(sym) {
   const vwapDevPct     = vwap > 0 ? ((bar.c - vwap) / vwap) * 100 : 0
   const prevVwapDevPct = prevVwap > 0 ? ((candles.at(-2)?.c ?? bar.c) - prevVwap) / prevVwap * 100 : 0
   const vwapReclaim    = prevVwapDevPct < -0.1 && vwapDevPct > 0.1
-  const atrBaseline    = atrBaseline20Pct(candles)
+  const atrBaseline    = atrBaseline20Pct(allCandles)
+  const pos            = s.position
   const spreadPct      = !pos ? await fetchLatestSpread(sym) : 0.06   // only fetch when flat (pre-entry)
 
   const { orbHigh, orbLow } = computeORB(candles)
-  const tf15Bullish        = compute15mBullish(candles)
-  const marketVolatileRegime = isMarketVolatile(spyCandles)
-  const atrPct             = atr14Pct(candles, candles.length - 1)
+  const tf15Bullish        = compute15mBullish(allCandles)
+  const marketVolatileRegime = isMarketVolatile([...spyWarmupCandles, ...spyCandles])
+  const atrPct             = atr14Pct(allCandles, allCandles.length - 1)
   const circuitBreakerActive = !!(s.circuitBreakerUntil && Date.now() < s.circuitBreakerUntil)
   const rollingGateActive    = !!(s.pausedUntilMs && Date.now() < s.pausedUntilMs)
   const dailyLossesPct     = (s.dailyLossesUsd / accountEquity) * 100
-  const pos = s.position
+  const rollingExpectancy  = s.rollingPnl.length
+    ? s.rollingPnl.reduce((sum, value) => sum + value, 0) / s.rollingPnl.length
+    : 0
 
   if (rollingGateActive && !pos) {
     const resumeIn = Math.ceil((s.pausedUntilMs - Date.now()) / 86_400_000)
@@ -439,6 +520,7 @@ async function evaluateAndTrade(sym) {
     marketVolatileRegime,
     circuitBreakerActive,
     dailyLossesPct,
+    rollingExpectancy,
     positionQty:         pos ? pos.qty : 0,
     avgEntryPrice:       pos ? pos.avgEntryPrice : bar.c,
     positionOpenedAt:    pos ? pos.positionOpenedAt : null,
@@ -450,7 +532,16 @@ async function evaluateAndTrade(sym) {
     disableDailyCatalyst: true
   })
 
-  const { action, setup, scores, reasons } = decision
+  const { action, setup, scores, reasons, marketRegime, effectiveProfile } = decision
+  recordShadowSignal({ sym, bar, decision, spreadPct })
+
+  if (action !== 'buy' && !pos) {
+    s.lastSkipReason = `${setup||'?'} ${effectiveProfile?.name || ''} score:${scores?.entry ?? '?'} — ${(reasons?.[0] || '').slice(0, 45)}`
+    s.lastRegime = marketRegime ?? null
+  } else if (action === 'buy') {
+    s.lastSkipReason = null
+    s.lastRegime = marketRegime ?? null
+  }
 
   // Update high-watermark on every bar while in position
   if (pos && bar.h > pos.highWatermarkPrice) {
@@ -474,7 +565,7 @@ async function evaluateAndTrade(sym) {
     }
     // Marketable limit: 0.1% above last close — ensures fill while capping slippage.
     const limitBuyPrice = parseFloat((bar.c * 1.001).toFixed(2))
-    console.log(`\n🟢  BUY ${sym}  qty:${qty}  limit:$${fmt(limitBuyPrice)}  setup:${setup}  score:${scores.entry}  spread:${fmt(spreadPct, 3)}%`)
+    console.log(`\n🟢  BUY ${sym}  qty:${qty}  limit:$${fmt(limitBuyPrice)}  setup:${setup}  profile:${effectiveProfile?.name || 'default'}  score:${scores.entry}  spread:${fmt(spreadPct, 3)}%`)
     try {
       const order  = await placeLimitOrder(sym, 'buy', qty, limitBuyPrice)
       const filled = await waitForFill(order.id)
@@ -593,6 +684,18 @@ async function evaluateAndTrade(sym) {
         reason: reasons[0] || action,
         heldMin: Math.round((Date.now() - pos.positionOpenedAt) / 60_000)
       })
+      await recordSymbolProfileOutcome({
+        source: 'paper',
+        symbol: sym,
+        setup: pos.entrySetup || setup || 'unknown',
+        riskProfile: RISK_PROFILE,
+        tradeCount: 1,
+        winCount: pnlUsd > 0 ? 1 : 0,
+        lossCount: pnlUsd < 0 ? 1 : 0,
+        realizedPnL: pnlUsd,
+        grossProfit: pnlUsd > 0 ? pnlUsd : 0,
+        grossLoss: pnlUsd < 0 ? Math.abs(pnlUsd) : 0
+      })
       completedTrips++
       lastOrderMs = Date.now()
       s.position = null
@@ -659,6 +762,26 @@ function printSummary() {
       `  ${fmtUsd(t.pnlUsd).padStart(9)}  ${fmt(t.pnlPct)}%  ${t.heldMin}m  ${t.reason}`
     )
   }
+  if (shadowSignals.length) {
+    console.log('─'.repeat(78))
+    console.log(`Shadow high-score non-buy signals: ${shadowSignals.length}`)
+    const bySymbol = new Map()
+    const gateCounts = new Map()
+    for (const s of shadowSignals) {
+      bySymbol.set(s.symbol, (bySymbol.get(s.symbol) || 0) + 1)
+      for (const gate of s.activeGates) gateCounts.set(gate, (gateCounts.get(gate) || 0) + 1)
+    }
+    const topSymbols = [...bySymbol.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+    const topGates = [...gateCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+    console.log(`Top shadow symbols: ${topSymbols.map(([sym, count]) => `${sym}:${count}`).join(', ') || 'n/a'}`)
+    console.log(`Top active gates: ${topGates.map(([gate, count]) => `${gate}:${count}`).join(', ') || 'none'}`)
+    for (const s of shadowSignals.slice(-8)) {
+      console.log(
+        `👻 ${s.symbol.padEnd(6)} score:${s.score}/${s.threshold ?? '?'} risk:${s.risk}/${s.maxRisk ?? '?'} ` +
+        `${s.setup}/${s.regime} ${s.profile} gates:${s.activeGates.join(',') || 'none'} reason:${s.reason}`
+      )
+    }
+  }
   console.log('═'.repeat(78))
 }
 
@@ -681,6 +804,19 @@ async function main() {
       console.log(`⏳  Market not open yet — waiting ${waitMin} min until 9:30 AM ET…`)
       while (Date.now() < open) await sleep(15_000)
       console.log('🔔  Market open! Starting bot…\n')
+    }
+  }
+
+  // Pre-load prior-session bars for indicator warmup (EMA / ATR / 15m)
+  console.log('⏳  Fetching warmup bars (prior session)…')
+  for (const sym of [...SYMBOLS, SPY]) {
+    try {
+      const bars = await fetchWarmupBars(sym)
+      if (sym === SPY) { spyWarmupCandles = bars }
+      else             { symState.get(sym).warmupCandles = bars }
+      console.log(`   ${sym.padEnd(6)} ${bars.length} warmup bars`)
+    } catch (err) {
+      console.error(`   ${sym} warmup fetch failed: ${err.message}`)
     }
   }
 

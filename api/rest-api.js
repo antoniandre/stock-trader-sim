@@ -26,6 +26,7 @@ import { recordTrade } from './simulation.js'
 import { createStandardResponse, sleep, withRateLimitBackoff, tickerSymbolMatchesRow } from './utils.js'
 import { normalizeOrderIntent, validateOrderIntent, estimateOrderNotional, isCryptoPairSymbol } from './domain/order-intent.js'
 import { recordStrategyRun } from './services/strategy-run-recorder.js'
+import { recordBacktestProfileOutcome } from './services/symbol-profile-learning.js'
 import { tradeState } from './services/risk-management.js'
 import { normalizeBrokerError } from './services/broker-error.js'
 import { getTradeCandidates } from './services/trade-screener-service.js'
@@ -145,6 +146,16 @@ export function createRestApiRoutes() {
     }
     catch (error) {
       logger.warn({ err: error, type: event?.type, symbol: event?.symbol }, 'strategy run capture failed, continuing without capture')
+      return null
+    }
+  }
+
+  async function safeRecordProfileOutcome(event) {
+    try {
+      return await recordBacktestProfileOutcome(event)
+    }
+    catch (error) {
+      logger.warn({ err: error, symbol: event?.symbol, source: event?.source }, 'profile outcome capture failed, continuing without learning update')
       return null
     }
   }
@@ -306,6 +317,12 @@ export function createRestApiRoutes() {
     try {
       const input = req.body || {}
       const backtest = runDayTradingBacktest(input)
+      const profileLearning = await safeRecordProfileOutcome({
+        source: 'backtest',
+        symbol: input.symbol,
+        riskProfile: input.riskProfile,
+        backtest
+      })
       const capture = await safeRecordStrategyRun({
         type: 'day-trading-backtest',
         symbol: input.symbol,
@@ -323,6 +340,7 @@ export function createRestApiRoutes() {
       res.json(createStandardResponse({
         backtest,
         capture,
+        profileLearning,
         availableRiskProfiles: Object.keys(RISK_PROFILES),
         meta: { timing: routeTiming(startedAt) }
       }))
@@ -357,6 +375,14 @@ export function createRestApiRoutes() {
         ? input.riskProfile
         : 'balanced'
       const selected = comparisons.find(item => item.riskProfile === selectedProfile) || comparisons[0] || null
+      const profileLearning = selected
+        ? await safeRecordProfileOutcome({
+          source: 'backtest-compare',
+          symbol: input.symbol,
+          riskProfile: selectedProfile,
+          backtest: selected.backtest
+        })
+        : null
       const capture = await safeRecordStrategyRun({
         type: 'day-trading-backtest-compare',
         symbol: input.symbol,
@@ -373,6 +399,7 @@ export function createRestApiRoutes() {
         backtest: selected?.backtest || null,
         comparisons,
         capture,
+        profileLearning,
         availableRiskProfiles: Object.keys(RISK_PROFILES),
         meta: { timing: routeTiming(startedAt) }
       }))

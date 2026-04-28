@@ -6,8 +6,8 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const CATALYSTS_DIR = path.resolve(__dirname, '../input/daily-catalysts')
 
-/** In-memory index for the current NY trading day (invalidated on day change). */
-let cache = { tradingDayKey: null, bySymbol: null }
+/** In-memory index for the current NY trading day (invalidated on day or file change). */
+let cache = { tradingDayKey: null, bySymbol: null, fileMtimeMs: null }
 
 /**
  * Format a trading day key as YYYY-MM-DD based on the market timezone (America/New_York).
@@ -57,8 +57,18 @@ function loadCatalystsForTradingDay(tradingDayKey) {
   }
 }
 
+function getCatalystFileMtimeMs(tradingDayKey) {
+  const filePath = path.join(CATALYSTS_DIR, `${tradingDayKey}.json`)
+  try {
+    return fs.statSync(filePath).mtimeMs
+  }
+  catch {
+    return null
+  }
+}
+
 export function resetDailyCatalystCache() {
-  cache = { tradingDayKey: null, bySymbol: null }
+  cache = { tradingDayKey: null, bySymbol: null, fileMtimeMs: null }
 }
 
 /**
@@ -71,13 +81,59 @@ export function getDailyCatalystForSymbol(symbol, asOfDate = new Date()) {
   if (!sym) return null
 
   const tradingDayKey = formatTradingDayKey(asOfDate)
-  if (cache.tradingDayKey !== tradingDayKey || !cache.bySymbol) {
+  const fileMtimeMs = getCatalystFileMtimeMs(tradingDayKey)
+  if (cache.tradingDayKey !== tradingDayKey || !cache.bySymbol || cache.fileMtimeMs !== fileMtimeMs) {
     cache = {
       tradingDayKey,
-      bySymbol: loadCatalystsForTradingDay(tradingDayKey)
+      bySymbol: loadCatalystsForTradingDay(tradingDayKey),
+      fileMtimeMs
     }
   }
   return cache.bySymbol.get(sym) || null
+}
+
+export function getDailyCatalystDiagnostics(asOfDate = new Date(), symbols = []) {
+  const tradingDayKey = formatTradingDayKey(asOfDate)
+  const filePath = path.join(CATALYSTS_DIR, `${tradingDayKey}.json`)
+  const fileExists = fs.existsSync(filePath)
+  const requestedSymbols = [...new Set((Array.isArray(symbols) ? symbols : [])
+    .map(symbol => String(symbol || '').trim().toUpperCase())
+    .filter(Boolean))]
+
+  let rowCount = 0
+  let symbolsInFile = []
+  let parseError = null
+
+  if (fileExists) {
+    try {
+      const raw = fs.readFileSync(filePath, 'utf8')
+      const data = JSON.parse(raw)
+      if (Array.isArray(data)) {
+        rowCount = data.length
+        symbolsInFile = [...buildCatalystIndex(data).keys()]
+      }
+    }
+    catch (error) {
+      parseError = error.message || 'Unable to parse catalyst file'
+    }
+  }
+
+  const symbolSet = new Set(symbolsInFile)
+  const matchedSymbols = requestedSymbols.filter(symbol => symbolSet.has(symbol))
+  const unmatchedSymbols = requestedSymbols.filter(symbol => !symbolSet.has(symbol))
+
+  return {
+    tradingDayKey,
+    filePath,
+    fileExists,
+    rowCount,
+    symbolsInFile,
+    requestedSymbols,
+    matchedSymbols,
+    unmatchedSymbols,
+    matchedCount: matchedSymbols.length,
+    parseError
+  }
 }
 
 /**

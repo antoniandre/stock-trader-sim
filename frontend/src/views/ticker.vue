@@ -1780,18 +1780,100 @@ function onToggleTrading(side) {
 
 // Lifecycle
 // --------------------------------------------------------
+function toBotCandle(item) {
+  const close = Number(item?.close ?? item?.price)
+  if (!Number.isFinite(close) || close <= 0) return null
+
+  const open = Number(item?.open ?? item?.o ?? close)
+  const high = Number(item?.high ?? item?.h ?? Math.max(open, close))
+  const low = Number(item?.low ?? item?.l ?? Math.min(open, close))
+  const volume = Number(item?.volume ?? item?.v ?? 0)
+  const timestamp = Number(item?.timestamp ?? item?.time ?? item?.date ?? 0)
+
+  return {
+    open: Number.isFinite(open) ? open : close,
+    high: Number.isFinite(high) ? high : Math.max(open, close),
+    low: Number.isFinite(low) ? low : Math.min(open, close),
+    close,
+    volume: Number.isFinite(volume) ? volume : 0,
+    timestamp: Number.isFinite(timestamp) ? timestamp : 0
+  }
+}
+
+function getBotDecisionCandles() {
+  const candles = historicalData.value.map(toBotCandle).filter(Boolean)
+  if (!userHasPanned.value && realtimeOHLC.value.length) {
+    const lastHistoricalTime = candles.at(-1)?.timestamp || 0
+    candles.push(...realtimeOHLC.value
+      .map(toBotCandle)
+      .filter(item => item && item.timestamp > lastHistoricalTime))
+  }
+
+  return candles
+    .filter(item => item.timestamp > 0)
+    .sort((a, b) => a.timestamp - b.timestamp)
+}
+
+function computeBotVwap(candles) {
+  let weightedPrice = 0
+  let totalVolume = 0
+  for (const candle of candles) {
+    if (!candle.volume || candle.volume <= 0) continue
+    const typicalPrice = (candle.high + candle.low + candle.close) / 3
+    weightedPrice += typicalPrice * candle.volume
+    totalVolume += candle.volume
+  }
+  return totalVolume > 0 ? weightedPrice / totalVolume : 0
+}
+
+function computeBotOrb(candles) {
+  if (selectedPeriod.value !== '1D' || candles.length < 2) return { orbHigh: 0, orbLow: 0 }
+  const sessionStart = candles[0].timestamp
+  const openingRangeEnd = sessionStart + 30 * 60 * 1000
+  const openingCandles = candles.filter(candle => candle.timestamp < openingRangeEnd)
+  if (!openingCandles.length) return { orbHigh: 0, orbLow: 0 }
+
+  return {
+    orbHigh: Math.max(...openingCandles.map(candle => candle.high)),
+    orbLow: Math.min(...openingCandles.map(candle => candle.low))
+  }
+}
+
+function computeBot15mBullish(candles) {
+  const step = Math.max(1, Math.round((15 * 60 * 1000) / getTimeframeMs(selectedTimeframe.value)))
+  const closes = []
+  for (let index = step - 1; index < candles.length; index += step) {
+    closes.push(candles[index].close)
+  }
+  if (closes.length < 10) return null
+
+  const avg = values => values.reduce((sum, value) => sum + value, 0) / values.length
+  return avg(closes.slice(-5)) > avg(closes.slice(-10))
+}
+
+function estimateBotSpreadPct() {
+  const bid = Number(stock.bidPrice ?? stock.bid ?? stock.latestBidPrice ?? 0)
+  const ask = Number(stock.askPrice ?? stock.ask ?? stock.latestAskPrice ?? 0)
+  if (bid > 0 && ask > bid) return ((ask - bid) / ((ask + bid) / 2)) * 100
+  return 0.08
+}
+
 async function refreshBotDecision() {
   if (!stock.symbol || !historicalData.value?.length) return
 
   const currentQty = currentPosition.value ? Number(currentPosition.value.qty || 0) : 0
-  const lastCandle = historicalData.value.at(-1)
+  const botCandles = getBotDecisionCandles()
+  if (!botCandles.length) return
+
+  const lastCandle = botCandles.at(-1)
   const signature = [
     stock.symbol,
     selectedRiskProfile.value,
     Number(stock.price || 0).toFixed(2),
     currentQty,
-    historicalData.value.length,
-    lastCandle?.timestamp || lastCandle?.time || lastCandle?.date || ''
+    botCandles.length,
+    lastCandle?.timestamp || '',
+    Number(lastCandle?.close || 0).toFixed(2)
   ].join('|')
   const now = Date.now()
   if (botDecisionPromise && signature === lastBotDecisionSignature) return botDecisionPromise
@@ -1804,17 +1886,29 @@ async function refreshBotDecision() {
   botLoading.value = true
   botError.value = ''
   botDecisionPromise = (async () => {
-    const closes = historicalData.value.map(item => Number(item?.close)).filter(Number.isFinite)
-    const volumes = historicalData.value.map(item => Number(item?.volume)).filter(Number.isFinite)
+    const closes = botCandles.map(item => item.close).filter(Number.isFinite)
+    const volumes = botCandles.map(item => item.volume).filter(Number.isFinite)
+    const vwap = computeBotVwap(botCandles)
+    const prevVwap = computeBotVwap(botCandles.slice(0, -1))
+    const prevClose = botCandles.at(-2)?.close ?? lastCandle.close
+    const vwapDevPct = vwap > 0 ? ((lastCandle.close - vwap) / vwap) * 100 : 0
+    const prevVwapDevPct = prevVwap > 0 ? ((prevClose - prevVwap) / prevVwap) * 100 : 0
+    const { orbHigh, orbLow } = computeBotOrb(botCandles)
 
     const { decision } = await fetchDayTradingDecision({
       symbol: stock.symbol,
       riskProfile: selectedRiskProfile.value,
-      currentPrice: stock.price,
+      currentPrice: stock.price || lastCandle.close,
       prices: closes,
       volumes,
-      currentVolume: volumes.at(-1),
-      spreadPct: 0.08,
+      currentVolume: lastCandle.volume,
+      currentCandleOpen: lastCandle.open,
+      vwap,
+      vwapReclaim: prevVwapDevPct < -0.1 && vwapDevPct > 0.1,
+      spreadPct: estimateBotSpreadPct(),
+      orbHigh,
+      orbLow,
+      tf15Bullish: computeBot15mBullish(botCandles),
       positionQty: currentQty,
       avgEntryPrice: currentPosition.value ? Number(currentPosition.value.avg_entry_price || currentPosition.value.avgEntryPrice || 0) : 0
     })
