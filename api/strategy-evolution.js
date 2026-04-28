@@ -5,25 +5,25 @@ const BASE_STRATEGIES = [
     id: 'trend-rider',
     family: 'trend',
     description: 'Rides clean continuation with moderate risk filters.',
-    params: { entryBias: 8, riskBias: -4, sizeBias: 0.02, stopLossAdj: -0.1, rewardAdj: 0.4 }
+    params: { entryBias: 8, riskBias: -4, sizeBias: 0.02, stopLossAdj: -0.1, rewardAdj: 0.4, trendThresholdBoost: 12, enablePilotWeakMomentum: true, pilotWeakMomentumMinVolumeRatio: 1.25 }
   },
   {
     id: 'breakout-surfer',
     family: 'breakout',
     description: 'Leans into expanding momentum with faster exits.',
-    params: { entryBias: 12, riskBias: 4, sizeBias: 0.03, stopLossAdj: 0.15, rewardAdj: 0.8 }
+    params: { entryBias: 12, riskBias: 4, sizeBias: 0.03, stopLossAdj: 0.15, rewardAdj: 0.8, breakoutThresholdAdj: -3, atrMultiplier: 2.7, breakoutSizeMultiplier: 0.85 }
   },
   {
     id: 'pullback-prober',
     family: 'pullback',
     description: 'Prefers pullback entries inside larger trends.',
-    params: { entryBias: 5, riskBias: -6, sizeBias: -0.01, stopLossAdj: -0.25, rewardAdj: 0.25 }
+    params: { entryBias: 5, riskBias: -6, sizeBias: -0.01, stopLossAdj: -0.25, rewardAdj: 0.25, enablePilotVwapPullback: true, pilotVwapPullbackMaxPct: 0.45, momentumPilotThresholdBoost: 8 }
   },
   {
     id: 'mean-revert-scout',
     family: 'mean-revert',
     description: 'Tests snapback opportunities with tight control.',
-    params: { entryBias: -2, riskBias: -2, sizeBias: -0.015, stopLossAdj: -0.35, rewardAdj: 0.1 }
+    params: { entryBias: -2, riskBias: -2, sizeBias: -0.015, stopLossAdj: -0.35, rewardAdj: 0.1, enableMeanRevert: true, meanRevertSizeMultiplier: 0.5, stopFloorPct: 0.55 }
   }
 ]
 
@@ -52,7 +52,19 @@ function mutateStrategy(strategy, index) {
       riskBias: round(strategy.params.riskBias - factor * 1.5),
       sizeBias: round(strategy.params.sizeBias + factor * 0.01),
       stopLossAdj: round(strategy.params.stopLossAdj + factor * 0.08),
-      rewardAdj: round(strategy.params.rewardAdj + factor * 0.12)
+      rewardAdj: round(strategy.params.rewardAdj + factor * 0.12),
+      trendThresholdBoost: strategy.params.trendThresholdBoost == null ? undefined : round(strategy.params.trendThresholdBoost + factor * 2),
+      breakoutThresholdAdj: strategy.params.breakoutThresholdAdj == null ? undefined : round(strategy.params.breakoutThresholdAdj + factor * 2),
+      momentumPilotThresholdBoost: strategy.params.momentumPilotThresholdBoost == null ? undefined : round(strategy.params.momentumPilotThresholdBoost + factor * 2),
+      pilotWeakMomentumMinVolumeRatio: strategy.params.pilotWeakMomentumMinVolumeRatio == null ? undefined : round(strategy.params.pilotWeakMomentumMinVolumeRatio + factor * 0.1),
+      pilotVwapPullbackMaxPct: strategy.params.pilotVwapPullbackMaxPct == null ? undefined : round(strategy.params.pilotVwapPullbackMaxPct - factor * 0.05),
+      atrMultiplier: strategy.params.atrMultiplier == null ? undefined : round(strategy.params.atrMultiplier + factor * 0.15),
+      stopFloorPct: strategy.params.stopFloorPct == null ? undefined : round(strategy.params.stopFloorPct + factor * 0.05),
+      enableMeanRevert: strategy.params.enableMeanRevert,
+      enablePilotWeakMomentum: strategy.params.enablePilotWeakMomentum,
+      enablePilotVwapPullback: strategy.params.enablePilotVwapPullback,
+      breakoutSizeMultiplier: strategy.params.breakoutSizeMultiplier,
+      meanRevertSizeMultiplier: strategy.params.meanRevertSizeMultiplier
     }
   }
 }
@@ -79,7 +91,8 @@ export function evolveTradingStrategies(input = {}) {
       riskProfile,
       candles,
       spreadPct,
-      strategyParams: strategy.params
+      strategyParams: { ...(input.strategyParams || {}), ...strategy.params },
+      barDurationMs: input.barDurationMs
     })
 
     return {
@@ -96,7 +109,10 @@ export function evolveTradingStrategies(input = {}) {
         sharpeAnnualized: backtest.sharpeAnnualized,
         rewardRiskRatio: backtest.rewardRiskRatio,
         rejectedTradeCount: backtest.rejectedTradeCount,
-        endingEquity: backtest.endingEquity
+        endingEquity: backtest.endingEquity,
+        calibrationStatus: backtest.calibration?.readiness?.status || 'unknown',
+        topProfile: backtest.calibration?.latestProfile || null,
+        topRejectReason: backtest.calibration?.topRejectReasons?.[0]?.key || null
       },
       score: scoreBacktest(backtest)
     }

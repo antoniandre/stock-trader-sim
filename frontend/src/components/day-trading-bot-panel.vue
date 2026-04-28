@@ -185,6 +185,38 @@ w-dialog(
         .bot-panel__chip.mb3
           .size--xs.op6 {{ decision.effectiveProfile.name }}
           strong {{ decision.effectiveProfile.activeGates?.length ? `${decision.effectiveProfile.activeGates.length} gate(s) active` : 'No active profile gates' }}
+      template(v-if="calibrationSummary")
+        .w-flex.align-center.justify-space-between.gap2.wrap.mb2
+          p.size--xs.op6.mb0 Simulation calibration
+          w-tag(round sm :color="calibrationTone") {{ calibrationLabel }}
+        .bot-panel__stat-grid.mb3
+          .bot-panel__stat
+            .size--xs.op6 Accepted
+            .title3.mt1 {{ calibrationSummary.acceptedEntries || 0 }}
+          .bot-panel__stat
+            .size--xs.op6 Rejected
+            .title3.mt1 {{ calibrationSummary.rejectedEntries || 0 }}
+          .bot-panel__stat
+            .size--xs.op6 Latest profile
+            .title3.mt1 {{ calibrationSummary.latestProfile || 'default' }}
+          .bot-panel__stat
+            .size--xs.op6 Checks
+            .title3.mt1 {{ calibrationSummary.readiness?.passedCount || 0 }}/{{ calibrationSummary.readiness?.totalChecks || 0 }}
+        .bot-panel__row.mb3(v-if="topCalibrationGates.length || topCalibrationRejects.length")
+          .bot-panel__chip(v-for="item in topCalibrationGates" :key="`gate-${item.key}`")
+            .size--xs.op6 Gate
+            strong {{ item.key }} · {{ item.count }}
+          .bot-panel__chip(v-for="item in topCalibrationRejects" :key="`reject-${item.key}`")
+            .size--xs.op6 Reject
+            strong {{ item.key }} · {{ item.count }}
+        template(v-if="latestProfileEvents.length")
+          p.size--xs.op6.mb2 Profile timeline
+          .bot-panel__strategy-list.mb3
+            .bot-panel__strategy(v-for="event in latestProfileEvents" :key="`${event.timestamp}-${event.action}-${event.profile}`")
+              .w-flex.align-center.justify-space-between.gap2
+                strong {{ event.profile || 'default' }}
+                span.size--xs.op6 {{ event.action }} · {{ event.marketRegime || 'n/a' }}
+              p.size--sm.mt1.mb0 {{ event.setup || 'unknown setup' }} · score {{ event.entryScore ?? '--' }} / risk {{ event.riskScore ?? '--' }}
     p.size--sm.op6(v-else-if="!backtestLoading") No backtest loaded yet — run one to see drawdown, win rate, and equity for this profile.
 
   w-divider.my4
@@ -513,6 +545,24 @@ const rankedComparisons = computed(() =>
   [...props.backtestComparisons].sort((a, b) => b.totalReturnPct - a.totalReturnPct)
 )
 const bestSurvivor = computed(() => props.evolution?.survivors?.[0] || null)
+const calibrationSummary = computed(() => props.backtest?.calibration || null)
+const calibrationLabel = computed(() => {
+  const status = calibrationSummary.value?.readiness?.status || ''
+  if (status === 'ready') return 'Promotion-ready'
+  if (status === 'watchlist') return 'Watchlist'
+  if (status === 'not-ready') return 'Not ready'
+  return 'Unrated'
+})
+const calibrationTone = computed(() => {
+  const status = calibrationSummary.value?.readiness?.status || ''
+  if (status === 'ready') return 'success'
+  if (status === 'watchlist') return 'warning'
+  if (status === 'not-ready') return 'error'
+  return ''
+})
+const topCalibrationGates = computed(() => calibrationSummary.value?.topActiveGates?.slice(0, 3) || [])
+const topCalibrationRejects = computed(() => calibrationSummary.value?.topRejectReasons?.slice(0, 3) || [])
+const latestProfileEvents = computed(() => props.backtest?.profileTimeline?.slice(-5).reverse() || [])
 
 const evolutionBlocks = computed(() => {
   const ev = props.evolution
@@ -584,6 +634,8 @@ function evolutionSummaryLine(item, { includeDrawdown }) {
   let s = `Score ${item.score} · Return ${formatPct(b.totalReturnPct)}%`
   if (includeDrawdown) s += ` · DD ${formatPct(b.maxDrawdownPct)}%`
   s += ` · Win ${formatPct(b.winRatePct)}%`
+  if (b.calibrationStatus) s += ` · ${b.calibrationStatus}`
+  if (b.topRejectReason) s += ` · top reject: ${b.topRejectReason}`
   return s
 }
 

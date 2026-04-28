@@ -52,6 +52,69 @@ function computeOrb(candles = []) {
   }
 }
 
+function incrementCount(map, key) {
+  const normalized = String(key || 'unknown')
+  map.set(normalized, (map.get(normalized) || 0) + 1)
+}
+
+function rankedCounts(map, limit = 6) {
+  return [...map.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([key, count]) => ({ key, count }))
+}
+
+function summarizeCalibration({ trades, rejectedTrades, profileTimeline, totalReturnPct, maxDrawdownPct, profitFactor, rewardRiskRatio, expectancyPerTrade }) {
+  const profileCounts = new Map()
+  const rejectCounts = new Map()
+  const gateCounts = new Map()
+  const acceptedBySetup = new Map()
+
+  for (const event of profileTimeline) {
+    incrementCount(profileCounts, event.profile)
+    for (const gate of event.activeGates || []) incrementCount(gateCounts, gate)
+  }
+
+  for (const trade of trades) {
+    if (trade.side === 'buy' || trade.side === 'add') incrementCount(acceptedBySetup, trade.setup)
+  }
+
+  for (const reject of rejectedTrades) {
+    const reason = String(reject.reason || 'unknown').split(':')[0]
+    incrementCount(rejectCounts, reason)
+    for (const gate of reject.activeGates || []) incrementCount(gateCounts, gate)
+  }
+
+  const acceptedEntries = trades.filter(trade => trade.side === 'buy' || trade.side === 'add').length
+  const rejectedEntries = rejectedTrades.length
+  const latestProfile = [...profileTimeline].reverse().find(event => event.profile)?.profile || null
+  const readinessChecks = [
+    { key: 'positiveReturn', label: 'Positive return', passed: totalReturnPct > 0 },
+    { key: 'controlledDrawdown', label: 'Controlled drawdown', passed: maxDrawdownPct <= 3 },
+    { key: 'profitFactor', label: 'Profit factor >= 1.2', passed: profitFactor === null || profitFactor >= 1.2 },
+    { key: 'rewardRisk', label: 'R:R >= 1.5', passed: rewardRiskRatio === null || rewardRiskRatio >= 1.5 },
+    { key: 'expectancy', label: 'Positive expectancy', passed: expectancyPerTrade > 0 },
+    { key: 'activity', label: 'At least one accepted entry', passed: acceptedEntries > 0 }
+  ]
+  const passedCount = readinessChecks.filter(check => check.passed).length
+
+  return {
+    latestProfile,
+    acceptedEntries,
+    rejectedEntries,
+    rejectToAcceptRatio: acceptedEntries > 0 ? round(rejectedEntries / acceptedEntries) : null,
+    topProfiles: rankedCounts(profileCounts),
+    topRejectReasons: rankedCounts(rejectCounts),
+    topActiveGates: rankedCounts(gateCounts),
+    acceptedBySetup: rankedCounts(acceptedBySetup),
+    readiness: {
+      status: passedCount === readinessChecks.length ? 'ready' : passedCount >= 4 ? 'watchlist' : 'not-ready',
+      passedCount,
+      totalChecks: readinessChecks.length,
+      checks: readinessChecks
+    }
+  }
+}
 
 export function runDayTradingBacktest(input = {}) {
   const candles = Array.isArray(input.candles) ? input.candles : []
@@ -82,6 +145,7 @@ export function runDayTradingBacktest(input = {}) {
   let maxDrawdownPct = 0
   const trades = []
   const rejectedTrades = []
+  const profileTimeline = []
   const equityCurve = []
   let grossProfit = 0
   let grossLoss = 0
@@ -162,6 +226,34 @@ export function runDayTradingBacktest(input = {}) {
       barDurationMs,
       disableDailyCatalyst: true
     })
+    const profileName = decision.effectiveProfile?.name || 'default'
+    const activeGates = Array.isArray(decision.effectiveProfile?.activeGates)
+      ? decision.effectiveProfile.activeGates
+      : []
+    const timelineEvent = {
+      timestamp: current.timestamp || currentTimeMs || index,
+      symbol: input.symbol || null,
+      action: decision.action,
+      setup: decision.setup,
+      marketRegime: decision.marketRegime,
+      profile: profileName,
+      activeGates,
+      price: round(currentPrice),
+      entryScore: decision.scores?.entry ?? null,
+      riskScore: decision.scores?.risk ?? null,
+      rewardRiskRatio: decision.metrics?.rewardRiskRatio ?? null
+    }
+    const previousTimelineEvent = profileTimeline.at(-1)
+    const isImportantTimelineEvent = ['buy', 'add', 'trim', 'exit'].includes(decision.action)
+      || !previousTimelineEvent
+      || previousTimelineEvent.profile !== timelineEvent.profile
+      || previousTimelineEvent.marketRegime !== timelineEvent.marketRegime
+      || previousTimelineEvent.setup !== timelineEvent.setup
+      || activeGates.join('|') !== (previousTimelineEvent.activeGates || []).join('|')
+    if (isImportantTimelineEvent) {
+      profileTimeline.push(timelineEvent)
+      if (profileTimeline.length > 80) profileTimeline.shift()
+    }
 
     const equity = cash + positionQty * currentPrice
     equityPeak = Math.max(equityPeak, equity)
@@ -175,9 +267,16 @@ export function runDayTradingBacktest(input = {}) {
           timestamp: current.timestamp || index,
           symbol: input.symbol || null,
           setup: decision.setup,
-          profile: decision.effectiveProfile?.name || null,
+          marketRegime: decision.marketRegime,
+          profile: profileName,
+          activeGates,
           reason: primaryReason,
-          price: round(currentPrice)
+          price: round(currentPrice),
+          entryScore: decision.scores?.entry ?? null,
+          riskScore: decision.scores?.risk ?? null,
+          buyThreshold: decision.entryDiagnostics?.buyThreshold ?? null,
+          maxRiskScoreForEntry: decision.entryDiagnostics?.maxRiskScoreForEntry ?? null,
+          rewardRiskRatio: decision.metrics?.rewardRiskRatio ?? null
         })
       }
     }
@@ -205,7 +304,12 @@ export function runDayTradingBacktest(input = {}) {
           price: round(fillPrice),
           qty: affordableQty,
           confidence: decision.confidence,
-          profile: decision.effectiveProfile?.name || null,
+          profile: profileName,
+          activeGates,
+          marketRegime: decision.marketRegime,
+          entryScore: decision.scores?.entry ?? null,
+          riskScore: decision.scores?.risk ?? null,
+          rewardRiskRatio: decision.metrics?.rewardRiskRatio ?? null,
           timestamp: current.timestamp || index
         })
       }
@@ -245,7 +349,9 @@ export function runDayTradingBacktest(input = {}) {
         price: round(fillPrice),
         qty: qtyToSell,
         confidence: decision.confidence,
-        profile: decision.effectiveProfile?.name || null,
+        profile: profileName,
+        activeGates,
+        marketRegime: decision.marketRegime,
         timestamp: current.timestamp || index,
         realizedPnL: round(pnl)
       })
@@ -275,6 +381,16 @@ export function runDayTradingBacktest(input = {}) {
   const avgWin = winCount > 0 ? grossProfit / winCount : 0
   const avgLoss = lossCount > 0 ? grossLoss / lossCount : 0
   const rewardRiskRatio = avgLoss > 0 ? avgWin / avgLoss : (avgWin > 0 ? null : 0)
+  const calibration = summarizeCalibration({
+    trades,
+    rejectedTrades,
+    profileTimeline,
+    totalReturnPct,
+    maxDrawdownPct,
+    profitFactor,
+    rewardRiskRatio,
+    expectancyPerTrade
+  })
 
   return {
     symbol: input.symbol || null,
@@ -297,6 +413,8 @@ export function runDayTradingBacktest(input = {}) {
     rewardRiskRatio: rewardRiskRatio === null ? null : round(rewardRiskRatio),
     rejectedTradeCount: rejectedTrades.length,
     rejectedTrades,
+    profileTimeline,
+    calibration,
     openPositionQty: positionQty,
     trades,
     equityCurve

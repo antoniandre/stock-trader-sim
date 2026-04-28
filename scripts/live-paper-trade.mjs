@@ -26,6 +26,7 @@ for (const line of readFileSync(join(__dirname, '../api/.env'), 'utf8').split('\
 }
 
 const { evaluateDayTradingDecision } = await import('../api/day-trading-bot.js')
+const { runDayTradingBacktest } = await import('../api/day-trading-backtest.js')
 const { recordSymbolProfileOutcome } = await import('../api/services/symbol-profile-learning.js')
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -39,7 +40,12 @@ const HTF_STEP       = Math.ceil(15 / BAR_MINUTES)       // bars per 15-min cand
 // but all run here in unified balanced mode. BA/MU/TGT are net-positive at 365d open+mid in combined run.
 // CRM: 730d open+mid | BA: 730d open | ARM: 730d trend+open | MU: 365d open | TGT: 500d open
 const DEFAULT_SYMBOLS = ['NVDA', 'ABNB', 'SBUX', 'NET', 'INTC', 'CRM', 'BA', 'ARM', 'MU', 'TGT']
-const SYMBOLS        = String(process.env.BOT_SYMBOLS || process.env.BOT_ALLOWED_SYMBOLS || DEFAULT_SYMBOLS.join(','))
+const DEFAULT_RANKING_CANDIDATES = [
+  ...DEFAULT_SYMBOLS,
+  'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'AMD', 'ORCL', 'AVGO', 'TSLA', 'SOFI',
+  'PLTR', 'COIN', 'SMCI', 'UBER', 'SHOP', 'SNOW', 'PANW', 'CRWD', 'DELL', 'QCOM'
+]
+let SYMBOLS        = String(process.env.BOT_SYMBOLS || process.env.BOT_ALLOWED_SYMBOLS || DEFAULT_SYMBOLS.join(','))
   .split(',')
   .map(symbol => symbol.trim().toUpperCase())
   .filter(Boolean)
@@ -67,7 +73,15 @@ const ALLOW_DIRECT_LIVE_BOT = process.env.ALLOW_DIRECT_LIVE_BOT === 'true'
 const BOT_MAX_NOTIONAL = Number(process.env.BOT_MAX_NOTIONAL || process.env.LIVE_TRADING_MAX_NOTIONAL || 1000)
 const BOT_MAX_DAILY_LOSS_PCT = Number(process.env.BOT_MAX_DAILY_LOSS_PCT || 1)
 const BOT_MAX_CONSECUTIVE_LOSSES = Number(process.env.BOT_MAX_CONSECUTIVE_LOSSES || 2)
-const BOT_ALLOWED_SYMBOLS = String(process.env.BOT_ALLOWED_SYMBOLS || SYMBOLS.join(','))
+let BOT_ALLOWED_SYMBOLS = String(process.env.BOT_ALLOWED_SYMBOLS || SYMBOLS.join(','))
+  .split(',')
+  .map(symbol => symbol.trim().toUpperCase())
+  .filter(Boolean)
+const USE_RANKED_UNIVERSE = process.env.BOT_USE_RANKED_UNIVERSE === 'true'
+const RANK_ONLY = process.env.BOT_RANK_ONLY === 'true'
+const BOT_UNIVERSE_LIMIT = Math.max(1, Number(process.env.BOT_UNIVERSE_LIMIT || 12))
+const BOT_UNIVERSE_MIN_SCORE = Number(process.env.BOT_UNIVERSE_MIN_SCORE || 0)
+const BOT_UNIVERSE_CANDIDATES = String(process.env.BOT_UNIVERSE_CANDIDATES || DEFAULT_RANKING_CANDIDATES.join(','))
   .split(',')
   .map(symbol => symbol.trim().toUpperCase())
   .filter(Boolean)
@@ -398,11 +412,13 @@ function makeSymbolState() {
     rollingPnl: [],       // last 5 completed trade P&Ls
     pausedUntilMs: null,  // epoch ms; null = not paused
     lastSkipReason: null, // last skip reason for dashboard display
-    lastRegime: null      // last seen market regime
+    lastRegime: null,     // last seen market regime
+    lastProfile: null,
+    lastRollingExpectancy: 0
   }
 }
 
-const symState = new Map(SYMBOLS.map(s => [s, makeSymbolState()]))
+const symState = new Map()
 let spyCandles        = []
 let spyWarmupCandles  = []
 let accountEquity  = 100_000
@@ -410,6 +426,116 @@ let completedTrips = 0
 const allTrades    = []
 const shadowSignals = []
 let lastOrderMs    = 0
+const rankedWarmupBars = new Map()
+const rankedIntradayBars = new Map()
+
+function setActiveSymbols(symbols) {
+  SYMBOLS = [...new Set(symbols.map(symbol => String(symbol || '').trim().toUpperCase()).filter(Boolean))]
+  if (!process.env.BOT_ALLOWED_SYMBOLS) BOT_ALLOWED_SYMBOLS = [...SYMBOLS]
+  for (const symbol of SYMBOLS) {
+    if (!symState.has(symbol)) symState.set(symbol, makeSymbolState())
+  }
+  for (const symbol of [...symState.keys()]) {
+    if (!SYMBOLS.includes(symbol)) symState.delete(symbol)
+  }
+}
+
+function toBacktestCandles(bars = []) {
+  return bars.map(bar => ({
+    open: Number(bar.o),
+    high: Number(bar.h),
+    low: Number(bar.l),
+    close: Number(bar.c),
+    volume: Number(bar.v || 0),
+    timestamp: bar.t
+  })).filter(candle => Number.isFinite(candle.close) && candle.close > 0)
+}
+
+function scoreUniverseBacktest(backtest) {
+  const profitFactor = backtest.profitFactor == null ? 2 : Number(backtest.profitFactor || 0)
+  const rewardRisk = backtest.rewardRiskRatio == null ? 2 : Number(backtest.rewardRiskRatio || 0)
+  const activityPenalty = backtest.closingTradeCount < 1 ? 15 : backtest.closingTradeCount < 2 ? 5 : 0
+  const rejectPenalty = Math.min(10, Number(backtest.rejectedTradeCount || 0) * 0.08)
+  return round2(
+    Number(backtest.totalReturnPct || 0) * 1.8
+    + Math.min(10, profitFactor * 2)
+    + Math.min(8, rewardRisk * 2)
+    + Math.max(-8, Number(backtest.expectancyPerTrade || 0) * 0.2)
+    - Number(backtest.maxDrawdownPct || 0) * 1.2
+    - activityPenalty
+    - rejectPenalty
+  )
+}
+
+function backtestClearsUniverseGate(backtest, score) {
+  if (!backtest || score < BOT_UNIVERSE_MIN_SCORE) return false
+  if (backtest.closingTradeCount < 1) return false
+  if (Number(backtest.totalReturnPct || 0) <= 0) return false
+  if (Number(backtest.maxDrawdownPct || 0) > 4) return false
+  if (backtest.profitFactor !== null && Number(backtest.profitFactor || 0) < 1.05) return false
+  if (backtest.rewardRiskRatio !== null && Number(backtest.rewardRiskRatio || 0) < 1.2) return false
+  return true
+}
+
+async function rankCandidateUniverse() {
+  const hardAllowlist = process.env.BOT_ALLOWED_SYMBOLS
+    ? new Set(BOT_ALLOWED_SYMBOLS)
+    : null
+  const candidates = [...new Set(BOT_UNIVERSE_CANDIDATES)]
+    .filter(symbol => !hardAllowlist || hardAllowlist.has(symbol))
+
+  if (!USE_RANKED_UNIVERSE || !candidates.length) {
+    setActiveSymbols(SYMBOLS)
+    return []
+  }
+
+  console.log(`⏳  Ranking ${candidates.length} bot-universe candidates with the same backtest/profile engine…`)
+  const ranked = []
+  for (const symbol of candidates) {
+    try {
+      const warmup = await fetchWarmupBars(symbol)
+      await sleep(250)
+      const intraday = await fetchBarsFromSessionOpen(symbol)
+      rankedWarmupBars.set(symbol, warmup)
+      rankedIntradayBars.set(symbol, intraday)
+      const candles = toBacktestCandles([...warmup, ...intraday])
+      if (candles.length < 25) {
+        console.log(`   ${symbol.padEnd(6)} skipped: only ${candles.length} candles`)
+        continue
+      }
+      const backtest = runDayTradingBacktest({
+        symbol,
+        riskProfile: RISK_PROFILE,
+        candles,
+        barDurationMs: BAR_MINUTES * 60_000,
+        spreadPct: 0.08,
+        strategyParams: STRATEGY_PARAMS
+      })
+      const score = scoreUniverseBacktest(backtest)
+      const approved = backtestClearsUniverseGate(backtest, score)
+      ranked.push({ symbol, score, approved, backtest })
+      console.log(
+        `   ${symbol.padEnd(6)} score:${fmt(score)} ${approved ? 'eligible' : 'watch'} ` +
+        `ret:${fmt(backtest.totalReturnPct)}% dd:${fmt(backtest.maxDrawdownPct)}% ` +
+        `trades:${backtest.closingTradeCount} pf:${backtest.profitFactor ?? '∞'}`
+      )
+      await sleep(500)
+    }
+    catch (err) {
+      console.warn(`   ${symbol.padEnd(6)} ranking failed: ${err.message}`)
+      await sleep(750)
+    }
+  }
+
+  ranked.sort((a, b) => b.score - a.score)
+  const selected = ranked
+    .filter(item => item.approved)
+    .slice(0, BOT_UNIVERSE_LIMIT)
+    .map(item => item.symbol)
+  setActiveSymbols(selected.length ? selected : SYMBOLS.slice(0, BOT_UNIVERSE_LIMIT))
+  if (!selected.length) console.warn('⚠️  No ranked candidates cleared all gates; falling back to configured symbols.')
+  return ranked
+}
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
@@ -431,16 +557,21 @@ function printDashboard() {
       const pnlPct = ((price - pos.avgEntryPrice) / pos.avgEntryPrice) * 100
       const heldMin = Math.round((Date.now() - pos.positionOpenedAt) / 60_000)
       const cb = s.circuitBreakerUntil && Date.now() < s.circuitBreakerUntil
+      const profile = s.lastProfile ? ` ${s.lastProfile}` : ''
       console.log(
         `  ${sym.padEnd(6)} $${fmt(price)}  |  📈 LONG ${pos.qty}sh @ $${fmt(pos.avgEntryPrice)}` +
         `  ${fmtUsd(pnlUsd).padStart(9)} (${fmt(pnlPct)}%)  |  ${heldMin}m` +
+        profile +
         (cb ? '  ⚡CB' : '')
       )
     } else {
       const cb = s.circuitBreakerUntil && Date.now() < s.circuitBreakerUntil
+      const paused = s.pausedUntilMs && Date.now() < s.pausedUntilMs ? '  ⏸ paused' : ''
       const regime = s.lastRegime ? ` [${s.lastRegime}]` : ''
+      const profile = s.lastProfile ? ` ${s.lastProfile}` : ''
+      const expectancy = s.rollingPnl.length ? ` exp:${fmt(s.lastRollingExpectancy)}` : ''
       const skip   = s.lastSkipReason ? `  ⏭ ${s.lastSkipReason.slice(0, 55)}` : ''
-      console.log(`  ${sym.padEnd(6)} $${fmt(price)}  |  — flat${cb ? '  ⚡ circuit breaker' : ''}${regime}${skip}`)
+      console.log(`  ${sym.padEnd(6)} $${fmt(price)}  |  — flat${cb ? '  ⚡ circuit breaker' : ''}${paused}${regime}${profile}${expectancy}${skip}`)
     }
   }
 
@@ -533,6 +664,8 @@ async function evaluateAndTrade(sym) {
   })
 
   const { action, setup, scores, reasons, marketRegime, effectiveProfile } = decision
+  s.lastProfile = effectiveProfile?.name || 'default'
+  s.lastRollingExpectancy = rollingExpectancy
   recordShadowSignal({ sym, bar, decision, spreadPct })
 
   if (action !== 'buy' && !pos) {
@@ -788,12 +921,21 @@ function printSummary() {
 // ── Main loop ─────────────────────────────────────────────────────────────────
 
 async function main() {
+  const rankedUniverse = await rankCandidateUniverse()
   console.log(`\n🚀  Live Paper Trading Bot`)
   console.log(`   Timeframe : ${TIMEFRAME} (poll every ${BAR_MINUTES * 60 + 15}s)`)
   console.log(`   Symbols   : ${SYMBOLS.join(', ')}`)
+  if (rankedUniverse.length) {
+    const selected = rankedUniverse.filter(item => SYMBOLS.includes(item.symbol))
+    console.log(`   Universe  : ranked ${rankedUniverse.length} candidates, selected ${selected.map(item => `${item.symbol}:${fmt(item.score)}`).join(', ') || 'fallback'}`)
+  }
   console.log(`   Target    : ${TARGET_TRIPS} round-trips`)
   console.log(`   Broker    : ${BROKER}`)
   console.log(`   Governor  : max notional $${fmt(BOT_MAX_NOTIONAL)}, daily loss ${BOT_MAX_DAILY_LOSS_PCT}%, allowed ${BOT_ALLOWED_SYMBOLS.join(', ')}\n`)
+  if (RANK_ONLY) {
+    console.log('Rank-only mode complete; no paper orders will be placed.')
+    return
+  }
 
   // Wait for regular session if we're running pre-market
   {
@@ -811,7 +953,7 @@ async function main() {
   console.log('⏳  Fetching warmup bars (prior session)…')
   for (const sym of [...SYMBOLS, SPY]) {
     try {
-      const bars = await fetchWarmupBars(sym)
+      const bars = rankedWarmupBars.get(sym) || await fetchWarmupBars(sym)
       if (sym === SPY) { spyWarmupCandles = bars }
       else             { symState.get(sym).warmupCandles = bars }
       console.log(`   ${sym.padEnd(6)} ${bars.length} warmup bars`)
@@ -854,7 +996,7 @@ async function main() {
     // Refresh bars for all symbols
     for (const sym of [...SYMBOLS, SPY]) {
       try {
-        const bars = await fetchBarsFromSessionOpen(sym)
+      const bars = rankedIntradayBars.get(sym) || await fetchBarsFromSessionOpen(sym)
         if (sym === SPY) { spyCandles = bars }
         else             { symState.get(sym).candles = bars }
       } catch (err) {

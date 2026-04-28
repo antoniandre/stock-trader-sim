@@ -1814,6 +1814,38 @@ function getBotDecisionCandles() {
     .sort((a, b) => a.timestamp - b.timestamp)
 }
 
+function getSimulationStrategyParams() {
+  const barMinutes = Math.max(1, Math.round(getTimeframeMs(selectedTimeframe.value) / 60_000))
+  if (barMinutes <= 1) {
+    return {
+      trailingStopPct: 0.4,
+      enableMeanRevert: true,
+      stopFloorPct: 0.5,
+      rewardTargetPct: 1.2,
+      stagnationMinutes: 15,
+      enableBreakout: false,
+      atrMultiplier: 2.5,
+      breakevenTriggerR: 0.8,
+      enablePilotWeakMomentum: true,
+      pilotWeakMomentumMinVolumeRatio: 1.2,
+      pilotWeakMomentumMaxSpreadPct: 0.12,
+      enablePilotPullbackCandle: true,
+      enablePilotVwapPullback: true,
+      pilotVwapPullbackMaxPct: 0.6,
+      momentumPilotThresholdBoost: 8
+    }
+  }
+
+  return {
+    trailingStopPct: 1.5,
+    breakoutTrailingStopPct: 1.7,
+    stagnationMinutes: 45,
+    atrMultiplier: 2.5,
+    breakoutThresholdAdj: -5,
+    trendSizeMultiplier: 1.0
+  }
+}
+
 function computeBotVwap(candles) {
   let weightedPrice = 0
   let totalVolume = 0
@@ -1932,27 +1964,32 @@ async function refreshBotDecision() {
 const MIN_CANDLES = 25
 
 async function runBacktest() {
-  if (!stock.symbol || historicalData.value.length < MIN_CANDLES) return
+  const botCandles = getBotDecisionCandles()
+  if (!stock.symbol || botCandles.length < MIN_CANDLES) return
 
   backtestLoading.value = true
   backtestError.value = ''
   try {
-    const candles = historicalData.value
+    const candles = botCandles
       .map(item => ({
-        open: Number(item?.open ?? item?.o ?? item?.close),
-        high: Number(item?.high ?? item?.h ?? item?.close),
-        low: Number(item?.low ?? item?.l ?? item?.close),
-        close: Number(item?.close),
-        volume: Number(item?.volume || 0),
-        timestamp: item?.timestamp || item?.time || item?.date
+        open: Number(item.open),
+        high: Number(item.high),
+        low: Number(item.low),
+        close: Number(item.close),
+        volume: Number(item.volume || 0),
+        timestamp: item.timestamp
       }))
       .filter(item => Number.isFinite(item.close))
+    const strategyParams = getSimulationStrategyParams()
 
     const { backtest, comparisons, capture } = await compareDayTradingBacktests({
       symbol: stock.symbol,
       riskProfile: selectedRiskProfile.value,
       profiles: ['conservative', 'balanced', 'aggressive'],
       candles,
+      barDurationMs: getTimeframeMs(selectedTimeframe.value),
+      strategyParams,
+      spreadPct: estimateBotSpreadPct(),
       cohort: ['trend-rider', 'breakout-surfer', 'pullback-prober']
     })
 
@@ -1966,7 +2003,8 @@ async function runBacktest() {
       profitFactor: backtest?.profitFactor,
       rewardRiskRatio: backtest?.rewardRiskRatio,
       sharpeAnnualized: backtest?.sharpeAnnualized,
-      realizedPnL: backtest?.realizedPnL
+      realizedPnL: backtest?.realizedPnL,
+      calibration: backtest?.calibration
     }))
   }
   catch (error) {
@@ -1980,26 +2018,30 @@ async function runBacktest() {
 }
 
 async function runEvolution() {
-  if (!stock.symbol || historicalData.value.length < MIN_CANDLES) return
+  const botCandles = getBotDecisionCandles()
+  if (!stock.symbol || botCandles.length < MIN_CANDLES) return
 
   evolutionLoading.value = true
   evolutionError.value = ''
   try {
-    const candles = historicalData.value
+    const candles = botCandles
       .map(item => ({
-        open: Number(item?.open ?? item?.o ?? item?.close),
-        high: Number(item?.high ?? item?.h ?? item?.close),
-        low: Number(item?.low ?? item?.l ?? item?.close),
-        close: Number(item?.close),
-        volume: Number(item?.volume || 0),
-        timestamp: item?.timestamp || item?.time || item?.date
+        open: Number(item.open),
+        high: Number(item.high),
+        low: Number(item.low),
+        close: Number(item.close),
+        volume: Number(item.volume || 0),
+        timestamp: item.timestamp
       }))
       .filter(item => Number.isFinite(item.close))
 
     const { evolution, capture } = await evolveDayTradingStrategies({
       symbol: stock.symbol,
       riskProfile: selectedRiskProfile.value,
-      candles
+      candles,
+      barDurationMs: getTimeframeMs(selectedTimeframe.value),
+      spreadPct: estimateBotSpreadPct(),
+      strategyParams: getSimulationStrategyParams()
     })
 
     evolutionResult.value = { ...evolution, captureId: capture?.id || null }

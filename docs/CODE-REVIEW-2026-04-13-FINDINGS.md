@@ -107,25 +107,25 @@ priceUpdate.on('update', (symbol, priceData) => {
 
 ---
 
-### 3. **Catalyst Feed NOT Consumed by Screener or Trading Logic** ⚠️ BLOCKER
+### *3. **Catalyst Feed NOT Consumed by Screener or Trading Logic** ⚠️ BLOCKER*
 
-**Location:** `api/services/daily-catalysts.js`, `frontend/trading-market.vue`
+***Location:*** `api/services/daily-catalysts.js`*,* `frontend/trading-market.vue`
 
-**Problem:**
+***Problem:***
 
-- Catalyst JSON report is parsed and available in `daily-catalysts.js`.
-- **Screener does NOT filter by catalyst symbols.**
-- Frontend does NOT mark catalyst stocks with 🔥 icon.
-- Catalyst stocks often missing from screener results (design gap, not bug).
+- *Catalyst JSON report is parsed and available in* `daily-catalysts.js`*.*
+- ***Screener does NOT filter by catalyst symbols.***
+- *Frontend does NOT mark catalyst stocks with 🔥 icon.*
+- *Catalyst stocks often missing from screener results (design gap, not bug).*
 
-**Questions:**
+***Questions:***
 
-- Should catalyst stocks be auto-included in screener results? (Spec says yes — they should show 🔥.)
-- Why are catalyst-bearing stocks missing from screener output?
+- *Should catalyst stocks be auto-included in screener results? (Spec says yes — they should show 🔥.)*
+- *Why are catalyst-bearing stocks missing from screener output?*
 
-**Fix Pattern:**
+***Fix Pattern:***
 
-1. Modify screener to include catalyst symbols:
+1. *Modify screener to include catalyst symbols:*
 
 ```javascript
 // In trade-screener-service.js or screener.js
@@ -150,14 +150,14 @@ async function augmentWithCatalysts(symbols) {
 }
 ```
 
-1. Add 🔥 icon to frontend ticker cards:
+1. *Add 🔥 icon to frontend ticker cards:*
 
 ```vue
 <!-- In ticker-card.vue or trading-market.vue -->
 <span v-if="hasCatalyst" class="catalyst-badge">🔥</span>
 ```
 
-**Severity:** CRITICAL — Catalyst edge is not being exploited.
+***Severity:** CRITICAL — Catalyst edge is not being exploited.*
 
 ---
 
