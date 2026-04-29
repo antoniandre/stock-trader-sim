@@ -1,0 +1,55 @@
+{
+  "_name": "Broad-50 Open+Mid Breakout — v1 (2026-04-29)",
+  "_description": [
+    "50-symbol universe. 5-Min bars. Breakout setup only. Open + mid-morning time gate.",
+    "Validated on 365-day backtest (2026-04-29). ALL 7 targets pass:",
+    "  WR 45.45% | PF 1.88 | Sharpe 3.96 | R:R 2.70:1 | MaxDD 0.39% | Expectancy +$23.74/trade",
+    "",
+    "Key design decisions:",
+    "  - Time gate: entries only 9:30–11:30 AM ET. PM slot showed 25–40% WR (excluded).",
+    "  - Breakout only: trend and momentum-pilot have negative expectancy on 5Min bars.",
+    "  - Behavior profiles: confirmationRequired/neutral/extendedBreakout allowed.",
+    "    Blocked: falseBreakoutProne, regimeInstability, noisyHighBeta, sustainedSell.",
+    "  - observeBreakoutClassifierBlocks=true: weak/first-leg breakouts suppressed even in observe mode.",
+    "  - Universe policy: NEVER REMOVE symbols. The behavior-classifier profiles prevent",
+    "    bad trades on weak symbols. Removing symbols is NOT the fix.",
+    "",
+    "Backtest report:",
+    "  BOT-TRADE-REPORT-2026-04-30-5min-broad-500trades-365d-observe-filter-confirmationrequired-neutral-extendedbreakout-setup-breakout-time-open-mid.md"
+  ],
+
+  "symbols": [
+    "NVDA",  "GOOGL", "AMZN",  "META",  "MSFT",  "AAPL",  "AMD",   "TSLA",  "AVGO",  "NFLX",
+    "CRM",   "ORCL",  "ADBE",  "QCOM",  "INTC",  "MU",    "ARM",   "TSM",   "ASML",  "PLTR",
+    "COIN",  "SMCI",  "SHOP",  "UBER",  "ABNB",  "PANW",  "CRWD",  "NOW",   "DDOG",  "SNOW",
+    "NET",   "MDB",   "ISRG",  "PYPL",  "JPM",   "BAC",   "GS",    "XOM",   "CVX",   "CAT",
+    "SPOT",  "MSTR",  "APP",   "HOOD",  "RBLX",  "SOFI",  "MARA",  "CELH",  "RDDT",  "HIMS"
+  ],
+
+  "allowedProfiles": ["confirmationRequired", "neutral", "extendedBreakout"],
+  "allowedSetups":   ["breakout"],
+  "riskProfile":     "balanced",
+
+  "sizePct":               0.10,
+  "maxNotionalUsd":        1000,
+  "maxDailyLossPct":       1,
+  "maxConsecutiveLosses":  2,
+  "rollingWindowTrades":   4,
+  "rollingPauseDays":      20,
+
+  "strategyParams": {
+    "trailingStopPct":              1.0,
+    "breakoutTrailingStopPct":      1.2,
+    "stagnationMinutes":            20,
+    "atrMultiplier":                2.5,
+    "breakoutThresholdAdj":        -5,
+    "trendThresholdBoost":          20,
+    "trendSizeMultiplier":          0.8,
+    "breakoutSizeMultiplier":       0.75,
+    "earlyReversalMinutes":         10,
+    "earlyReversalFraction":        0.25,
+    "behaviorClassifierMode":       "observe",
+    "observeBreakoutClassifierBlocks": true,
+    "lastEntryUtcMin":              930
+  }
+}
