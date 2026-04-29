@@ -242,8 +242,11 @@ export function evaluateDayTradingDecision(input = {}) {
   }
 
   // RSI > 80 into a trend setup = chasing overbought momentum — block entry.
-  // Breakout stays exempt: META/GOOGL can sustain elevated RSI on genuine volume expansion.
   const rsiBadForMomentumEntry = rsi14 > 80 && setup === 'trend'
+  // RSI > rsiMaxBreakout on a breakout = late-stage exhaustion risk.
+  // Disabled by default (0) — enable by passing strategyParams.rsiMaxBreakout e.g. 90 or 92.
+  const rsiMaxBreakout = Number(strategyParams.rsiMaxBreakout ?? 0)
+  const rsiBadForBreakoutEntry = rsiMaxBreakout > 0 && rsi14 > rsiMaxBreakout && setup === 'breakout'
 
   // HARD GATES — these block entries regardless of score.
   // Evidence from 100-trade analysis (2026-04-23):
@@ -309,6 +312,11 @@ export function evaluateDayTradingDecision(input = {}) {
   // G8. ADR floor: daily range must be large enough to reach the reward target.
   //     Stocks with ADR < 75% of the reward target rarely move enough to pay for the risk.
   const adrTooTightGate = adrPct > 0 && adrPct < effectiveRewardPct * 0.75
+  // G9. Double-breakout gate: breakout setup in breakout regime = chasing an already-extended move.
+  //     Breakout regime requires shortTrend > 0.7% and mediumTrend > 1.0% — the stock already ran.
+  //     Backtests across multiple runs show 0% win rate for this combination. Breakout setup in
+  //     trend regime is profitable; breakout regime + breakout setup is consistently not.
+  const doubleBreakoutGate = setup === 'breakout' && marketRegime === 'breakout'
 
   // Compute nowMs here so time-of-day awareness can inform entry scoring AND position management.
   const nowMs = Number.isFinite(input.nowMs) ? input.nowMs : Date.now()
@@ -381,6 +389,22 @@ export function evaluateDayTradingDecision(input = {}) {
         blockSetups: [],   // in observe mode classifier labels but never acts
         strategyAction: 'observe-only'
       }
+
+  // In observe mode the API response zeroes blockSetups, but backtests often still filter by
+  // behavior *name* — which let through breakouts the classifier would block for weak quality /
+  // unconfirmed first leg (broad universe: mostly opening-hour churn). Apply those blocks only
+  // when the underlying metrics fired; full apply mode still uses raw blocks unchanged.
+  const rawBehaviorMetrics = rawSymbolBehavior.metrics || {}
+  // Opt-in: when classifying in observe mode, still suppress setups the raw classifier would block
+  // for weak breakout quality / unconfirmed first leg (see docs/to-do metric targets). Live + API
+  // callers that omit this flag keep legacy observe semantics (labels only).
+  const observeBreakoutGuard = shouldClassifyBehavior && !shouldApplyBehavior
+    && strategyParams.observeBreakoutClassifierBlocks === true
+    && (rawBehaviorMetrics.weakBreakoutQuality || rawBehaviorMetrics.unconfirmedFirstLeg)
+  const behaviorEntryBlockSetups = shouldClassifyBehavior && Array.isArray(rawSymbolBehavior.blockSetups)
+    && (shouldApplyBehavior || observeBreakoutGuard)
+    ? rawSymbolBehavior.blockSetups
+    : []
 
   const effectiveProfile = resolveSymbolTradeProfile({
     symbol: input.symbol,
@@ -686,6 +710,10 @@ export function evaluateDayTradingDecision(input = {}) {
       action = 'wait'
       reasons.push(`RSI ${round(rsi14)} > 80 in a trend setup — chasing overbought momentum; waiting for RSI to cool below 80`)
     }
+    else if (rsiBadForBreakoutEntry) {
+      action = 'wait'
+      reasons.push(`RSI ${round(rsi14)} > ${rsiMaxBreakout} on a breakout entry — late-stage exhaustion risk; waiting for RSI to cool`)
+    }
     else if (circuitBreakerActive) {
       action = 'wait'
       reasons.push('Circuit breaker: 2 consecutive losses on this symbol — pausing new entries for 30 min')
@@ -742,6 +770,10 @@ export function evaluateDayTradingDecision(input = {}) {
       action = 'wait'
       reasons.push(`ADR gate: daily range ${round(adrPct)}% < 75% of ${round(effectiveRewardPct)}% reward target — symbol too quiet to reach profit target`)
     }
+    else if (doubleBreakoutGate) {
+      action = 'wait'
+      reasons.push(`Double-breakout gate: breakout setup in breakout regime = chasing an already-extended move (shortTrend ${round(shortTrendPct)}%, medTrend ${round(mediumTrendPct)}%) — waiting for regime to cool to trend`)
+    }
     else if (spreadPct > 0.35 && setup !== 'mean-revert') {
       action = 'wait'
       reasons.push(`Spread gate: ${round(spreadPct)}% bid-ask spread exceeds maximum — execution cost too high for this setup`)
@@ -762,9 +794,9 @@ export function evaluateDayTradingDecision(input = {}) {
       action = 'wait'
       reasons.push(`Profile setup gate: ${setup} is blocked by ${effectiveProfile.name}`)
     }
-    else if (shouldApplyBehavior && Array.isArray(symbolBehavior.blockSetups) && symbolBehavior.blockSetups.includes(setup)) {
+    else if (behaviorEntryBlockSetups.length && behaviorEntryBlockSetups.includes(setup)) {
       action = 'wait'
-      reasons.push(`Behavior gate [${symbolBehavior.profile}]: ${symbolBehavior.reasons[0] || 'entry suppressed by classifier'}`)
+      reasons.push(`Behavior gate [${rawSymbolBehavior.profile}]: ${rawSymbolBehavior.reasons[0] || 'entry suppressed by classifier'}`)
     }
     else if (allowNewEntry && entryScore >= buyThreshold && (setup !== 'weak')) {
       action = 'buy'
@@ -879,10 +911,11 @@ export function evaluateDayTradingDecision(input = {}) {
 
     // EARLY REVERSAL EXIT: cut losers before the full stop fires.
     // Evidence: TSLA -$300 in 30min, GOOGL -$174 in 20min — waiting for 1.2% stop was too slow.
-    // Cut losers at 15 min, shallower threshold (0.35× stop) — entries that go wrong in the first
-    // 3 bars and are already at -0.35% rarely recover to the +2.4% target.
-    // Tested: 0.40× (PF 1.46), 0.35× (PF 1.47 — best on old dataset), 0.30× (PF 1.41 — too tight).
-    if (action === 'hold' && positionElapsedMs > 15 * 60 * 1000 && unrealizedPnLPct < -(dynamicStopPct * 0.35)) {
+    // Configurable via strategyParams: earlyReversalMinutes (default 15) and earlyReversalFraction (default 0.35).
+    // Tested fractions: 0.40× (PF 1.46), 0.35× (PF 1.47 — best on old dataset), 0.30× (tighter, ongoing test).
+    const earlyReversalMinutes = Number(strategyParams.earlyReversalMinutes ?? 15)
+    const earlyReversalFraction = Number(strategyParams.earlyReversalFraction ?? 0.35)
+    if (action === 'hold' && positionElapsedMs > earlyReversalMinutes * 60_000 && unrealizedPnLPct < -(dynamicStopPct * earlyReversalFraction)) {
       action = 'exit'
       reasons.push(`Early reversal exit: -${round(Math.abs(unrealizedPnLPct))}% after ${Math.round(positionElapsedMs / 60000)} min (pre-stop cut)`)
     }
@@ -1339,6 +1372,13 @@ function classifySymbolBehavior({ prices, volumes, currentPrice, vwap, volumeRat
       || (rsi14 > 72 && volumeRatio < 2.5)
       || (isMidMorning && rsi14 < 72 && volumeRatio < 3.3)
       || (marketRegime === 'breakout' && volumeRatio < 2.5)
+      // Near-zero MACD + high volume + elevated RSI = fake momentum burst.
+      // True breakouts show EMA divergence; a MACD line < 0.04 means the 12/26 EMAs are
+      // nearly equal despite claimed price expansion — institutional follow-through is absent.
+      // Threshold chosen to block NFLX (MACD 0.031, VolR 4.14, RSI 71.9) and
+      // ADBE (MACD 0.028, VolR 4.55, RSI 66.3) without touching NOW (VolR 3.41 < 3.5)
+      // or ARM/NKE (RSI 65.3/65.4 < 66).
+      || (macdLine < 0.04 && volumeRatio >= 3.5 && rsi14 > 66)
     )
   // Range too tight: per-bar ATR so small the stock can't realistically reach the reward target
   // before a stagnation exit. adrPct < 1.5% = less than half a typical 2.4% reward target in the full day.
