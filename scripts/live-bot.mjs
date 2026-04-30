@@ -41,6 +41,10 @@ import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { logTradeEvent, logRoundTrip, logSkippedTrade } from './lib/trade-logger.mjs'
 import { buildReport, normalizeLiveTrade, allTargetsPassed } from './lib/report-builder.mjs'
+import {
+  sleep, round2, atr14Pct, atrBaseline20Pct,
+  vwap as computeVWAP, tf15Bullish as _tf15Bullish, isMarketVolatile
+} from './lib/indicators.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -165,54 +169,14 @@ if (IS_LIVE_BROKER && !ALLOW_DIRECT_LIVE_BOT) {
   process.exit(1)
 }
 
-// ── Math helpers ──────────────────────────────────────────────────────────────
-function avgArr(arr)   { return arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0 }
-function round2(v)     { return Math.round((+v + Number.EPSILON) * 100) / 100 }
+// ── Display + local helpers ───────────────────────────────────────────────────
+// sleep, round2, atr14Pct, atrBaseline20Pct, computeVWAP, isMarketVolatile
+// imported from ./lib/indicators.mjs above.
 function fmt(n, d = 2) { return Number(n).toFixed(d) }
 function fmtUsd(n)     { return (n >= 0 ? '+$' : '-$') + Math.abs(n).toFixed(2) }
-function sleep(ms)     { return new Promise(r => setTimeout(r, ms)) }
+function _utc()        { return new Date().toISOString().slice(0, 16).replace('T', ' ') }
 
-// log helpers accept (mode, type, data) — mode is resolved at call sites below.
-function _utc() { return new Date().toISOString().slice(0, 16).replace('T', ' ') }
-
-function ema(prices, period) {
-  if (!prices.length) return 0
-  if (prices.length <= period) return avgArr(prices)
-  const k = 2 / (period + 1)
-  let e = avgArr(prices.slice(0, period))
-  for (let i = period; i < prices.length; i++) e = prices[i] * k + e * (1 - k)
-  return e
-}
-
-function atr14Pct(candles, idx) {
-  let sum = 0, count = 0
-  for (let i = Math.max(1, idx - 13); i <= idx; i++) {
-    const c = candles[i], p = candles[i - 1]
-    if (!c || !p) continue
-    sum += Math.max(c.h - c.l, Math.abs(c.h - p.c), Math.abs(c.l - p.c))
-    count++
-  }
-  const atr = count > 0 ? sum / count : 0
-  return candles[idx]?.c > 0 ? (atr / candles[idx].c) * 100 : 0
-}
-
-function atrBaseline20Pct(candles) {
-  const n = candles.length
-  if (n < 25) return 0
-  let sum = 0, count = 0
-  for (let i = n - 20; i < n; i++) {
-    const v = atr14Pct(candles, i)
-    if (v > 0) { sum += v; count++ }
-  }
-  return count > 0 ? sum / count : 0
-}
-
-function computeVWAP(sessionCandles) {
-  let tpv = 0, vol = 0
-  for (const c of sessionCandles) { tpv += ((c.h + c.l + c.c) / 3) * c.v; vol += c.v }
-  return vol > 0 ? tpv / vol : 0
-}
-
+// Opening range: high/low of the first ORB_BARS bars of the session.
 function computeORB(sessionCandles) {
   if (sessionCandles.length < ORB_BARS) return { orbHigh: 0, orbLow: 0 }
   const slice = sessionCandles.slice(0, ORB_BARS)
@@ -222,34 +186,8 @@ function computeORB(sessionCandles) {
   }
 }
 
-function compute15mBullish(sessionCandles) {
-  const closes = []
-  for (let k = sessionCandles.length - 1; k >= 0 && closes.length < 15; k -= HTF_STEP) {
-    closes.unshift(sessionCandles[k].c)
-  }
-  if (closes.length < 10) return null
-  return ema(closes, 5) > ema(closes, 10)
-}
-
-function isMarketVolatile(spyCandles) {
-  const n = spyCandles.length
-  if (n < 21) return false
-  let atr5 = 0
-  for (let k = n - 5; k < n; k++) {
-    const c = spyCandles[k], p = spyCandles[k - 1]
-    if (!p) continue
-    atr5 += Math.max(c.h - c.l, Math.abs(c.h - p.c), Math.abs(c.l - p.c))
-  }
-  atr5 = (atr5 / 5) / spyCandles[n - 1].c * 100
-  let atr20 = 0
-  for (let k = n - 20; k < n; k++) {
-    const c = spyCandles[k], p = spyCandles[k - 1]
-    if (!p) continue
-    atr20 += Math.max(c.h - c.l, Math.abs(c.h - p.c), Math.abs(c.l - p.c))
-  }
-  atr20 = (atr20 / 20) / spyCandles[n - 1].c * 100
-  return atr20 > 0 && atr5 > atr20 * 1.3
-}
+// Wrapper: resolve HTF_STEP at call time so the function can be declared here.
+function compute15mBullish(candles) { return _tf15Bullish(candles, HTF_STEP) }
 
 // ── Alpaca REST helpers ───────────────────────────────────────────────────────
 async function apiFetch(url, opts = {}) {

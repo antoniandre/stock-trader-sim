@@ -13,6 +13,7 @@ import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { buildReport, normalizeBTTrade, allTargetsPassed } from './lib/report-builder.mjs'
 import { logTradeEvent, logRoundTrip } from './lib/trade-logger.mjs'
+import { sleep, round2, round4, avg, ema, rsi14, macd, atr14Pct, atrBaseline20Pct, vwap, tf15Bullish } from './lib/indicators.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -281,8 +282,8 @@ const BACKTEST_SYMBOLS = Number.isFinite(MAX_SYMBOLS) && MAX_SYMBOLS > 0
   : RAW_BACKTEST_SYMBOLS
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-function round2(v) { return Math.round((+v + Number.EPSILON) * 100) / 100 }
-function round4(v) { return Math.round((+v + Number.EPSILON) * 10000) / 10000 }
+// round2, round4, avg, sleep, ema, rsi14, macd, atr14Pct, atrBaseline20Pct,
+// tf15Bullish, vwap — imported from ./lib/indicators.mjs above.
 
 function stableHash(value) {
   let hash = 0
@@ -290,86 +291,6 @@ function stableHash(value) {
     hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0
   }
   return Math.abs(hash).toString(36)
-}
-
-function avg(arr) {
-  if (!arr.length) return 0
-  return arr.reduce((s, v) => s + v, 0) / arr.length
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function ema(prices, period) {
-  if (!prices.length) return 0
-  if (prices.length <= period) return avg(prices)
-  const k = 2 / (period + 1)
-  let e = avg(prices.slice(0, period))
-  for (let i = period; i < prices.length; i++) e = prices[i] * k + e * (1 - k)
-  return e
-}
-
-function rsi14(prices) {
-  if (prices.length < 15) return 50
-  let g = 0, l = 0
-  for (let i = prices.length - 14; i < prices.length; i++) {
-    const d = prices[i] - prices[i - 1]
-    if (d > 0) g += d; else l += Math.abs(d)
-  }
-  const ag = g / 14, al = l / 14
-  if (al === 0) return 100
-  return 100 - 100 / (1 + ag / al)
-}
-
-function macd(prices) {
-  if (prices.length < 26) return 0
-  return ema(prices, 12) - ema(prices, 26)
-}
-
-// 14-period ATR as % of close (True Range = max(H−L, |H−prevC|, |L−prevC|))
-function atr14Pct(candles, idx) {
-  if (idx < 1) return 0
-  let total = 0, count = 0
-  for (let i = Math.max(1, idx - 13); i <= idx; i++) {
-    const h = candles[i].high, l = candles[i].low, pc = candles[i - 1].close
-    total += Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc))
-    count++
-  }
-  const cl = candles[idx].close
-  return cl > 0 && count > 0 ? round4((total / count) / cl * 100) : 0
-}
-
-// Average of 14-period ATR% over the last 20 bars ending before idx (exclusive).
-// Used as the ATR expansion baseline: current ATR > 1.4× this = real move underway.
-function atrBaseline20Pct(candles, idx) {
-  if (idx < 25) return 0
-  let sum = 0, count = 0
-  for (let i = idx - 20; i < idx; i++) {
-    const v = atr14Pct(candles, i)
-    if (v > 0) { sum += v; count++ }
-  }
-  return count > 0 ? sum / count : 0
-}
-
-// 15-min trend: EMA5 > EMA10 on resampled 15-min closes.
-// Step = 3 bars at 5-min (3×5=15 min), 15 bars at 1-min (15×1=15 min).
-function tf15BullishAt(candles, idx) {
-  const closes = []
-  for (let k = idx; k >= 0 && closes.length < 15; k -= HTF_STEP) closes.unshift(candles[k].close)
-  if (closes.length < 10) return null
-  return ema(closes, 5) > ema(closes, 10)
-}
-
-// VWAP uses high/low/close + volume for the current trading day
-function vwap(dayCandles) {
-  let tpv = 0, vol = 0
-  for (const c of dayCandles) {
-    const tp = (c.high + c.low + c.close) / 3
-    tpv += tp * c.volume
-    vol += c.volume
-  }
-  return vol > 0 ? tpv / vol : 0
 }
 
 // ── Alpaca data fetch (paginated — Alpaca caps each page at 2000 bars) ────────
@@ -574,7 +495,7 @@ function simulateSymbol(symbol, candles, spyTrendMap = new Map(), volRegimeMap =
     const atrPctVal       = atr14Pct(candles, i)
     const atrBaselineVal  = atrBaseline20Pct(candles, i)
     const orb         = orbMap.get(currentDate) ?? { high: 0, low: 0 }
-    const tf15        = tf15BullishAt(candles, i)
+    const tf15        = tf15Bullish(candles, HTF_STEP, i)
     const nowMsLocal  = new Date(c.timestamp).getTime()
     const circuitBreakerVal = consecutiveLosses >= 2 && nowMsLocal < pauseUntilMs
     const marketVolatileRegime = symbol !== 'SPY' ? (volRegimeMap.get(c.timestamp) ?? false) : false
