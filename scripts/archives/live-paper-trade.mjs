@@ -25,9 +25,9 @@ for (const line of readFileSync(join(__dirname, '../api/.env'), 'utf8').split('\
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim()
 }
 
-const { evaluateDayTradingDecision } = await import('../api/day-trading-bot.js')
-const { runDayTradingBacktest } = await import('../api/day-trading-backtest.js')
-const { recordSymbolProfileOutcome } = await import('../api/services/symbol-profile-learning.js')
+const { evaluateDayTradingDecision } = await import('../../api/day-trading-bot.js')
+const { runDayTradingBacktest } = await import('../../api/day-trading-backtest.js')
+const { recordSymbolProfileOutcome } = await import('../../api/services/symbol-profile-learning.js')
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
