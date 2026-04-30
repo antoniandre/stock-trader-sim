@@ -37,9 +37,9 @@ export class SimulationBrokerAdapter extends BrokerAdapter {
     return getMockAccountData()
   }
 
-  async getAccountActivities(activityType = null, limit = 100, pageToken = null, _context = null) {
+  async getAccountActivities(activityType = null, limit = 100, _context = null) {
     const service = await getTradingService()
-    return await service.getAccountActivities(activityType, limit, pageToken)
+    return await service.getAccountActivities(activityType, limit, null)
   }
 
   async getPositions(_context = null) {
@@ -52,9 +52,9 @@ export class SimulationBrokerAdapter extends BrokerAdapter {
     return await service.getOrders(status, limit)
   }
 
-  async getTradingHistory(limit = 100, pageToken = null, _context = null) {
+  async getTradingHistory(limit = 100, _context = null) {
     const service = await getTradingService()
-    return await service.getTradingHistory(limit, pageToken)
+    return await service.getTradingHistory(limit, null)
   }
 
   async getPortfolioHistory(period = '1D', timeframe = '1Min', _context = null) {

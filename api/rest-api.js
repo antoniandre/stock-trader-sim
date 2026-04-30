@@ -24,7 +24,6 @@ import {
   getAlpacaAccountActivities,
   getAlpacaPortfolioHistory,
   getAlpacaTradingHistory,
-  getAlpacaFillActivityCount,
   getAlpacaPositions,
   getAlpacaOrders,
   placeOrder
@@ -41,6 +40,64 @@ import { normalizeBrokerError } from './services/broker-error.js'
 import { getTradeCandidates } from './services/trade-screener-service.js'
 import { listDailyCatalystSummariesWithFlags, triggerDailyCatalystRssRefetch } from './services/daily-catalysts.js'
 import { resolveCryptoBuyVenueSymbol } from './services/crypto-usd-quote-fallback.js'
+
+// --- GET /api/trading-history/count: walk FILL cursors (Alpaca has no total). Cached ~2m. ---
+const TRADING_HISTORY_FILL_COUNT_TTL_MS = 120_000
+const TRADING_HISTORY_FILL_COUNT_CAP = 50_000
+const TRADING_HISTORY_FILL_COUNT_PAGE = 100
+
+let tradingHistoryFillCountCache = { at: 0, total: null, capped: false }
+
+function countSimulationPortfolioFills() {
+  let n = 0
+  for (const row of Object.values(state.portfolio || {})) {
+    n += Array.isArray(row?.history) ? row.history.length : 0
+  }
+  return n
+}
+
+async function getTradingHistoryFillCount({ bypassCache = false } = {}) {
+  if (IS_SIMULATION) {
+    return { total: countSimulationPortfolioFills(), capped: false, cached: false }
+  }
+
+  const now = Date.now()
+  if (
+    !bypassCache
+    && tradingHistoryFillCountCache.total !== null
+    && now - tradingHistoryFillCountCache.at < TRADING_HISTORY_FILL_COUNT_TTL_MS
+  ) {
+    return {
+      total: tradingHistoryFillCountCache.total,
+      capped: tradingHistoryFillCountCache.capped,
+      cached: true
+    }
+  }
+
+  let total = 0
+  let capped = false
+  let pageToken = null
+
+  while (true) {
+    const batch = await getAlpacaAccountActivities('FILL', TRADING_HISTORY_FILL_COUNT_PAGE, pageToken)
+    const arr = Array.isArray(batch) ? batch : []
+    total += arr.length
+
+    if (total >= TRADING_HISTORY_FILL_COUNT_CAP) {
+      capped = true
+      total = TRADING_HISTORY_FILL_COUNT_CAP
+      break
+    }
+    if (arr.length < TRADING_HISTORY_FILL_COUNT_PAGE) break
+
+    const lastId = arr[arr.length - 1]?.id
+    if (!lastId) break
+    pageToken = lastId
+  }
+
+  tradingHistoryFillCountCache = { at: now, total, capped }
+  return { total, capped, cached: false }
+}
 
 const tinyDedupe = new Map()
 const TINY_DEDUPE_MS = 1000
@@ -961,7 +1018,7 @@ export function createRestApiRoutes() {
   app.get('/api/trading-history/count', async (req, res) => {
     try {
       const refresh = String(req.query.refresh || '') === '1' || String(req.query.refresh).toLowerCase() === 'true'
-      const { total, capped, cached } = await getAlpacaFillActivityCount({ bypassCache: refresh })
+      const { total, capped, cached } = await getTradingHistoryFillCount({ bypassCache: refresh })
       res.json(createStandardResponse({ total, capped, cached }))
     }
     catch (error) {
@@ -1992,7 +2049,6 @@ export {
   getAlpacaAccountActivities,
   getAlpacaPortfolioHistory,
   getAlpacaTradingHistory,
-  getAlpacaFillActivityCount,
   getAlpacaPositions,
   placeOrder,
   recordTrade
