@@ -8,3 +8,4 @@ api/input/
 api/data/strategy-runs.jsonl
 api/data/backtest-bars/
 logs/
+reports/
