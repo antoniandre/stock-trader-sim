@@ -16,7 +16,7 @@ export class BrokerAdapter {
     throw new Error('getAccount() must be implemented by broker adapter')
   }
 
-  async getAccountActivities(_activityType = null, _limit = 100, _context = null) {
+  async getAccountActivities(_activityType = null, _limit = 100, _pageToken = null, _context = null) {
     throw new Error('getAccountActivities() must be implemented by broker adapter')
   }
 
@@ -28,7 +28,7 @@ export class BrokerAdapter {
     throw new Error('getOrders() must be implemented by broker adapter')
   }
 
-  async getTradingHistory(_limit = 100, _context = null) {
+  async getTradingHistory(_limit = 100, _pageToken = null, _context = null) {
     throw new Error('getTradingHistory() must be implemented by broker adapter')
   }
 

@@ -23,7 +23,7 @@
 
   portfolio-chart.mt6(:history="portfolio.portfolioHistory" @period-change="onPeriodChange")
   open-positions.mt6
-  trade-history.mt6(:history="portfolio.history" :loading="portfolio.loading")
+  trade-history.mt6(:refresh-token="tradeHistoryRefresh")
 </template>
 
 <script setup>
@@ -37,8 +37,8 @@ import TradeHistory from '@/components/trade-history.vue'
 import { formatCurrency } from '@/utils/formatters'
 
 const account = ref(null)
+const tradeHistoryRefresh = ref(0)
 const portfolio = reactive({
-  history: [],
   portfolioHistory: null,
   trades: [],
   loading: false
@@ -51,28 +51,26 @@ const { addMessageHandler } = useWebSocket()
 async function fetchDashboardData() {
   try {
     portfolio.loading = true
-    const data = await fetchDashboard(100, 'open', 100)
+    const data = await fetchDashboard(0, 'open', 100)
 
     // Update account.
     account.value = data.account || null
 
-    // Update trading history.
-    portfolio.history = data.tradingHistory || []
-
     // Note: positions and orders are handled by their respective components via WebSocket updates.
+    // Trading history is loaded inside `trade-history.vue` (server-paginated).
   }
   catch (err) {
     console.error('Error fetching dashboard data:', err)
     account.value = null
-    portfolio.history = []
   }
   finally {
     portfolio.loading = false
   }
 }
 
-// Legacy function for compatibility.
+// Legacy function for compatibility (used by provide/inject and WebSocket).
 async function fetchHistory() {
+  tradeHistoryRefresh.value += 1
   await fetchDashboardData()
 }
 

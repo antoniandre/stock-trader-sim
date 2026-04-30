@@ -16,14 +16,16 @@ export async function getAccount() {
   return data
 }
 
-export async function getAccountActivities(activityType = null, limit = 100, direction = 'desc') {
+export async function getAccountActivities(activityType = null, limit = 100, direction = 'desc', pageToken = null) {
   let url = `${ALPACA_BASE_URL}/v2/account/activities`
   if (activityType) url += `/${activityType}`
 
+  const pageSize = Math.min(Math.max(Number(limit) || 100, 1), 100)
   const params = new URLSearchParams({
-    limit: limit.toString(),
+    page_size: String(pageSize),
     direction
   })
+  if (pageToken) params.set('page_token', String(pageToken))
 
   const { data } = await axios.get(`${url}?${params}`, { headers: HEADERS })
   return data

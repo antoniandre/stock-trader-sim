@@ -25,7 +25,7 @@ export class TradingService {
    * @param {number} limit - Maximum number of activities to return
    * @returns {Promise<Array>} Array of activity objects
    */
-  async getAccountActivities(activityType = null, limit = 100) {
+  async getAccountActivities(activityType = null, limit = 100, pageToken = null) {
     throw new Error('getAccountActivities() must be implemented by service provider')
   }
 
@@ -64,11 +64,12 @@ export class TradingService {
   }
 
   /**
-   * Get order history.
-   * @param {number} limit - Maximum number of orders to return
-   * @returns {Promise<Object>} { success: boolean, history: Array }
+   * Get order history (fills).
+   * @param {number} limit - Maximum number of rows per page (provider cap applies)
+   * @param {string|null} pageToken - Opaque cursor for the next older page (Alpaca activity id)
+   * @returns {Promise<Object>} { success: boolean, history: Array, nextPageToken?: string|null }
    */
-  async getTradingHistory(limit = 100) {
+  async getTradingHistory(limit = 100, pageToken = null) {
     throw new Error('getTradingHistory() must be implemented by service provider')
   }
 

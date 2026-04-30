@@ -282,16 +282,40 @@ export async function evolveDayTradingStrategies(payload) {
   }
 }
 
-export async function fetchTradingHistory(limit = 100) {
+export async function fetchTradingHistory(limit = 50, pageToken = null) {
   try {
-    const response = await fetch(`${API_BASE}/trading-history?limit=${limit}`)
+    const params = new URLSearchParams({ limit: String(limit) })
+    if (pageToken) params.set('page_token', pageToken)
+    const response = await fetch(`${API_BASE}/trading-history?${params}`)
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
-    return await response.json()
+    const result = await response.json()
+    const data = result.data || result
+    const tradingHistory = Array.isArray(data.tradingHistory) ? data.tradingHistory : []
+    const pagination = data.pagination || { nextPageToken: null, hasMore: false }
+
+    return { tradingHistory, pagination }
   }
   catch (error) {
     console.error('API Error:', error)
     throw error
+  }
+}
+
+/** Exact FILL count for pagination (server walks Alpaca cursors; cached ~2m). */
+export async function fetchTradingHistoryCount(bypassCache = false) {
+  const params = new URLSearchParams()
+  if (bypassCache) params.set('refresh', '1')
+  const q = params.toString()
+  const response = await fetch(`${API_BASE}/trading-history/count${q ? `?${q}` : ''}`)
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+  const result = await response.json()
+  const data = result.data || result
+  return {
+    total: Number(data.total) || 0,
+    capped: Boolean(data.capped),
+    cached: Boolean(data.cached)
   }
 }
 

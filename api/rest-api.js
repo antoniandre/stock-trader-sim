@@ -19,7 +19,16 @@ import { getBrokerAdapter, getBrokerIdentity, getBrokerCapabilities } from './se
 import { getMarketDataIdentity, getMarketDataCapabilities, getMarketDataProvider } from './services/market-data-manager.js'
 import { subscribeToStock, unsubscribeFromStock, getCurrentMarketStatus } from './websocket-server.js'
 import { getMarketStatus, getPrice, getAllTradableStocks, initializeMarketData, getStockHistoricalData, getStockHistoricalDataByRange, getStockMarketStatus, getStockHistoricalDataProgressive, getTopMovers, fetchStockTrend, analyzeVolume } from './market-data.js'
-import { getAlpacaAccount, getAlpacaAccountActivities, getAlpacaPortfolioHistory, getAlpacaTradingHistory, getAlpacaPositions, getAlpacaOrders, placeOrder } from './alpaca-account.js'
+import {
+  getAlpacaAccount,
+  getAlpacaAccountActivities,
+  getAlpacaPortfolioHistory,
+  getAlpacaTradingHistory,
+  getAlpacaFillActivityCount,
+  getAlpacaPositions,
+  getAlpacaOrders,
+  placeOrder
+} from './alpaca-account.js'
 import * as AlpacaClient from './clients/alpaca-client.js'
 import { broadcast } from './websocket-server.js'
 import { recordTrade } from './simulation.js'
@@ -868,13 +877,20 @@ export function createRestApiRoutes() {
   app.get('/api/dashboard', async (req, res) => {
     try {
       const { tradingHistoryLimit = 100, ordersStatus = 'open', ordersLimit = 100 } = req.query
+      const historyLimitRaw = parseInt(String(tradingHistoryLimit), 10)
+      const skipTradingHistory = Number.isFinite(historyLimitRaw) && historyLimitRaw <= 0
+      const historyLimit = skipTradingHistory
+        ? 0
+        : Math.min(Math.max(Number.isFinite(historyLimitRaw) ? historyLimitRaw : 100, 1), 100)
 
       // Fetch all data in parallel for maximum speed.
       const [account, positions, orders, tradingHistoryResult] = await Promise.all([
         getAlpacaAccount(),
         getAlpacaPositions(),
         getAlpacaOrders(ordersStatus, parseInt(ordersLimit)),
-        getAlpacaTradingHistory(parseInt(tradingHistoryLimit))
+        skipTradingHistory
+          ? Promise.resolve({ success: true, history: [], nextPageToken: null })
+          : getAlpacaTradingHistory(historyLimit)
       ])
 
       const tradingHistory = tradingHistoryResult.success ? tradingHistoryResult.history : []
@@ -941,12 +957,39 @@ export function createRestApiRoutes() {
     }
   })
 
-  // Trading history endpoint.
+  // Total FILL count for pagination (walks Alpaca cursors; short TTL cache).
+  app.get('/api/trading-history/count', async (req, res) => {
+    try {
+      const refresh = String(req.query.refresh || '') === '1' || String(req.query.refresh).toLowerCase() === 'true'
+      const { total, capped, cached } = await getAlpacaFillActivityCount({ bypassCache: refresh })
+      res.json(createStandardResponse({ total, capped, cached }))
+    }
+    catch (error) {
+      console.error('GET /api/trading-history/count:', error)
+      res.status(500).json({ error: 'Failed to count trading history.' })
+    }
+  })
+
+  // Trading history endpoint (cursor pagination via Alpaca page_token).
   app.get('/api/trading-history', async (req, res) => {
-    const { limit = 100 } = req.query
-    const { success, history, message } = await getAlpacaTradingHistory(limit)
-    if (success) res.json(history)
-    else res.status(500).json({ error: 'Failed to fetch trading history.' })
+    const rawLimit = parseInt(String(req.query.limit ?? '20'), 10)
+    const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? rawLimit : 20, 1), 100)
+    const page_token = typeof req.query.page_token === 'string' && req.query.page_token.length
+      ? req.query.page_token
+      : null
+
+    const { success, history, message, nextPageToken } = await getAlpacaTradingHistory(limit, page_token)
+    if (success) {
+      res.json(createStandardResponse({
+        tradingHistory: history,
+        pagination: {
+          limit,
+          nextPageToken: nextPageToken || null,
+          hasMore: Boolean(nextPageToken)
+        }
+      }))
+    }
+    else res.status(500).json({ error: message || 'Failed to fetch trading history.' })
   })
 
   // Positions endpoint.
@@ -1949,6 +1992,7 @@ export {
   getAlpacaAccountActivities,
   getAlpacaPortfolioHistory,
   getAlpacaTradingHistory,
+  getAlpacaFillActivityCount,
   getAlpacaPositions,
   placeOrder,
   recordTrade

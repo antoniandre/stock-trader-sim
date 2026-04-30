@@ -37,11 +37,11 @@ export class AlpacaTradingService extends TradingService {
     }
   }
 
-  async getAccountActivities(activityType = null, limit = 100) {
+  async getAccountActivities(activityType = null, limit = 100, pageToken = null) {
     if (IS_SIMULATION) return getMockAccountActivities()
 
     try {
-      const data = await AlpacaClient.getAccountActivities(activityType, limit)
+      const data = await AlpacaClient.getAccountActivities(activityType, limit, 'desc', pageToken)
       console.log(`✅ Successfully fetched ${data.length} account activities`)
       state.accountActivities = data
       return data
@@ -195,12 +195,13 @@ export class AlpacaTradingService extends TradingService {
     }
   }
 
-  async getTradingHistory(limit = 100) {
+  async getTradingHistory(limit = 100, pageToken = null) {
     try {
-      const activities = await this.getAccountActivities('FILL', limit)
+      const activities = await this.getAccountActivities('FILL', limit, pageToken)
+      const capped = Array.isArray(activities) ? activities : []
 
       // Transform activities to match frontend expectations.
-      const tradingHistory = activities.map(activity => ({
+      const tradingHistory = capped.map(activity => ({
         id: activity.id,
         symbol: activity.symbol,
         side: activity.side,
@@ -211,7 +212,12 @@ export class AlpacaTradingService extends TradingService {
         order_id: activity.order_id
       }))
 
-      return { success: true, history: tradingHistory }
+      const pageSize = Math.min(Math.max(Number(limit) || 100, 1), 100)
+      const lastActivity = capped.length ? capped[capped.length - 1] : null
+      const nextPageToken =
+        capped.length === pageSize && lastActivity?.id ? lastActivity.id : null
+
+      return { success: true, history: tradingHistory, nextPageToken }
     }
     catch (error) {
       console.error('Error fetching trading history:', error)

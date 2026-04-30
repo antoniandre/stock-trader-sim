@@ -15,6 +15,25 @@ import { IS_SIMULATION, state } from './config.js'
 import { getMockAccountData } from './simulation.js'
 import { getBrokerAdapter } from './services/broker-manager.js'
 
+/** Alpaca does not expose a total; we walk cursors (cached) for accurate pagination. */
+const FILL_COUNT_CACHE_TTL_MS = 120_000
+const FILL_COUNT_HARD_CAP = 50_000
+const FILL_COUNT_PAGE = 100
+
+let fillActivityCountCache = {
+  at: 0,
+  total: null,
+  capped: false
+}
+
+function countSimulationFills() {
+  let n = 0
+  for (const row of Object.values(state.portfolio || {})) {
+    n += Array.isArray(row?.history) ? row.history.length : 0
+  }
+  return n
+}
+
 // Lazy-load service instance.
 let serviceInstance = null
 
@@ -32,9 +51,9 @@ export async function getAlpacaAccount() {
   return account
 }
 
-export async function getAlpacaAccountActivities(activityType = null, limit = 100) {
+export async function getAlpacaAccountActivities(activityType = null, limit = 100, pageToken = null) {
   const broker = await getBrokerAdapter()
-  return await broker.getAccountActivities(activityType, limit)
+  return await broker.getAccountActivities(activityType, limit, pageToken)
 }
 
 export async function getAlpacaPositions() {
@@ -47,9 +66,59 @@ export async function getAlpacaOrders(status = 'open', limit = 100) {
   return await broker.getOrders(status, limit)
 }
 
-export async function getAlpacaTradingHistory(limit = 100) {
+export async function getAlpacaTradingHistory(limit = 100, pageToken = null) {
   const broker = await getBrokerAdapter()
-  return await broker.getTradingHistory(limit)
+  return await broker.getTradingHistory(limit, pageToken)
+}
+
+/**
+ * Total FILL activities (trade executions) for the linked account.
+ * @param {{ bypassCache?: boolean }} [opts]
+ * @returns {Promise<{ total: number, capped: boolean, cached: boolean }>}
+ */
+export async function getAlpacaFillActivityCount(opts = {}) {
+  const { bypassCache = false } = opts
+
+  if (IS_SIMULATION) {
+    return { total: countSimulationFills(), capped: false, cached: false }
+  }
+
+  const now = Date.now()
+  if (
+    !bypassCache
+    && fillActivityCountCache.total !== null
+    && now - fillActivityCountCache.at < FILL_COUNT_CACHE_TTL_MS
+  ) {
+    return {
+      total: fillActivityCountCache.total,
+      capped: fillActivityCountCache.capped,
+      cached: true
+    }
+  }
+
+  let total = 0
+  let capped = false
+  let pageToken = null
+
+  while (true) {
+    const batch = await getAlpacaAccountActivities('FILL', FILL_COUNT_PAGE, pageToken)
+    const arr = Array.isArray(batch) ? batch : []
+    total += arr.length
+
+    if (total >= FILL_COUNT_HARD_CAP) {
+      capped = true
+      total = FILL_COUNT_HARD_CAP
+      break
+    }
+    if (arr.length < FILL_COUNT_PAGE) break
+
+    const lastId = arr[arr.length - 1]?.id
+    if (!lastId) break
+    pageToken = lastId
+  }
+
+  fillActivityCountCache = { at: now, total, capped }
+  return { total, capped, cached: false }
 }
 
 export async function getAlpacaPortfolioHistory(period = '1D', timeframe = '1Min') {
