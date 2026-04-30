@@ -36,9 +36,11 @@
  * Requires ALPACA_KEY + ALPACA_SECRET in api/.env (paper account by default).
  */
 
-import { readFileSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
+import { logTradeEvent, logRoundTrip, logSkippedTrade } from './lib/trade-logger.mjs'
+import { buildReport, normalizeLiveTrade, allTargetsPassed } from './lib/report-builder.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -67,7 +69,8 @@ if (configPath) {
     fileConfig = JSON.parse(readFileSync(abs, 'utf8'))
     console.log(`📋  Config loaded: ${abs}`)
     if (fileConfig._name) console.log(`    ${fileConfig._name}`)
-  } catch (err) {
+  }
+  catch (err) {
     console.error(`❌  Failed to load config file "${abs}": ${err.message}`)
     process.exit(1)
   }
@@ -152,6 +155,7 @@ const SECRET = process.env.ALPACA_SECRET
 const BROKER = process.env.ALPACA_BASE_URL     || 'https://paper-api.alpaca.markets'
 const DATA   = process.env.ALPACA_API_BASE_URL || 'https://data.alpaca.markets'
 const IS_LIVE_BROKER = !/paper-api/i.test(BROKER)
+const BOT_MODE       = IS_LIVE_BROKER ? 'live' : 'paper'
 const ALLOW_DIRECT_LIVE_BOT = process.env.ALLOW_DIRECT_LIVE_BOT === 'true'
 const authHeaders = { 'APCA-API-KEY-ID': KEY, 'APCA-API-SECRET-KEY': SECRET }
 
@@ -167,6 +171,9 @@ function round2(v)     { return Math.round((+v + Number.EPSILON) * 100) / 100 }
 function fmt(n, d = 2) { return Number(n).toFixed(d) }
 function fmtUsd(n)     { return (n >= 0 ? '+$' : '-$') + Math.abs(n).toFixed(2) }
 function sleep(ms)     { return new Promise(r => setTimeout(r, ms)) }
+
+// log helpers accept (mode, type, data) — mode is resolved at call sites below.
+function _utc() { return new Date().toISOString().slice(0, 16).replace('T', ' ') }
 
 function ema(prices, period) {
   if (!prices.length) return 0
@@ -319,7 +326,8 @@ async function placeStopOrder(symbol, qty, stopPrice) {
 
 async function getOrderStatus(orderId) { return apiFetch(`${BROKER}/v2/orders/${orderId}`) }
 async function cancelAlpacaOrder(orderId) {
-  try { await apiFetch(`${BROKER}/v2/orders/${orderId}`, { method: 'DELETE' }) } catch {}
+  try { await apiFetch(`${BROKER}/v2/orders/${orderId}`, { method: 'DELETE' }) }
+  catch {}
 }
 
 async function waitForFill(orderId) {
@@ -342,7 +350,8 @@ async function fetchLatestSpread(symbol) {
     const bid = parseFloat(q.bp ?? q.bid_price ?? 0)
     const mid = (ask + bid) / 2
     return mid > 0 ? ((ask - bid) / mid) * 100 : 0.06
-  } catch { return 0.06 }
+  }
+  catch { return 0.06 }
 }
 
 // ── Bot state ─────────────────────────────────────────────────────────────────
@@ -496,17 +505,37 @@ async function evaluateAndTrade(sym) {
 
   // ── BUY ──────────────────────────────────────────────────────────────────
   if (action === 'buy' && !pos) {
+    // Shared skip helper — only called when action===buy but we gate it
+    const _skipIndicators = () => {
+      const ms = decision.metrics || {}
+      return {
+        regime: marketRegime, setup, behavior: behaviorProfileName,
+        score: scores?.entry,
+        rsi:    ms.rsi14      != null ? round2(ms.rsi14)      : null,
+        vwapStr: `${(ms.vwapDevPct ?? vwapDevPct) >= 0 ? '↑' : '↓'}${round2(ms.vwap ?? vwap)}`,
+        macd:   ms.macdLine   != null ? round2(ms.macdLine)   : null,
+        volR:   ms.volumeRatio != null ? round2(ms.volumeRatio) : null,
+      }
+    }
+
     if (!ALLOWED_SETUPS.has(setup)) {
-      s.lastSkipReason = `setup ${setup} not in whitelist`
+      const reason = `setup ${setup} not in whitelist`
+      s.lastSkipReason = reason
+      logSkippedTrade(BOT_MODE, { symbol: sym, ..._skipIndicators(), reason })
       return
     }
     if (!ALLOWED_PROFILES.has(behaviorProfileName)) {
-      s.lastSkipReason = `behavior ${behaviorProfileName} blocked`
+      const reason = `behavior ${behaviorProfileName} blocked`
+      s.lastSkipReason = reason
+      logSkippedTrade(BOT_MODE, { symbol: sym, ..._skipIndicators(), reason })
       return
     }
     if (Date.now() - lastOrderMs < ORDER_COOLDOWN) return
     if (countOpenPositions() >= 2) {
-      console.log(`  🔒  ${sym}: correlation guard — 2 positions open`)
+      const reason = 'correlation guard — 2 positions open'
+      console.log(`  🔒  ${sym}: ${reason}`)
+      s.lastSkipReason = reason
+      logSkippedTrade(BOT_MODE, { symbol: sym, ..._skipIndicators(), reason })
       return
     }
 
@@ -514,7 +543,10 @@ async function evaluateAndTrade(sym) {
     const qty = Math.max(1, Math.floor(cappedAlloc / bar.c))
     const approval = approveBotBuy({ symbol: sym, qty, price: bar.c, state: s })
     if (!approval.approved) {
-      console.log(`  🛑  ${sym}: buy blocked — ${approval.reason}`)
+      const reason = `buy blocked — ${approval.reason}`
+      console.log(`  🛑  ${sym}: ${reason}`)
+      s.lastSkipReason = reason
+      logSkippedTrade(BOT_MODE, { symbol: sym, ..._skipIndicators(), reason })
       return
     }
 
@@ -526,21 +558,46 @@ async function evaluateAndTrade(sym) {
       const fillPrice    = parseFloat(filled.filled_avg_price) || bar.c
       const stopLossPct  = Number(decision.executionPlan?.stopLossPct) || 1.2
       const brokerStop   = parseFloat((fillPrice * (1 - stopLossPct / 100)).toFixed(2))
+      const m = decision.metrics || {}
+      const vwapAboveEntry = (m.vwapDevPct ?? vwapDevPct) >= 0
       s.position = {
         qty, avgEntryPrice: fillPrice,
         positionOpenedAt: Date.now(), highWatermarkPrice: fillPrice,
-        entrySetup: setup, trimmedHalf: false, stopOrderId: null
+        entrySetup: setup, trimmedHalf: false, stopOrderId: null,
+        entryTime:    new Date().toISOString(),
+        stopLossPct:  stopLossPct,
+        entryMetrics: {
+          regime:     marketRegime,
+          behavior:   behaviorProfileName,
+          tradeState: symbolBehavior?.tradeState,
+          score:      scores?.entry,
+          rsi:        m.rsi14     != null ? round2(m.rsi14)     : null,
+          vwap:       m.vwap      != null ? round2(m.vwap)      : round2(vwap),
+          vwapAbove:  vwapAboveEntry,
+          macd:       m.macdLine  != null ? round2(m.macdLine)  : null,
+          volR:       m.volumeRatio != null ? round2(m.volumeRatio) : null,
+        }
       }
       try {
         const stopOrder = await placeStopOrder(sym, qty, brokerStop)
         s.position.stopOrderId = stopOrder.id
         console.log(`  🛡️  Stop @ $${fmt(brokerStop)} (${stopOrder.id})`)
-      } catch (err) {
+      }
+      catch (err) {
         console.log(`  ⚠️  Broker stop failed: ${err.message}`)
       }
       lastOrderMs = Date.now()
       console.log(`  ✅  Filled @ $${fmt(fillPrice)}`)
-    } catch (err) {
+      const em = s.position.entryMetrics
+      logTradeEvent(BOT_MODE, 'BUY', {
+        symbol: sym, qty, price: fillPrice,
+        regime: em.regime, setup, behavior: em.behavior, score: em.score,
+        rsi: em.rsi, vwapStr: `${em.vwapAbove ? '↑' : '↓'}${em.vwap}`,
+        macd: em.macd, volR: em.volR,
+        reason: reasons?.[0] || '',
+      })
+    }
+    catch (err) {
       console.log(`  ❌  Buy failed: ${err.message}`)
     }
     return
@@ -564,10 +621,24 @@ async function evaluateAndTrade(sym) {
       try {
         const stopOrder = await placeStopOrder(sym, s.position.qty, brokerStop)
         s.position.stopOrderId = stopOrder.id
-      } catch {}
+      }
+      catch {}
       lastOrderMs = Date.now()
       console.log(`  ✅  Trimmed @ $${fmt(fillPrice)}  ${fmtUsd((fillPrice - pos.avgEntryPrice) * trimQty)}`)
-    } catch (err) { console.log(`  ❌  Trim failed: ${err.message}`) }
+      const em2 = pos.entryMetrics || {}
+      const m2  = decision.metrics || {}
+      logTradeEvent(BOT_MODE, 'TRIM', {
+        symbol: sym, qty: trimQty, price: fillPrice,
+        regime: marketRegime, setup: pos.entrySetup, behavior: em2.behavior,
+        score: scores?.management,
+        rsi: m2.rsi14 != null ? round2(m2.rsi14) : null,
+        vwapStr: `${(m2.vwapDevPct ?? vwapDevPct) >= 0 ? '↑' : '↓'}${round2(m2.vwap ?? vwap)}`,
+        macd: m2.macdLine != null ? round2(m2.macdLine) : null,
+        volR: m2.volumeRatio != null ? round2(m2.volumeRatio) : null,
+        reason: reasons?.[0] || 'trim',
+      })
+    }
+    catch (err) { console.log(`  ❌  Trim failed: ${err.message}`) }
     return
   }
 
@@ -608,12 +679,76 @@ async function evaluateAndTrade(sym) {
         }
       }
 
+      const heldMin    = Math.round((Date.now() - pos.positionOpenedAt) / 60_000)
+      const exitReason = reasons[0] || action
+      const em3  = pos.entryMetrics || {}
+      const m3   = decision.metrics || {}
+      const slPct   = pos.stopLossPct || 1.2
+      const riskUsd = pos.avgEntryPrice * (slPct / 100) * pos.qty
+      const riskR   = riskUsd > 0 ? round2(pnlUsd / riskUsd) : 0
+      const entryTs = pos.entryTime
+        ? pos.entryTime.slice(0, 16).replace('T', ' ')
+        : new Date(Date.now() - heldMin * 60_000).toISOString().slice(0, 16).replace('T', ' ')
+      const exitTs = _utc()
       allTrades.push({
-        symbol: sym, setup: pos.entrySetup,
-        entryPrice: pos.avgEntryPrice, exitPrice: fillPrice,
-        qty: pos.qty, pnlUsd, pnlPct,
-        reason: reasons[0] || action,
-        heldMin: Math.round((Date.now() - pos.positionOpenedAt) / 60_000)
+        symbol:     sym,
+        setup:      pos.entrySetup || setup,
+        entryPrice: pos.avgEntryPrice,
+        exitPrice:  fillPrice,
+        qty:        pos.qty,
+        notional:   round2(pos.qty * pos.avgEntryPrice),
+        pnlUsd:     round2(pnlUsd),
+        pnlPct:     round2(pnlPct),
+        riskR,
+        reason:     exitReason,
+        heldMin,
+        entryTs,
+        exitTs,
+        orderType:  'market',
+        regime:     em3.regime     || marketRegime,
+        behavior:   em3.behavior   || behaviorProfileName,
+        tradeState: em3.tradeState || symbolBehavior?.tradeState,
+        rsi:        em3.rsi,
+        vwap:       em3.vwap,
+        vwapAbove:  em3.vwapAbove,
+        macd:       em3.macd,
+        volR:       em3.volR,
+        confidence: scores?.entry ?? null,
+        status:     pnlUsd > 0 ? 'WIN' : 'LOSS',
+      })
+      // ── Live trade logs ──────────────────────────────────────────────────
+      const exitVwapStr = `${(m3.vwapDevPct ?? vwapDevPct) >= 0 ? '↑' : '↓'}${round2(m3.vwap ?? vwap)}`
+      logTradeEvent(BOT_MODE, 'SELL', {
+        symbol: sym, qty: pos.qty, price: fillPrice,
+        regime: marketRegime, setup: pos.entrySetup, behavior: em3.behavior || behaviorProfileName,
+        score: scores?.management,
+        rsi:    m3.rsi14      != null ? round2(m3.rsi14)      : null,
+        vwapStr: exitVwapStr,
+        macd:   m3.macdLine   != null ? round2(m3.macdLine)   : null,
+        volR:   m3.volumeRatio != null ? round2(m3.volumeRatio) : null,
+        reason: exitReason,
+      })
+      logRoundTrip(BOT_MODE, {
+        idx:       completedTrips + 1,
+        symbol:    sym,
+        entryTs,
+        exitTs:    _utc(),
+        entryPrice: pos.avgEntryPrice,
+        exitPrice:  fillPrice,
+        qty:        pos.qty,
+        pnlUsd:     round2(pnlUsd),
+        pnlPct:     round2(pnlPct),
+        riskR,
+        durMin:     heldMin,
+        exitReason,
+        regime:     em3.regime     || marketRegime,
+        setup:      pos.entrySetup || setup,
+        behavior:   em3.behavior   || behaviorProfileName,
+        tradeState: em3.tradeState || symbolBehavior?.tradeState,
+        rsi:        em3.rsi,
+        vwapStr:    `${em3.vwapAbove ? '↑' : '↓'}${em3.vwap}`,
+        macd:       em3.macd,
+        volR:       em3.volR,
       })
       await recordSymbolProfileOutcome({
         source: 'paper', symbol: sym,
@@ -627,7 +762,8 @@ async function evaluateAndTrade(sym) {
       lastOrderMs = Date.now()
       s.position = null
       console.log(`  ✅  Closed @ $${fmt(fillPrice)}  ${fmtUsd(pnlUsd)} (${fmt(pnlPct)}%)  — trip ${completedTrips}/${TARGET_TRIPS}`)
-    } catch (err) { console.log(`  ❌  Sell failed: ${err.message}`) }
+    }
+    catch (err) { console.log(`  ❌  Sell failed: ${err.message}`) }
   } else if (!pos) {
     s.lastSkipReason = `${setup || '?'} ${behaviorProfileName} score:${scores?.entry ?? '?'} — ${(reasons?.[0] || '').slice(0, 45)}`
   }
@@ -655,8 +791,42 @@ async function reconcilePositions() {
       const stopOrder = await placeStopOrder(sym, qty, brokerStop)
       s.position.stopOrderId = stopOrder.id
       console.log(`  🛡️  Stop @ $${fmt(brokerStop)} for adopted position`)
-    } catch (err) { console.log(`  ⚠️  Stop failed: ${err.message}`) }
+    }
+    catch (err) { console.log(`  ⚠️  Stop failed: ${err.message}`) }
   }
+}
+
+// ── Session report ────────────────────────────────────────────────────────────
+function saveSessionReport(startEquity) {
+  const normalized = allTrades.map(normalizeLiveTrade)
+  const report = buildReport(normalized, {
+    mode:           BOT_MODE,
+    runDate:        new Date().toISOString(),
+    configName:     fileConfig._name || '',
+    broker:         BROKER,
+    timeframe:      TIMEFRAME,
+    riskProfile:    RISK_PROFILE,
+    startEquity,
+    symbolsCount:   SYMBOLS.length,
+    allowedProfiles: [...ALLOWED_PROFILES],
+    allowedSetups:   [...ALLOWED_SETUPS],
+    strategyParams:  STRATEGY_PARAMS,
+    rollingWindowTrades: ROLLING_WINDOW_TRADES,
+  })
+  if (!report) { console.log('\nNo trades recorded — skipping session report.'); return }
+
+  const passed = allTargetsPassed(normalized, startEquity)
+  const now        = new Date()
+  const pad2       = n => String(n).padStart(2, '0')
+  const datePart   = `${now.getUTCFullYear()}${pad2(now.getUTCMonth() + 1)}${pad2(now.getUTCDate())}`
+  const timePart   = `${pad2(now.getUTCHours())}${pad2(now.getUTCMinutes())}`
+  const filename   = `${BOT_MODE}-${datePart}-${timePart}--${allTrades.length}trades-${passed ? 'ok' : 'fail'}.md`
+
+  const reportsDir = join(__dirname, '..', 'docs', 'reports')
+  mkdirSync(reportsDir, { recursive: true })
+  const outPath = join(reportsDir, filename)
+  writeFileSync(outPath, report, 'utf8')
+  console.log(`\n📄  Session report → ${outPath}`)
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────
@@ -709,7 +879,8 @@ async function main() {
       else symState.get(sym).warmupCandles = bars
       console.log(`   ${sym.padEnd(6)} ${bars.length} warmup bars`)
       await sleep(200)
-    } catch (err) { console.error(`   ${sym} warmup failed: ${err.message}`) }
+    }
+    catch (err) { console.error(`   ${sym} warmup failed: ${err.message}`) }
   }
 
   console.log('⏳  Fetching intraday bars…')
@@ -720,14 +891,18 @@ async function main() {
       else { symState.get(sym).candles = bars; symState.get(sym).lastBarTime = bars.at(-1)?.t ?? null }
       console.log(`   ${sym.padEnd(6)} ${bars.length} bars`)
       await sleep(200)
-    } catch (err) { console.error(`   ${sym} fetch failed: ${err.message}`) }
+    }
+    catch (err) { console.error(`   ${sym} fetch failed: ${err.message}`) }
   }
 
+  let startEquity = 100_000
   try {
     const acct = await getAccount()
     accountEquity = parseFloat(acct.equity)
+    startEquity   = accountEquity
     console.log(`\n💰  Account equity: $${fmt(accountEquity)}`)
-  } catch (err) { console.error(`Account fetch failed: ${err.message}`) }
+  }
+  catch (err) { console.error(`Account fetch failed: ${err.message}`) }
 
   await reconcilePositions()
   printDashboard()
@@ -741,10 +916,12 @@ async function main() {
         if (sym === SPY) spyCandles = bars
         else symState.get(sym).candles = bars
         await sleep(100)
-      } catch (err) { console.error(`Bar refresh failed ${sym}: ${err.message}`) }
+      }
+      catch (err) { console.error(`Bar refresh failed ${sym}: ${err.message}`) }
     }
 
-    try { const acct = await getAccount(); accountEquity = parseFloat(acct.equity) } catch {}
+    try { const acct = await getAccount(); accountEquity = parseFloat(acct.equity) }
+    catch {}
 
     for (const sym of SYMBOLS) {
       const s = symState.get(sym)
@@ -753,7 +930,8 @@ async function main() {
         s.lastBarTime = newBarTime
         try {
           await evaluateAndTrade(sym)
-        } catch (err) {
+        }
+        catch (err) {
           console.error(`  ⚠️  evaluateAndTrade(${sym}) threw: ${err.message}`)
         }
       }
@@ -766,6 +944,7 @@ async function main() {
     console.log(`\n⏱  Run deadline reached (${Math.round(RUN_DEADLINE_MS / 60_000)} min).`)
   }
   printSummary()
+  saveSessionReport(startEquity)
 }
 
 process.stdout.on('error', err => { if (err.code === 'EPIPE') process.exit(0) })
