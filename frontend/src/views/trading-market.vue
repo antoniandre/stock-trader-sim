@@ -160,14 +160,10 @@
       w-icon(color="info" size="3rem") wi-info-circle
       p.op6.mt3.mb0 No ranked candidates yet. Try refreshing once market data settles.
 
-  .glass-box.px4.py2.watchlist
-    .w-flex.align-center.justify-between.gap2.wrap
-      .grow
-        .title3.size--sm.op5 WATCHLIST
-        p.caption.op6.mb0(v-if="alpacaWatchlist.name") {{ alpacaWatchlist.name }}
-        p.caption.op6.mb0(v-else) From your Alpaca account
-        p.caption.op5.mb0(v-if="alpacaWatchlist.tradingEnvironment && !alpacaWatchlist.stocks.length && !alpacaWatchlist.loading") Watchlists follow this API environment ({{ alpacaWatchlist.tradingEnvironment }}). Paper and live accounts have separate lists.
-      .w-flex.align-center.gap2.no-grow
+  .glass-box.pt2.pb3.watchlist
+    .w-flex.align-center.gap2.wrap.px4
+      .title3.size--sm.op5 WATCHLIST
+      .w-flex.align-center.gap2.no-grow.mla
         w-select.no-grow(
           v-if="alpacaWatchlist.watchlists.length > 1"
           v-model="alpacaWatchlist.selectedWatchlistId"
@@ -179,17 +175,18 @@
           @click="loadAlpacaWatchlist"
           :loading="alpacaWatchlist.loading"
           text xs round) Refresh
-    .w-flex.column.py6.align-center.justify-center(v-if="alpacaWatchlist.loading && !alpacaWatchlist.stocks.length")
+    .w-flex.column.py4.px4.align-center.justify-center(v-if="alpacaWatchlist.loading && !alpacaWatchlist.stocks.length")
       w-progress(circle xs)
-      p.op5.mt2.mb0 Loading watchlist…
-    .w-flex.column.py6.align-center.justify-center(v-else-if="alpacaWatchlist.unavailable")
-      p.op6.mb0.text-center {{ alpacaWatchlist.message }}
-    .w-flex.column.py6.align-center.justify-center(v-else-if="alpacaWatchlist.error")
-      p.error.mb0.text-center {{ alpacaWatchlist.error }}
-    .w-flex.column.py6.align-center.justify-center(v-else-if="!alpacaWatchlist.stocks.length")
-      p.op6.mb0.text-center {{ alpacaWatchlist.message || 'No symbols in this watchlist for this desk.' }}
-      p.size--xs.op5.mb0.mt2.text-center(v-if="alpacaWatchlist.alpacaError") {{ alpacaWatchlist.alpacaError }}
-    w-grid.gap4(v-else :columns="{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }")
+      p.op5.mt2 Loading watchlist…
+    .w-flex.column.py4.px4.align-center.justify-center(v-else-if="alpacaWatchlist.error")
+      p.error.text-center {{ alpacaWatchlist.error }}
+    .w-flex.column.py4.px4.align-center.justify-center(v-else-if="alpacaWatchlist.unavailable")
+      p.op6.text-center {{ alpacaWatchlist.message }}
+    .w-flex.column.pt2.pb1.px4.align-center.justify-center(v-else-if="!alpacaWatchlist.stocks.length")
+      p.op6.text-center.size--md {{ alpacaWatchlist.message || 'No symbols in this watchlist for this desk.' }}
+      p.size--xs.op5.mt2.text-center(v-if="alpacaWatchlist.alpacaError") {{ alpacaWatchlist.alpacaError }}
+
+    .w-flex.gap4.ova.px4.mt3(v-else)
       ticker-card(
         v-for="stock in alpacaWatchlist.stocks"
         :key="stock.symbol"
