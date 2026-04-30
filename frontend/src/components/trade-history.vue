@@ -291,20 +291,12 @@ const headers = [
 .date-time {width: 4.3rem;}
 
 .trade-history-table :deep(.w-table__scroll-wrap) {
-  height: 10rem;
+  height: 30rem;
+  min-height: auto;
+  flex-grow: 1;
 }
-
-.crypto-asset-tag {
-  flex-shrink: 0;
-  letter-spacing: 0.04em;
-  font-weight: 600;
-  opacity: 0.95;
-}
-
 :deep(.w-table__table) {min-height: auto;}
 :deep(.w-table__table:has(.no-data)) {min-height: 100%;}
-
-:deep(.w-table__scroll-wrap) {min-height: auto;flex-grow: 1;}
 :deep(.w-table--fixed-header thead) {
   background: color-mix(in srgb, var(--w-glass-radial-gradient) 10%, var(--w-base-bg-color) 100%) radial-gradient(20rem circle at 90% 10%, var(--w-glass-radial-gradient), #00ccff12);
   z-index: 2;
@@ -319,4 +311,11 @@ const headers = [
 }
 :deep(.w-table tbody) {min-height: 300px;}
 :deep(.no-data .w-table__cell) {background: none;}
+
+.crypto-asset-tag {
+  flex-shrink: 0;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  opacity: 0.95;
+}
 </style>
