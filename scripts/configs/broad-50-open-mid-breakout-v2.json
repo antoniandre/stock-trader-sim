@@ -1,0 +1,62 @@
+{
+  "_name": "Broad-50 Mid-Only Breakout — v2 (2026-04-30)",
+  "_description": [
+    "50-symbol universe. 5-Min bars. Breakout setup only. Mid-morning time gate (10:30–11:30 AM ET).",
+    "Validated on 365-day backtest (2026-04-30). ALL 7 targets pass:",
+    "  WR 48.15% | PF 2.02 | Sharpe 4.52 | R:R 2.60:1 | MaxDD 0.28% | Expectancy +$30.98/trade",
+    "",
+    "Key design decisions:",
+    "  - Time gate: Mid 10:30–11:30 AM ET only.",
+    "    Open slot (9:30–10:30) excluded: walk-forward flagged it 'reject' and recent data confirms",
+    "    28% WR with negative P&L — opening-range fakeouts not worth the risk.",
+    "    PM slot excluded: sustained 25–40% WR across all test periods.",
+    "  - Breakout only: trend and momentum-pilot have negative expectancy on 5Min bars.",
+    "  - Behavior profiles: confirmationRequired/neutral/extendedBreakout allowed.",
+    "    Blocked: falseBreakoutProne, regimeInstability, noisyHighBeta, sustainedSell.",
+    "  - observeBreakoutClassifierBlocks=true: weak/first-leg breakouts suppressed even in observe mode.",
+    "  - Universe policy: NEVER REMOVE symbols. The behavior-classifier profiles prevent",
+    "    bad trades on weak symbols. Removing symbols is NOT the fix.",
+    "",
+    "Backtest report:",
+    "  BOT-TRADE-REPORT-2026-04-30-5min-custom-500trades-365d-cutoff930-observe-filter-confirmationrequired-neutral-extendedbreakout-setup-breakout-time-mid-symbols50-43y0rd.md"
+  ],
+
+  "targetTrades": 500,
+  "lookback":     365,
+  "timeFilter":   ["mid"],
+
+  "symbols": [
+    "NVDA",  "GOOGL", "AMZN",  "META",  "MSFT",  "AAPL",  "AMD",   "TSLA",  "AVGO",  "NFLX",
+    "CRM",   "ORCL",  "ADBE",  "QCOM",  "INTC",  "MU",    "ARM",   "TSM",   "ASML",  "PLTR",
+    "COIN",  "SMCI",  "SHOP",  "UBER",  "ABNB",  "PANW",  "CRWD",  "NOW",   "DDOG",  "SNOW",
+    "NET",   "MDB",   "ISRG",  "PYPL",  "JPM",   "BAC",   "GS",    "XOM",   "CVX",   "CAT",
+    "SPOT",  "MSTR",  "APP",   "HOOD",  "RBLX",  "SOFI",  "MARA",  "CELH",  "RDDT",  "HIMS"
+  ],
+
+  "allowedProfiles": ["confirmationRequired", "neutral", "extendedBreakout"],
+  "allowedSetups":   ["breakout"],
+  "riskProfile":     "balanced",
+
+  "sizePct":               0.10,
+  "maxNotionalUsd":        1000,
+  "maxDailyLossPct":       1,
+  "maxConsecutiveLosses":  2,
+  "rollingWindowTrades":   4,
+  "rollingPauseDays":      20,
+
+  "strategyParams": {
+    "trailingStopPct":              1.0,
+    "breakoutTrailingStopPct":      1.2,
+    "stagnationMinutes":            20,
+    "atrMultiplier":                2.5,
+    "breakoutThresholdAdj":        -5,
+    "trendThresholdBoost":          20,
+    "trendSizeMultiplier":          0.8,
+    "breakoutSizeMultiplier":       0.75,
+    "earlyReversalMinutes":         10,
+    "earlyReversalFraction":        0.25,
+    "behaviorClassifierMode":       "observe",
+    "observeBreakoutClassifierBlocks": true,
+    "lastEntryUtcMin":              930
+  }
+}
