@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "updatedAt": "2026-04-29T13:48:47.478Z",
+  "symbols": {
+    "ON": {
+      "symbol": "ON",
+      "totals": {
+        "weightedTrades": 1,
+        "weightedWins": 0,
+        "weightedLosses": 1,
+        "weightedNetPnl": -6.6,
+        "weightedGrossProfit": 0,
+        "weightedGrossLoss": 6.6,
+        "rawTrades": 1,
+        "rawWins": 0,
+        "rawLosses": 1,
+        "lastUpdatedAt": "2026-04-29T13:48:47.478Z",
+        "sources": {
+          "paper": 1
+        }
+      },
+      "setups": {
+        "breakout": {
+          "weightedTrades": 1,
+          "weightedWins": 0,
+          "weightedLosses": 1,
+          "weightedNetPnl": -6.6,
+          "weightedGrossProfit": 0,
+          "weightedGrossLoss": 6.6,
+          "rawTrades": 1,
+          "rawWins": 0,
+          "rawLosses": 1,
+          "lastUpdatedAt": "2026-04-29T13:48:47.478Z",
+          "sources": {
+            "paper": 1
+          }
+        }
+      }
+    }
+  }
+}
